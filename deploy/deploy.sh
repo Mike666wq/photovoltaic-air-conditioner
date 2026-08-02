@@ -79,18 +79,29 @@ compose() {
 
 wait_healthy() {
   local i status
-  for i in {1..90}; do
-    status="$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' pv-ac-sim-web 2>/dev/null || true)"
-    if [[ "$status" == "healthy" ]]; then
-      docker exec pv-ac-sim-web wget -q -O- http://localhost:8080/health >/dev/null
-      docker exec pv-ac-sim-web wget -q -O- http://localhost:8080/ >/dev/null
+
+  # 最长等待 5 分钟；服务一旦能实际响应 /health 即通过。
+  for i in {1..300}; do
+    status="$(docker inspect --format='{{.State.Status}}' pv-ac-sim-web 2>/dev/null || true)"
+
+    if [[ "$status" == "exited" || "$status" == "dead" ]]; then
+      return 1
+    fi
+
+    if docker exec pv-ac-sim-web \
+      wget -q -O- http://127.0.0.1:8080/health >/dev/null 2>&1; then
+      docker exec pv-ac-sim-web \
+        wget -q -O- http://127.0.0.1:8080/ >/dev/null
+
       docker exec pv-ac-sim-web node -e \
         'const fs=require("node:fs");const p=`/app/scenarios/.health-${process.pid}`;fs.writeFileSync(p,"ok");fs.unlinkSync(p)'
+
       return 0
     fi
-    [[ "$status" != "unhealthy" && "$status" != "exited" && "$status" != "dead" ]] || return 1
+
     sleep 1
   done
+
   return 1
 }
 

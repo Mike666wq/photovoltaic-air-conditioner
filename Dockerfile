@@ -37,7 +37,7 @@ ENV PORT=8080
 EXPOSE 8080
 
 # 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=2m --retries=3 \
   CMD wget -q -O- http://localhost:8080/health || exit 1
 
 # 启动 Node 服务器

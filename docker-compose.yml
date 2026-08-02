@@ -22,6 +22,7 @@ services:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/health"]
       interval: 30s
       timeout: 3s
+      start_period: 2m
       retries: 3
     logging:
       driver: json-file
@@ -46,6 +47,7 @@ services:
   #     test: ["CMD", "wget", "-q", "-O-", "http://localhost:3000/health"]
   #     interval: 30s
   #     timeout: 3s
+  #     start_period: 2m
   #     retries: 3
 
   # ==================== P2 阶段启用（Caddy 反代） ====================
