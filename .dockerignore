@@ -4,7 +4,9 @@ node_modules
 .DS_Store
 *.md
 !apps/web/README.md
-data/
+/data/
+!apps/web/src/data/
+!apps/web/src/data/**
 scenarios/
 apps/web/dist
 apps/web/tsconfig.tsbuildinfo

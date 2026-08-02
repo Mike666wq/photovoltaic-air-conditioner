@@ -23,7 +23,7 @@ apps/web/apps/
 .env
 .env.*
 !.env.example
-data/
+/data/
 scenarios/
 **/scenarios/
 
