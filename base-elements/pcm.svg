@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="pcm">
+  <defs>
+    <linearGradient id="pcmHot" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#DBEAFE"/><stop offset="100%" stop-color="#93C5FD"/>
+    </linearGradient>
+    <linearGradient id="pcmLcd" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="pcmCopper" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </linearGradient>
+    <radialGradient id="pcmLedY" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FEF08A"/><stop offset="50%" stop-color="#EAB308"/><stop offset="100%" stop-color="#713F12"/>
+    </radialGradient>
+    <radialGradient id="pcmBubble" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="50%" stop-color="#DBEAFE" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#93C5FD" stop-opacity="0.3"/>
+    </radialGradient>
+    <filter id="ds10"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl10"><feGaussianBlur stdDeviation="1.5"/></filter>
+<linearGradient id="tempGradient" x1="50" y1="0" x2="190" y2="0" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#3B82F6"/>
+  <stop offset="0.5" stop-color="#22C55E"/>
+  <stop offset="1" stop-color="#FCD34D"/>
+</linearGradient>
+  </defs>
+
+  <style>
+    /* ==================== v0.4 PCM 相变蓄能契约 ====================
+       根 g：  data-animation-id="pcm_anim_melt"
+                注入器写：
+                  --pcm-melt          (0~1 总融化比例)
+                  --pcm-piece-color   (rgb 6 段色带：紫蓝→紫→紫红→橙→黄→浅黄白)
+                  --pcm-bubble-vis    (气泡可见度，melt 达到 0.5 起涨到 1)
+                外部写 data-anim-phase-state（solid/melting/liquid/freezing）驱动相态视觉
+       stage： data-animation-id="pcm_anim_transition"（注入 --pcm-transition 时长）
+       6 个 hex 阶梯（v0.4 + v20 修复）：
+         共享规则 .pcm-hex 用 --m: clamp((var(--pcm-melt) - var(--lo)) * 6, 0, 1)
+         每个 .pcm-hex-N 单独声明 --lo: i/6 (0, 0.167, 0.333, 0.5, 0.667, 0.833)
+         m=0: scale=1, opacity=1 完整可见
+         m=0.5: scale=0.5, opacity=0.15 残影
+         m=1: scale=0.5, opacity=0.15 残影（不继续缩）
+         v20 关键：clamp 写到最外层（避免 Chrome calc 嵌套 clamp 被忽略）
+       液面（v0.4 原版）：
+         scaleY(clamp(0, var(--pcm-melt, 0), 1))
+         melt 0 线性映射到 0 涨到 1（无阈值，v0.4 原版）
+         v20 关键：clamp 在最外层防止 melt 越界
+       气泡：opacity = var(--pcm-bubble-vis) = clamp((melt - 0.5) / 0.5, 0, 1)
+       transition：六边形 / 液面 / 气泡全部用 transition 不吃 keyframe 暂停
+       ============================================================== */
+
+    /* ---- 6 个六边形：共享样式（v0.4 色带 + v20 clamp 修复：clamp 在最外层，避免 Chrome calc 嵌套 clamp 被忽略的 bug） ---- */
+    .pcm-hex {
+      fill: var(--pcm-piece-color, #1E1B4B);
+      stroke: rgba(15, 23, 42, 0.55);
+      stroke-width: 0.8;
+      stroke-linejoin: round;
+      transform-origin: center;
+      transform-box: fill-box;
+      --m: clamp((var(--pcm-melt, 0) - var(--lo, 0)) * 4, 0, 1);
+      /* v20 关键：clamp 写到最外层，避免 Chrome 把内层 clamp 当成无边界值 */
+      transform: scale(clamp(0.5, calc(1 - var(--m) * 0.5), 1));
+      opacity:   clamp(0.15, calc(1 - var(--m) * 0.85), 1);
+      transition:
+        transform var(--pcm-transition, 3s) cubic-bezier(0.4, 0, 0.2, 1),
+        opacity var(--pcm-transition, 3s) ease,
+        fill 0.8s ease;
+    }
+    .pcm-hex-1 { --lo: 0.000; }
+    .pcm-hex-2 { --lo: 0.100; }
+    .pcm-hex-3 { --lo: 0.200; }
+    .pcm-hex-4 { --lo: 0.300; }
+    .pcm-hex-5 { --lo: 0.400; }
+    .pcm-hex-6 { --lo: 0.500; }
+
+    /* ---- 液面：v21 延后到 melt > 0.5 才出现（避免覆盖 hex） ---- */
+    .pcm-liquid-level {
+      fill: url(#pcmHot);
+      transform: scaleY(clamp(0, calc((var(--pcm-melt, 0) - 0.5) * 2), 1));
+      transform-origin: bottom;
+      transform-box: fill-box;
+      transition: transform var(--pcm-transition, 3s) cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ---- 上升气泡：JS 注入器在 melt≥0.15 开始显现，melt≥0.5 完全显示 ---- */
+    .pcm-bubble {
+      opacity: var(--pcm-bubble-vis, 0);
+      transform-origin: center;
+      transform-box: fill-box;
+      animation: pcm-bubble-rise 4s ease-in-out infinite;
+    }
+    .pcm-bubble-1 { animation-delay: 0s; }
+    .pcm-bubble-2 { animation-delay: 0.8s; }
+    .pcm-bubble-3 { animation-delay: 1.6s; }
+    .pcm-bubble-4 { animation-delay: 2.4s; }
+    .pcm-bubble-5 { animation-delay: 1.2s; }
+    @keyframes pcm-bubble-rise {
+      0%   { transform: translateY(0) translateX(0) scale(0.4); opacity: 0; }
+      15%  { opacity: var(--pcm-bubble-vis, 0); }
+      50%  { transform: translateY(-28px) translateX(3px) scale(1.0); opacity: var(--pcm-bubble-vis, 0); }
+      85%  { opacity: var(--pcm-bubble-vis, 0); }
+      100% { transform: translateY(-58px) translateX(-2px) scale(1.2); opacity: 0; }
+    }
+
+    /* ---- 相态视觉（消费根 g 的 data-anim-phase-state） ---- */
+    .pcm-phase-chip { transition: fill 0.8s ease; }
+    [data-anim-phase-state="solid"]    .pcm-phase-chip { fill: #38BDF8; }
+    [data-anim-phase-state="melting"]  .pcm-phase-chip { fill: #F97316; }
+    [data-anim-phase-state="liquid"]   .pcm-phase-chip { fill: #FBBF24; }
+    [data-anim-phase-state="freezing"] .pcm-phase-chip { fill: #3B82F6; }
+    .pcm-shell { transition: stroke 0.8s ease; }
+    [data-anim-phase-state="solid"]    .pcm-shell { stroke: #38BDF8; }
+    [data-anim-phase-state="melting"]  .pcm-shell { stroke: #F97316; }
+    [data-anim-phase-state="liquid"]   .pcm-shell { stroke: #FBBF24; }
+    [data-anim-phase-state="freezing"] .pcm-shell { stroke: #3B82F6; }
+
+    /* CHG LED 呼吸 */
+    .anim-pcm-led { animation: pcm-led-blink 1.5s ease-in-out infinite; }
+    @keyframes pcm-led-blink {
+      0%, 100% { opacity: 0.6; }
+      50%      { opacity: 1; }
+    }
+    /* 管路流动 */
+    .anim-pcm-pipe { stroke-dasharray: 6 4; animation: pcm-pipe-flow 1.5s linear infinite; }
+    @keyframes pcm-pipe-flow { to { stroke-dashoffset: -20; } }
+
+    /* 动画开关：只停 keyframe 动画（气泡 / LED / 管路）。
+       六边形与液面走 transition，不受此开关影响（故意保留融化过程可见） */
+    .app[data-anim-on="false"] .pcm-bubble,
+    .app[data-anim-on="false"] .anim-pcm-led,
+    .app[data-anim-on="false"] .anim-pcm-pipe {
+      animation-play-state: paused !important;
+    }
+
+    /* PCM 融化进度条（宽度由 buildInjectData.geometry.pcm_melt_bar 注入，0~140px）
+       位置：y=215 容器外（容器 y=75~205），高度 8px，加背景条 + 渐变前景 */
+    .anim-pcm-bar { transition: width 0.5s ease-in-out; }
+  </style>
+
+  <ellipse cx="120" cy="216" rx="80" ry="9" fill="rgba(0,0,0,0.35)"/>
+
+  <!-- 根 g：注入器写 pcm-melt、pcm-piece-color、pcm-bubble-vis 变量 + data-anim-phase-state 相态 -->
+  <g filter="url(#ds10)" data-component-id="pcm" data-clickable="true" data-animation-id="pcm_anim_melt" data-anim-phase-state="solid" style="--pcm-transition: 3s;">
+    <!-- 标题栏 -->
+    <rect x="40" y="14" width="160" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="28" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">PCM 相变蓄能 · 融化/凝固</text>
+    <!-- 相态色块（标题栏右端，fill 由 data-anim-phase-state 四态切换） -->
+    <rect class="pcm-phase-chip" x="184" y="18" width="12" height="12" rx="2" fill="#38BDF8"/>
+
+    <!-- LCD -->
+    <rect x="50" y="42" width="140" height="28" rx="3" fill="url(#pcmLcd)" stroke="#1E3A8A" stroke-width="1"/>
+    <text x="54" y="50" font-size="6" fill="#93C5FD" font-family="monospace">PCM TEMP · <tspan data-field="pcm_temp_select">{pcm_temp_select}</tspan></text>
+    <text data-field="pcm_status_text" x="186" y="50" text-anchor="end" font-size="7" fill="#22C55E" font-family="monospace">{pcm_status_text}</text>
+    <text data-field="pcm_temp" x="110" y="64" text-anchor="middle" font-size="14" font-weight="bold" fill="#FCD34D" font-family="monospace">{pcm_temp}</text>
+    <text x="148" y="64" font-size="7" fill="#93C5FD" font-family="monospace">融化 <tspan data-field="pcm_melt_text">{pcm_melt_text}</tspan></text>
+
+    <!-- 容器边框（stroke 由 data-anim-phase-state 四态切换） -->
+    <rect class="pcm-shell" x="48" y="75" width="144" height="130" rx="4" fill="#F8FAFC" stroke="#374151" stroke-width="1.5"/>
+
+    <!-- ========= 过渡层：液面 + 六边形 + 气泡（注入 pcm-transition 时长） ========= -->
+    <g class="pcm-stage" data-animation-id="pcm_anim_transition">
+      <!-- 液面（先绘制，位于六边形下层） -->
+      <rect class="pcm-liquid-level" x="50" y="77" width="140" height="126" rx="3"/>
+
+      <!-- 6 个六边形（点顶，2×3 网格，按 i/6 窗口阶梯式完全消失，不是残影缩小） -->
+      <g class="pcm-hex-group">
+        <!-- Row 1 (y=100, r=22) -->
+        <polygon class="pcm-hex pcm-hex-1"
+                 points="78,78 97.1,89 97.1,111 78,122 58.9,111 58.9,89"/>
+        <polygon class="pcm-hex pcm-hex-2"
+                 points="120,78 139.1,89 139.1,111 120,122 100.9,111 100.9,89"/>
+        <polygon class="pcm-hex pcm-hex-3"
+                 points="162,78 181.1,89 181.1,111 162,122 142.9,111 142.9,89"/>
+        <!-- Row 2 (y=155, r=22) -->
+        <polygon class="pcm-hex pcm-hex-4"
+                 points="78,133 97.1,144 97.1,166 78,177 58.9,166 58.9,144"/>
+        <polygon class="pcm-hex pcm-hex-5"
+                 points="120,133 139.1,144 139.1,166 120,177 100.9,166 100.9,144"/>
+        <polygon class="pcm-hex pcm-hex-6"
+                 points="162,133 181.1,144 181.1,166 162,177 142.9,166 142.9,144"/>
+      </g>
+
+      <!-- 上升气泡（melt≥0.15 开始出现，melt≥0.5 完全显示） -->
+      <g class="pcm-bubbles">
+        <circle class="pcm-bubble pcm-bubble-1" cx="75"  cy="195" r="3"   fill="url(#pcmBubble)"/>
+        <circle class="pcm-bubble pcm-bubble-2" cx="105" cy="198" r="4"   fill="url(#pcmBubble)"/>
+        <circle class="pcm-bubble pcm-bubble-3" cx="135" cy="195" r="3.5" fill="url(#pcmBubble)"/>
+        <circle class="pcm-bubble pcm-bubble-4" cx="160" cy="198" r="2.5" fill="url(#pcmBubble)"/>
+        <circle class="pcm-bubble pcm-bubble-5" cx="120" cy="200" r="3"   fill="url(#pcmBubble)"/>
+      </g>
+    </g>
+
+    <!-- 温度计 -->
+    <g transform="translate(28, 90)">
+      <rect x="0" y="0" width="6" height="60" fill="#1F2937" stroke="#374151" stroke-width="0.5"/>
+      <rect x="0" y="55" width="6" height="5" fill="url(#pcmHot)"/>
+      <text x="9" y="4" font-size="5" fill="#93C5FD" font-family="monospace">50</text>
+      <text x="9" y="32" font-size="5" fill="#22C55E" font-family="monospace">25</text>
+      <text x="9" y="60" font-size="5" fill="#EF4444" font-family="monospace">0</text>
+    </g>
+
+    <!-- 进出液管 -->
+    <path class="anim-pcm-pipe" d="M 40 200 L 200 200" stroke="url(#pcmCopper)" stroke-width="5" fill="none" opacity="0.8"/>
+    <circle cx="40" cy="200" r="4" fill="#EF4444" stroke="#1F2937" stroke-width="1"/>
+    <circle cx="200" cy="200" r="4" fill="#EF4444" stroke="#1F2937" stroke-width="1"/>
+    <text x="40" y="216" text-anchor="middle" font-size="6" fill="#1F2937" font-family="monospace">IN</text>
+    <text x="200" y="216" text-anchor="middle" font-size="6" fill="#1F2937" font-family="monospace">OUT</text>
+
+    <!-- 进度条背景（深色轨道）+ 前景（温度渐变） -->
+    <rect x="50" y="215" width="140" height="8" rx="4" fill="#1F2937"/>
+    <rect data-field="pcm_melt_bar" x="50" y="215" width="0" height="8" rx="4" fill="url(#tempGradient)" class="anim-pcm-bar"/>
+
+    <!-- CHG LED -->
+    <circle class="anim-pcm-led" data-field="pcm_status_glow" cx="200" cy="50" r="6" fill="#FCD34D" opacity="0.5" filter="url(#gl10)"/>
+    <circle data-field="pcm_status_led" cx="200" cy="50" r="3" fill="url(#pcmLedY)"/>
+    <text x="200" y="68" text-anchor="middle" font-size="5" fill="#EAB308" font-family="monospace">CHG</text>
+
+    <circle cx="44" cy="22" r="1.5" fill="#1F2937"/>
+    <circle cx="196" cy="22" r="1.5" fill="#1F2937"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">相变材料 · <tspan data-field="pcm_capacity">{pcm_capacity}</tspan></text>
+</svg>

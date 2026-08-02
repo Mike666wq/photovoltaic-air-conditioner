@@ -1,0 +1,147 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="inverter">
+  <defs>
+    <linearGradient id="ivC" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E5E7EB"/><stop offset="50%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#374151"/>
+    </linearGradient>
+    <linearGradient id="ivS" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#1F2937"/>
+    </linearGradient>
+    <linearGradient id="ivLcdBlue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E40AF"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="ivLcdGreen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#166534"/><stop offset="100%" stop-color="#14532D"/>
+    </linearGradient>
+    <linearGradient id="ivTerminal" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#374151"/>
+    </linearGradient>
+    <linearGradient id="ivWave" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.3"/><stop offset="100%" stop-color="#22C55E"/>
+    </linearGradient>
+    <radialGradient id="ledGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.5"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ledG2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="ivFan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E5E7EB"/><stop offset="60%" stop-color="#6B7280"/><stop offset="100%" stop-color="#1F2937"/>
+    </radialGradient>
+    <filter id="ds2"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl2"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+
+  <style>
+    .anim-iv-wave path {
+      stroke-dasharray: 6 3;
+      animation: iv-wave-flow 0.8s linear infinite;
+    }
+    @keyframes iv-wave-flow { to { stroke-dashoffset: -9; } }
+    .anim-iv-heat { opacity: 0; animation: iv-heat-rise 1.5s ease-out infinite; }
+    @keyframes iv-heat-rise {
+      0%   { transform: translateY(0); opacity: 0; }
+      30%  { opacity: 0.4; }
+      100% { transform: translateY(-12px); opacity: 0; }
+    }
+    .anim-iv-arrow { animation: arrow-pulse 1s ease-in-out infinite; }
+    @keyframes arrow-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+    .anim-iv-arrow-dcac, .anim-iv-arrow-idle { display: none; }
+    [data-anim-iv-mode="ac-to-dc"] .anim-iv-arrow-dcac { display: none; }
+    [data-anim-iv-mode="ac-to-dc"] .anim-iv-arrow-acdc { display: inline; }
+    [data-anim-iv-mode="idle"] .anim-iv-arrow-idle { display: inline; }
+    .anim-iv-top-fan { transform-origin: 200px 60px; transform-box: view-box; }
+    [data-anim-state="on"] .anim-iv-top-fan { animation: iv-top-fan-spin 1s linear infinite; }
+    @keyframes iv-top-fan-spin { to { transform: rotate(360deg); } }
+    .anim-iv-led { animation: iv-led-blink 1.5s ease-in-out infinite; }
+    @keyframes iv-led-blink { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    .anim-iv-power-bar { transition: width 0.4s ease-in-out; }
+  </style>
+
+  <ellipse cx="120" cy="216" rx="90" ry="9" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds2)" data-component-id="inverter" data-clickable="true" data-anim-iv-mode="dc-to-ac">
+    <rect x="40" y="30" width="160" height="180" rx="6" fill="url(#ivC)" stroke="#1F2937" stroke-width="1.5"/>
+    <rect x="40" y="30" width="160" height="6" fill="#1F2937"/>
+    <rect x="40" y="204" width="160" height="6" fill="#1F2937"/>
+
+    <rect x="60" y="44" width="120" height="14" rx="1" fill="#0F172A"/>
+    <text x="120" y="55" text-anchor="middle" font-size="9" font-weight="bold" fill="#FCD34D" font-family="monospace">INVERTER 双向逆变器</text>
+
+    <ellipse cx="200" cy="60" rx="14" ry="10" fill="#0F172A" stroke="#374151" stroke-width="0.8"/>
+    <g class="anim-iv-top-fan">
+      <g transform="translate(200,60)">
+        <g fill="url(#ivFan)" stroke="#1F2937" stroke-width="0.3">
+          <path d="M 0 0 Q 5 -5 0 -9 Q -5 -5 0 0 Z"/>
+          <path d="M 0 0 Q 5 -5 0 -9 Q -5 -5 0 0 Z" transform="rotate(72)"/>
+          <path d="M 0 0 Q 5 -5 0 -9 Q -5 -5 0 0 Z" transform="rotate(144)"/>
+          <path d="M 0 0 Q 5 -5 0 -9 Q -5 -5 0 0 Z" transform="rotate(216)"/>
+          <path d="M 0 0 Q 5 -5 0 -9 Q -5 -5 0 0 Z" transform="rotate(288)"/>
+        </g>
+        <circle r="2" fill="#374151"/>
+      </g>
+    </g>
+
+    <rect x="50" y="64" width="100" height="40" rx="3" fill="url(#ivLcdBlue)" stroke="#1E3A8A" stroke-width="1.5"/>
+    <text x="54" y="75" font-size="6" fill="#93C5FD" font-family="monospace">DC INPUT</text>
+    <g class="anim-iv-wave" transform="translate(54,92)">
+      <path d="M 0 4 Q 5 -4 10 4 T 20 4 T 30 4 T 40 4 T 50 4 T 60 4 T 70 4 T 80 4" fill="none" stroke="#22C55E" stroke-width="1.5"/>
+    </g>
+    <text data-field="iv_dc_voltage" x="146" y="86" text-anchor="end" font-size="9" font-weight="bold" fill="#FCD34D" font-family="monospace">48V</text>
+    <text data-field="iv_dc_current" x="146" y="100" text-anchor="end" font-size="7" fill="#93C5FD" font-family="monospace">8.5A</text>
+
+    <rect x="50" y="108" width="140" height="28" rx="3" fill="#0F172A" stroke="#374151" stroke-width="1"/>
+    <rect x="54" y="112" width="22" height="20" rx="2" fill="#0EA5E9"/>
+    <text x="65" y="126" text-anchor="middle" font-size="9" font-weight="bold" fill="white" font-family="monospace">DC</text>
+    <g class="anim-iv-arrow-flow">
+      <text class="anim-iv-arrow-dcac" x="98" y="127" text-anchor="middle" font-size="14" font-weight="bold" fill="#22C55E" font-family="sans-serif">▶▶▶</text>
+      <text class="anim-iv-arrow-acdc" x="98" y="127" text-anchor="middle" font-size="14" font-weight="bold" fill="#F59E0B" font-family="sans-serif">◀◀◀</text>
+      <text class="anim-iv-arrow-idle" x="98" y="127" text-anchor="middle" font-size="14" font-weight="bold" fill="#9CA3AF" font-family="monospace">— —</text>
+    </g>
+    <rect x="160" y="112" width="22" height="20" rx="2" fill="#F59E0B"/>
+    <text x="171" y="126" text-anchor="middle" font-size="9" font-weight="bold" fill="white" font-family="monospace">AC</text>
+
+    <rect x="50" y="140" width="100" height="40" rx="3" fill="url(#ivLcdGreen)" stroke="#166534" stroke-width="1.5"/>
+    <text x="54" y="151" font-size="6" fill="#86EFAC" font-family="monospace">AC OUTPUT</text>
+    <g class="anim-iv-wave" transform="translate(54,168)">
+      <path d="M 0 4 Q 5 -4 10 4 T 20 4 T 30 4 T 40 4 T 50 4 T 60 4 T 70 4 T 80 4" fill="none" stroke="#FCD34D" stroke-width="1.5"/>
+    </g>
+    <text data-field="iv_ac_voltage" x="146" y="162" text-anchor="end" font-size="9" font-weight="bold" fill="#FCD34D" font-family="monospace">220V</text>
+    <text data-field="iv_ac_freq" x="146" y="176" text-anchor="end" font-size="7" fill="#86EFAC" font-family="monospace">50Hz</text>
+
+    <circle class="anim-iv-led" data-field="iv_pv_led_glow" cx="14" cy="9" r="6" fill="url(#ledGlow)" filter="url(#gl2)"/>
+    <circle data-field="iv_pv_led" cx="14" cy="9" r="3" fill="url(#ledG2)"/>
+    <circle class="anim-iv-led" data-field="iv_bat_led_glow" cx="50" cy="9" r="6" fill="url(#ledGlow)" filter="url(#gl2)"/>
+    <circle data-field="iv_bat_led" cx="50" cy="9" r="3" fill="url(#ledG2)"/>
+    <circle class="anim-iv-led" data-field="iv_grid_led_glow" cx="92" cy="9" r="6" fill="url(#ledGlow)" filter="url(#gl2)"/>
+    <circle data-field="iv_grid_led" cx="92" cy="9" r="3" fill="url(#ledG2)"/>
+    <circle data-field="iv_load_led" cx="130" cy="9" r="3" fill="#EAB308"/>
+
+    <g>
+      <rect x="48" y="186" width="14" height="16" rx="1" fill="url(#ivTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="55" cy="194" r="2.5" fill="#0F172A"/>
+      <rect x="64" y="186" width="14" height="16" rx="1" fill="url(#ivTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="71" cy="194" r="2.5" fill="#0F172A"/>
+      <rect x="118" y="186" width="14" height="16" rx="1" fill="url(#ivTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="125" cy="194" r="2.5" fill="#0F172A"/>
+      <rect x="134" y="186" width="14" height="16" rx="1" fill="url(#ivTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="141" cy="194" r="2.5" fill="#0F172A"/>
+      <rect x="160" y="186" width="14" height="16" rx="1" fill="url(#ivTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="167" cy="194" r="2.5" fill="#0F172A"/>
+      <rect x="176" y="186" width="14" height="16" rx="1" fill="url(#ivTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="183" cy="194" r="2.5" fill="#0F172A"/>
+    </g>
+
+    <g fill="#4B5563" opacity="0.7">
+      <rect x="50" y="206" width="140" height="1.5"/>
+      <rect x="50" y="210" width="140" height="1.5"/>
+    </g>
+
+    <circle cx="46" cy="36" r="1.5" fill="#1F2937"/>
+    <circle cx="194" cy="36" r="1.5" fill="#1F2937"/>
+    <circle cx="46" cy="204" r="1.5" fill="#1F2937"/>
+    <circle cx="194" cy="204" r="1.5" fill="#1F2937"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">双向逆变器 · <tspan data-field="iv_capacity">{{iv_capacity}}</tspan></text>
+</svg>

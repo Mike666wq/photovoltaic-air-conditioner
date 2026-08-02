@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="tank">
+  <defs>
+
+    <linearGradient id="tkC" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#DBEAFE"/><stop offset="40%" stop-color="#3B82F6"/><stop offset="100%" stop-color="#1E3A8A"/>
+    </linearGradient>
+    <linearGradient id="tkTop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#DBEAFE"/><stop offset="100%" stop-color="#60A5FA"/>
+    </linearGradient>
+    <linearGradient id="tkIns" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="100%" stop-color="#9CA3AF"/>
+    </linearGradient>
+    <linearGradient id="tkCoil" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FCD34D"/><stop offset="100%" stop-color="#B45309"/>
+    </linearGradient>
+    <linearGradient id="lcd8" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="ledB" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BAE6FD"/><stop offset="50%" stop-color="#0EA5E9"/><stop offset="100%" stop-color="#0C4A6E"/>
+    </radialGradient>
+    <radialGradient id="ledO" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FED7AA"/><stop offset="50%" stop-color="#F97316"/><stop offset="100%" stop-color="#7C2D12"/>
+    </radialGradient>
+    <radialGradient id="ledR" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <radialGradient id="ledG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="ledGl" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.5"/><stop offset="100%" stop-color="#0EA5E9" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="waterBlue" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#93C5FD" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#1E40AF" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="waterRed" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FCA5A5" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#991B1B" stop-opacity="0.95"/>
+    </linearGradient>
+    <filter id="ds8"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl8"><feGaussianBlur stdDeviation="1.8"/></filter>
+    <clipPath id="tankInside">
+      <ellipse cx="120" cy="62" rx="42" ry="11"/>
+      <rect x="78" y="62" width="84" height="138"/>
+      <ellipse cx="120" cy="200" rx="42" ry="11"/>
+    </clipPath>
+  </defs>
+
+  <style>
+      /* ============== 水箱动画 ============== */
+      .anim-water-fill {
+        /* v0.3.2: SVG rect 的 y/height 是属性非 CSS 属性，CSS y: 不生效。
+           改用 transform: translateY(剩余空间) 实现水位变化（剩余 = (1-norm) × 120px）。
+           height 固定为 120px；通过 translateY 模拟水位上下。 */
+        transform: translateY(calc((1 - var(--anim-water-norm, 0)) * 120px));
+        fill: var(--anim-water-color, #60A5FA);
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), fill 0.4s ease;
+      }
+      .anim-water-surface {
+        /* 水面波纹位置：始终位于 y=80 (满水位)，translateY 反向调整 */
+        transform: translateY(calc((1 - var(--anim-water-norm, 0)) * 120px));
+        animation: surface-ripple 3s ease-in-out infinite;
+        animation-play-state: paused;
+        transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      [data-anim-pump-running="true"] .anim-water-surface {
+        animation-play-state: running;
+      }
+      @keyframes surface-ripple {
+        0%, 100% { transform: translateX(0); }
+        50%      { transform: translateX(2px); }
+      }
+      .anim-temp-indicator {
+        /* 温度指示：≤85 蓝，>85 红；由 --anim-temp-color 控制 */
+        fill: var(--anim-temp-color, #0EA5E9);
+        transition: fill 0.3s ease;
+      }
+      .anim-coil-pulse {
+        animation: coil-pulse 1.5s ease-in-out infinite;
+        animation-play-state: paused;
+      }
+      [data-anim-pump-running="true"] .anim-coil-pulse {
+        animation-play-state: running;
+      }
+      @keyframes coil-pulse {
+        0%, 100% { stroke-opacity: 0.7; stroke-width: 3.5; }
+        50%      { stroke-opacity: 1; stroke-width: 5; }
+      }
+      .anim-flow-bubble {
+        animation: bubble-up var(--anim-bubble-duration, 2.5s) linear infinite;
+        animation-play-state: paused;
+      }
+      [data-anim-pump-running="true"] .anim-flow-bubble {
+        animation-play-state: running;
+      }
+@keyframes bubble-up {
+        0%   { transform: translateY(0); opacity: 0; }
+        20%  { opacity: 0.9; }
+        100% { transform: translateY(-30px); opacity: 0; }
+      }
+
+      /* v0.4.1: 顶部蒸汽柱（热时升起，冷时静态） */
+      .anim-tank-steam { opacity: 0; transition: opacity 0.4s; }
+      [data-anim-pump-running="true"] .anim-tank-steam { opacity: 0.55; }
+      @keyframes steam-rise {
+        0%   { transform: translateY(0) scale(1); opacity: 0; }
+        20%  { opacity: 0.7; filter: drop-shadow(0 0 4px white); }
+        80%  { opacity: 0.2; }
+        100% { transform: translateY(-20px) scale(1.4); opacity: 0; }
+      }
+      .anim-tank-steam.steam-1 { animation: steam-rise 2.5s ease-in-out infinite; animation-play-state: paused; }
+      .anim-tank-steam.steam-2 { animation: steam-rise 3s ease-in-out infinite; animation-delay: 0.6s; animation-play-state: paused; }
+      .anim-tank-steam.steam-3 { animation: steam-rise 2.8s ease-in-out infinite; animation-delay: 1.2s; animation-play-state: paused; }
+      .anim-tank-steam.steam-4 { animation: steam-rise 3.2s ease-in-out infinite; animation-delay: 0.4s; animation-play-state: paused; }
+      .anim-tank-steam.steam-5 { animation: steam-rise 2.7s ease-in-out infinite; animation-delay: 1.8s; animation-play-state: paused; }
+      [data-anim-pump-running="true"] .anim-tank-steam { animation-play-state: running; }
+
+      /* v0.4.1: 内部水流转圈（pump running 时） */
+      .anim-tank-swirl { opacity: 0; }
+      @keyframes tank-water-swirl {
+        0%   { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .anim-tank-swirl-dot {
+        animation: tank-water-swirl 3s linear infinite;
+        transform-origin: 120px 140px;
+        transform-box: view-box;
+      }
+      .anim-tank-swirl-dot.tsd-2 {
+        animation-duration: 4s;
+        animation-direction: reverse;
+      }
+
+      /* v0.4.1: 盘管脉动加强（始终活动，水温越高越亮） */
+      @keyframes coil-pulse-strong {
+        0%, 100% { stroke-opacity: 0.7; stroke-width: 3; }
+        50%      { stroke-opacity: 1; stroke-width: 4.5; }
+      }
+    </style>
+
+  <ellipse cx="120" cy="220" rx="60" ry="7" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds8)" data-component-id="tank" data-anim-pump-running="true">
+    <!-- 保温外壳 -->
+    <ellipse cx="120" cy="55" rx="50" ry="14" fill="url(#tkIns)"/>
+    <rect x="70" y="55" width="100" height="150" fill="url(#tkIns)"/>
+    <ellipse cx="120" cy="205" rx="50" ry="14" fill="#9CA3AF"/>
+
+    <!-- 顶部 WATER TANK 标识牌 -->
+    <rect x="60" y="28" width="120" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="42" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">WATER TANK 水箱</text>
+
+    <!-- 内部水箱壁（浅色背景，让水填充更明显） -->
+    <ellipse cx="120" cy="62" rx="42" ry="11" fill="#E0F2FE"/>
+    <ellipse cx="120" cy="62" rx="42" ry="11" fill="none" stroke="#1E40AF" stroke-width="1"/>
+    <rect x="78" y="62" width="84" height="138" fill="#F0F9FF"/>
+    <ellipse cx="120" cy="200" rx="42" ry="11" fill="#E0F2FE"/>
+    <ellipse cx="120" cy="200" rx="42" ry="11" fill="none" stroke="#1E3A8A" stroke-width="1"/>
+
+    <!-- 动态水填充：v0.3.2 改用 transform: translateY()（SVG <rect> 的 y 属性无法用 CSS 控制） -->
+    <g clip-path="url(#tankInside)">
+      <rect class="anim-water-fill"
+            data-animation-id="tank_anim_water_fill"
+            data-animation-id-color="tank_anim_temp_color"
+            data-animation-type="level"
+            x="78" y="80" width="84" height="120"/>
+      <!-- 水面波纹：跟随水位上下移动 -->
+      <ellipse class="anim-water-surface" data-animation-id="tank_anim_water_surface"
+               cx="120" cy="80" rx="42" ry="3" fill="#60A5FA" opacity="0.7"/>
+    </g>
+
+<!-- v0.4.3: 顶部蒸汽柱（5 个错开延迟）位置 y=6-22，避开 WATER TANK 标签 -->
+    <g class="anim-tank-steam-group">
+      <ellipse class="anim-tank-steam steam-1" cx="115" cy="22" rx="6" ry="3" fill="#FFFFFF" opacity="0.55"/>
+      <ellipse class="anim-tank-steam steam-2" cx="125" cy="18" rx="5" ry="2.5" fill="#F3F4F6" opacity="0.45"/>
+      <ellipse class="anim-tank-steam steam-3" cx="120" cy="12" rx="7" ry="3.5" fill="#FFFFFF" opacity="0.65"/>
+      <ellipse class="anim-tank-steam steam-4" cx="130" cy="22" rx="4" ry="2" fill="#F3F4F6" opacity="0.45"/>
+      <ellipse class="anim-tank-steam steam-5" cx="110" cy="20" rx="6" ry="3" fill="#FFFFFF" opacity="0.6"/>
+    </g>
+
+    <!-- v0.4.1: 内部水流转圈（旋转小圆点） -->
+    <g data-animation-id="tank_anim_water_surface" class="anim-tank-swirl">
+      <circle class="anim-tank-swirl-dot tsd-1" cx="140" cy="135" r="3" fill="#FFFFFF" opacity="0.85"/>
+      <circle class="anim-tank-swirl-dot tsd-2" cx="100" cy="155" r="2.5" fill="#FFFFFF" opacity="0.7"/>
+    </g>
+
+    <!-- 盘管（点击/水泵启动时脉动） -->
+    <g data-animation-id="tank_anim_coil" stroke="url(#tkCoil)" stroke-width="3.5" fill="none" stroke-linecap="round" class="anim-coil-pulse">
+      <ellipse cx="120" cy="90" rx="28" ry="6"/><ellipse cx="120" cy="110" rx="28" ry="6"/>
+      <ellipse cx="120" cy="130" rx="28" ry="6"/><ellipse cx="120" cy="150" rx="28" ry="6"/>
+      <ellipse cx="120" cy="170" rx="28" ry="6"/>
+    </g>
+    <line x1="92" y1="90" x2="92" y2="170" stroke="url(#tkCoil)" stroke-width="3"/>
+    <line x1="148" y1="90" x2="148" y2="170" stroke="url(#tkCoil)" stroke-width="3"/>
+
+    <!-- 盘管流动粒子 + 上升气泡（流速驱动：var anim-bubble-duration 由 injector 写入） -->
+    <g data-animation-id="tank_anim_flow_speed" data-field="tank_particles">
+      <circle class="anim-flow-bubble" data-particle="0" cx="100" cy="190" r="2" fill="#FFFFFF" opacity="0.8"/>
+      <circle class="anim-flow-bubble" style="animation-delay: 0.4s" data-particle="1" cx="120" cy="190" r="2.5" fill="#FFFFFF" opacity="0.8"/>
+      <circle class="anim-flow-bubble" style="animation-delay: 0.8s" data-particle="2" cx="140" cy="190" r="2" fill="#FFFFFF" opacity="0.8"/>
+      <circle class="anim-flow-bubble" style="animation-delay: 1.2s" data-particle="3" cx="110" cy="190" r="1.8" fill="#FFFFFF" opacity="0.8"/>
+      <circle class="anim-flow-bubble" style="animation-delay: 1.6s" data-particle="4" cx="130" cy="190" r="2" fill="#FFFFFF" opacity="0.8"/>
+    </g>
+
+    <!-- 进出水管 -->
+    <rect x="60" y="80" width="14" height="10" fill="#9CA3AF" stroke="#374151" stroke-width="0.5"/>
+    <rect x="60" y="170" width="14" height="10" fill="#9CA3AF" stroke="#374151" stroke-width="0.5"/>
+    <rect x="166" y="80" width="14" height="10" fill="#9CA3AF" stroke="#374151" stroke-width="0.5"/>
+    <rect x="166" y="170" width="14" height="10" fill="#9CA3AF" stroke="#374151" stroke-width="0.5"/>
+    <text x="67" y="76" text-anchor="middle" font-size="5" fill="#1F2937" font-family="monospace">IN</text>
+    <text x="173" y="76" text-anchor="middle" font-size="5" fill="#1F2937" font-family="monospace">OUT</text>
+
+    <!-- 顶部排气阀 -->
+    <rect x="115" y="42" width="10" height="6" fill="#6B7280"/>
+    <rect x="113" y="38" width="14" height="6" fill="#9CA3AF"/>
+
+    <!-- LCD 温度（大字 + 颜色随温度切换） -->
+    <rect x="78" y="78" width="84" height="32" rx="2" fill="url(#lcd8)" stroke="#1F2937" stroke-width="0.8"/>
+    <rect x="80" y="80" width="80" height="28" fill="#0F172A"/>
+    <text x="84" y="90" font-size="6" fill="#9CA3AF" font-family="monospace">TANK TEMP</text>
+    <text data-field="tank_temp" x="84" y="105" font-size="14" font-weight="bold" fill="#0EA5E9" font-family="monospace">{{tank_temp}}</text>
+    <!-- 温度阈值标签 -->
+    <text data-field="tank_threshold" x="146" y="100" text-anchor="end" font-size="6" fill="#9CA3AF" font-family="monospace">≤85℃</text>
+    <circle data-field="tank_temp_led" data-animation-id="tank_anim_temp_color" class="anim-temp-indicator" cx="155" cy="92" r="3" fill="#0EA5E9"/>
+
+    <!-- 副 LCD：水流量 + 水量 -->
+    <rect x="78" y="114" width="84" height="22" rx="2" fill="url(#lcd8)" stroke="#1F2937" stroke-width="0.8"/>
+    <rect x="80" y="116" width="80" height="18" fill="#0F172A"/>
+    <text x="84" y="124" font-size="5" fill="#9CA3AF" font-family="monospace">FLOW</text>
+    <text data-field="tank_flow" x="84" y="132" font-size="9" font-weight="bold" fill="#22C55E" font-family="monospace">{{tank_flow}}</text>
+    <text x="118" y="124" font-size="5" fill="#9CA3AF" font-family="monospace">VOL</text>
+    <text data-field="tank_volume" x="118" y="132" font-size="9" font-weight="bold" fill="#FCD34D" font-family="monospace">{{tank_volume}}</text>
+
+    <!-- 状态 LED -->
+    <circle data-field="tank_status_glow" cx="62" cy="200" r="5" fill="url(#ledGl)" filter="url(#gl8)"/>
+    <circle data-field="tank_status_led" cx="62" cy="200" r="3" fill="url(#ledB)"/>
+
+    <circle cx="80" cy="62" r="1.5" fill="#1F2937"/>
+    <circle cx="160" cy="62" r="1.5" fill="#1F2937"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">水箱 · <tspan data-field="tank_capacity">{{tank_capacity}}</tspan></text>
+</svg>

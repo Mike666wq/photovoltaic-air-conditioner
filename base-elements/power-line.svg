@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80" width="240" height="80" id="power-line">
+  <defs>
+    <linearGradient id="plG" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#E63946"/><stop offset="100%" stop-color="#991B1B"/>
+    </linearGradient>
+    <radialGradient id="plGl" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#EF4444" stop-opacity="0.9"/><stop offset="100%" stop-color="#EF4444" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="plGl2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCD34D" stop-opacity="0.95"/><stop offset="100%" stop-color="#FCD34D" stop-opacity="0"/>
+    </radialGradient>
+    <marker id="arrR" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#E63946"/>
+    </marker>
+    <filter id="gl15"><feGaussianBlur stdDeviation="1.5"/></filter>
+    <filter id="gl15S"><feGaussianBlur stdDeviation="2.5"/></filter>
+  </defs>
+  <style>
+    /* 电力线粒子：速度由 JS 直接设置 animationDuration */
+    .anim-pl-particle {
+      opacity: 0;
+      animation: pl-flow 3s linear infinite;
+    }
+    @keyframes pl-flow {
+      0%   { transform: translateX(0);    opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { transform: translateX(170px); opacity: 0; }
+    }
+    /* 电流符号闪烁 */
+    .pl-bolt { animation: bolt-pulse 0.8s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+    @keyframes bolt-pulse { 0%,100% { opacity: 0.7; } 50% { opacity: 1; } }
+    /* 标签箭头 */
+    .pl-arrow { animation: arrow-slide 2s ease-in-out infinite; }
+    @keyframes arrow-slide { 0%,100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+  </style>
+
+  <!-- 标题栏 + 图标 -->
+  <rect x="2" y="2" width="236" height="14" rx="2" fill="#7F1D1D"/>
+  <g class="pl-bolt" transform="translate(8,9)">
+    <path d="M0,-4 L-2,1 L0,1 L-1,4 L2,-1 L0,-1 Z" fill="#FCD34D"/>
+  </g>
+  <text x="18" y="11" font-size="8" font-weight="bold" fill="white" font-family="sans-serif">POWER LINE · 电力线</text>
+  <text data-field="pl_label" x="232" y="11" text-anchor="end" font-size="7" fill="#FCD34D" font-family="monospace">{{pl_label}}</text>
+
+  <!-- 三相电力线（L1 主相 + L2/L3 参考相）-->
+  <g stroke-linecap="round">
+    <line x1="28" y1="30" x2="220" y2="30" stroke="#E63946" stroke-width="4" marker-end="url(#arrR)"/>
+    <line x1="28" y1="46" x2="220" y2="46" stroke="#F59E0B" stroke-width="2.5"/>
+    <line x1="28" y1="60" x2="220" y2="60" stroke="#22C55E" stroke-width="2.5"/>
+  </g>
+
+  <!-- L1/L2/L3 色块标签 -->
+  <g>
+    <rect x="2" y="26" width="24" height="9" rx="1.5" fill="rgba(254,202,202,0.9)" stroke="#E63946" stroke-width="0.5"/>
+    <text x="14" y="32.5" text-anchor="middle" font-size="6" fill="#7F1D1D" font-family="sans-serif" font-weight="bold">L1主相</text>
+
+    <rect x="2" y="42" width="24" height="9" rx="1.5" fill="rgba(254,243,199,0.9)" stroke="#F59E0B" stroke-width="0.5"/>
+    <text x="14" y="48.5" text-anchor="middle" font-size="6" fill="#92400E" font-family="sans-serif" font-weight="bold">L2参考</text>
+
+    <rect x="2" y="56" width="24" height="9" rx="1.5" fill="rgba(187,247,208,0.9)" stroke="#22C55E" stroke-width="0.5"/>
+    <text x="14" y="62.5" text-anchor="middle" font-size="6" fill="#166534" font-family="sans-serif" font-weight="bold">L3参考</text>
+  </g>
+
+  <!-- 流动粒子（L1 主线：白色对比红色，L2：深橙对比黄，L3：白色对比绿）-->
+  <g data-field="pl_particles" data-component-id="power-line" data-animation-id="pl_anim_speed">
+    <!-- L1 主线粒子（白色 + 金边，对比红色线条）-->
+    <circle class="anim-pl-particle" cx="28" cy="30" r="3.5" fill="#FFFFFF" stroke="#FCD34D" stroke-width="0.8" filter="url(#gl15S)"/>
+    <circle class="anim-pl-particle" cx="28" cy="30" r="3"   fill="#FFFFFF" stroke="#FCD34D" stroke-width="0.8" filter="url(#gl15S)"/>
+    <circle class="anim-pl-particle" cx="28" cy="30" r="4"   fill="#FFFFFF" stroke="#FCD34D" stroke-width="0.8" filter="url(#gl15S)"/>
+    <circle class="anim-pl-particle" cx="28" cy="30" r="3.5" fill="#FFFFFF" stroke="#FCD34D" stroke-width="0.8" filter="url(#gl15S)"/>
+    <circle class="anim-pl-particle" cx="28" cy="30" r="3"   fill="#FFFFFF" stroke="#FCD34D" stroke-width="0.8" filter="url(#gl15S)"/>
+    <circle class="anim-pl-particle" cx="28" cy="30" r="4"   fill="#FFFFFF" stroke="#FCD34D" stroke-width="0.8" filter="url(#gl15S)"/>
+    <!-- L2 线粒子（深橙，对比黄色线条）-->
+    <circle class="anim-pl-particle" cx="28" cy="46" r="2.5" fill="#EA580C" stroke="#FED7AA" stroke-width="0.6" filter="url(#gl15)"/>
+    <circle class="anim-pl-particle" cx="28" cy="46" r="2.5" fill="#EA580C" stroke="#FED7AA" stroke-width="0.6" filter="url(#gl15)"/>
+    <circle class="anim-pl-particle" cx="28" cy="46" r="2.5" fill="#EA580C" stroke="#FED7AA" stroke-width="0.6" filter="url(#gl15)"/>
+    <!-- L3 线粒子（白色 + 浅绿边，对比绿色线条）-->
+    <circle class="anim-pl-particle" cx="28" cy="60" r="2.5" fill="#FFFFFF" stroke="#86EFAC" stroke-width="0.6" filter="url(#gl15)"/>
+    <circle class="anim-pl-particle" cx="28" cy="60" r="2.5" fill="#FFFFFF" stroke="#86EFAC" stroke-width="0.6" filter="url(#gl15)"/>
+    <circle class="anim-pl-particle" cx="28" cy="60" r="2.5" fill="#FFFFFF" stroke="#86EFAC" stroke-width="0.6" filter="url(#gl15)"/>
+  </g>
+
+  <!-- 流向箭头标签 -->
+  <g class="pl-arrow" transform="translate(195, 30)">
+    <path d="M0,-3 L4,0 L0,3" stroke="#FCD34D" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

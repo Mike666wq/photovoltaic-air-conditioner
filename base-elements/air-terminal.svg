@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="air-terminal">
+  <defs>
+
+    <linearGradient id="atT" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/><stop offset="50%" stop-color="#F3F4F6"/><stop offset="100%" stop-color="#D1D5DB"/>
+    </linearGradient>
+    <linearGradient id="atS" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E5E7EB"/><stop offset="100%" stop-color="#9CA3AF"/>
+    </linearGradient>
+    <linearGradient id="lcd11" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="atFanG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="50%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#1F2937"/>
+    </radialGradient>
+    <radialGradient id="ledB11" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BAE6FD"/><stop offset="50%" stop-color="#0EA5E9"/><stop offset="100%" stop-color="#0C4A6E"/>
+    </radialGradient>
+    <radialGradient id="ledO11" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FED7AA"/><stop offset="50%" stop-color="#F97316"/><stop offset="100%" stop-color="#7C2D12"/>
+    </radialGradient>
+    <radialGradient id="ledR11" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <radialGradient id="ledGl11" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.5"/><stop offset="100%" stop-color="#0EA5E9" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds11"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl11"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+
+  <style>
+      /* ============ 末端风盘动画 ============ */
+      .anim-fan-coil, .anim-air-particle, .anim-louver-wave, .anim-intake-louver {
+        opacity: 0;
+      }
+      .anim-fan-coil {
+        transform-origin: 120px 92px;
+        transform-box: view-box;
+      }
+      [data-anim-fan-state="on"] .anim-fan-coil,
+      [data-anim-state="cool"] .anim-fan-coil,
+      [data-anim-state="heat"] .anim-fan-coil,
+      [data-anim-state="on"] .anim-fan-coil,
+      [data-anim-fan-state="heat"] .anim-fan-coil {
+        opacity: 1;
+        animation: fan-coil-spin var(--anim-fan-duration, 1.2s) linear infinite;
+      }
+      @keyframes fan-coil-spin { to { transform: rotate(360deg); } }
+
+      /* v0.3.2: 风扇颜色按冷热变化（cool=蓝 / heat=橙 / off=灰） */
+      .anim-fan-coil path { fill: var(--anim-fan-color, url(#atFanG)); transition: fill 0.3s; }
+
+      [data-anim-state="cool"] .anim-air-particle,
+      [data-anim-fan-state="heat"] .anim-air-particle {
+        opacity: 1;
+        animation: air-flow var(--anim-air-speed, 1s) linear infinite;
+      }
+      [data-anim-state="cool"] .anim-air-particle { fill: #0EA5E9; }
+      [data-anim-fan-state="heat"] .anim-air-particle { fill: #F97316; }
+      @keyframes air-flow {
+        0%   { transform: translateY(0); opacity: 0; }
+        20%  { opacity: 0.9; }
+        100% { transform: translateY(60px); opacity: 0; }
+      }
+
+      [data-anim-fan-state="on"] .anim-louver-wave,
+      [data-anim-state="cool"] .anim-louver-wave,
+      [data-anim-fan-state="heat"] .anim-louver-wave {
+        opacity: 1;
+        animation: louver-wave 1.5s ease-in-out infinite;
+      }
+      @keyframes louver-wave {
+        0%, 100% { opacity: 0.4; }
+        50%      { opacity: 1; }
+      }
+
+      /* v0.3.1: 顶部进风格栅发光（按 --anim-fan-speed-norm 0~1 归一化）
+         M1.5 Round 9：data-anim-fan-state 改为 data-anim-state（injector 实际写入根 data-anim-state） */
+      [data-anim-state="cool"] .anim-intake-louver,
+      [data-anim-state="heat"] .anim-intake-louver {
+        opacity: 1;
+      }
+      [data-anim-state="off"] .anim-intake-louver {
+        opacity: 0.25;
+      }
+      .anim-intake-louver rect {
+        fill: rgba(245, 158, 11, calc(var(--anim-fan-speed-norm, 0) * 0.95));
+        transition: fill 0.3s ease-in-out;
+      }
+      .anim-intake-louver rect:nth-child(1) { opacity: calc(var(--anim-fan-speed-norm, 0) * 1.0 + 0.15); }
+      .anim-intake-louver rect:nth-child(2) { opacity: calc(var(--anim-fan-speed-norm, 0) * 0.85 + 0.15); }
+      .anim-intake-louver rect:nth-child(3) { opacity: calc(var(--anim-fan-speed-norm, 0) * 0.7 + 0.15); }
+      .anim-intake-louver rect:nth-child(4) { opacity: calc(var(--anim-fan-speed-norm, 0) * 0.55 + 0.15); }
+
+      /* v0.3.2: 状态 LED 颜色按 root 状态切换 */
+      .anim-at-status-led { transition: fill 0.3s; }
+      .anim-at-status-text { transition: fill 0.3s; }
+      [data-anim-state="cool"] .anim-at-status-led { fill: #0EA5E9; }
+      [data-anim-state="cool"] .anim-at-status-text { fill: #0EA5E9; }
+      [data-anim-state="heat"] .anim-at-status-led { fill: #F97316; }
+      [data-anim-state="heat"] .anim-at-status-text { fill: #F97316; }
+      [data-anim-state="off"] .anim-at-status-led,
+      [data-anim-fan-state="off"] .anim-at-status-led { fill: #9CA3AF; }
+      [data-anim-state="off"] .anim-at-status-text,
+      [data-anim-fan-state="off"] .anim-at-status-text { fill: #9CA3AF; }
+
+      /* v0.3.2: 出风格栅冷热色 */
+      .anim-louver-wave { transition: fill 0.3s; }
+      [data-anim-state="cool"] .anim-louver-wave { fill: #0EA5E9; }
+      [data-anim-state="heat"] .anim-louver-wave { fill: #F97316; }
+
+      /* v0.3.1: 4 档 LED 按 --anim-fan-speed-norm 点亮（0~1 归一化，按档位 0/0.33/0.66/1 阈值） */
+      .anim-fan-leds .anim-fan-led { transition: fill 0.3s ease-in-out; }
+      .anim-fan-leds .anim-fan-led[data-led="0"] { fill: rgb(245, 158, 11); opacity: calc(var(--anim-fan-speed-norm, 0) * 3); }
+      .anim-fan-leds .anim-fan-led[data-led="1"] { fill: rgb(245, 158, 11); opacity: calc((var(--anim-fan-speed-norm, 0) - 0.25) * 3); }
+      .anim-fan-leds .anim-fan-led[data-led="2"] { fill: rgb(245, 158, 11); opacity: calc((var(--anim-fan-speed-norm, 0) - 0.55) * 3); }
+      .anim-fan-leds .anim-fan-led[data-led="3"] { fill: rgb(245, 158, 11); opacity: calc((var(--anim-fan-speed-norm, 0) - 0.85) * 3); }
+    </style>
+
+  <ellipse cx="120" cy="216" rx="95" ry="8" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds11)" data-component-id="air-terminal" data-clickable="true" data-anim-state="cool">
+    <!-- 顶部 AIR TERMINAL 标识牌 -->
+    <rect x="20" y="34" width="200" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="48" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">AIR TERMINAL 室内末端</text>
+
+    <polygon points="20,90 120,75 220,90 120,105" fill="url(#atT)"/>
+    <polygon points="20,90 20,160 120,175 120,105" fill="url(#atS)"/>
+    <polygon points="220,90 220,160 120,175 120,105" fill="#FAFAFA"/>
+
+    <!-- 风机盘管外壳 -->
+    <ellipse cx="120" cy="92" rx="100" ry="14" fill="#374151"/>
+    <ellipse cx="120" cy="92" rx="92" ry="11" fill="#0F172A"/>
+    <ellipse cx="120" cy="92" rx="92" ry="11" fill="none" stroke="#4B5563" stroke-width="1"/>
+
+    <!-- v0.3.1: 顶部进风格栅（按风速档位发光，见 部件动画增强.md §8） -->
+    <g class="anim-intake-louver" data-animation-id="at_anim_fan_speed">
+      <rect x="42" y="62" width="156" height="3" rx="1" fill="#F59E0B"/>
+      <rect x="42" y="67" width="156" height="3" rx="1" fill="#F59E0B"/>
+      <rect x="42" y="72" width="156" height="3" rx="1" fill="#F59E0B"/>
+      <rect x="42" y="77" width="156" height="3" rx="1" fill="#F59E0B"/>
+    </g>
+
+    <!-- 内部可见风扇（旋转，点击启动） -->
+    <g class="anim-fan-coil" data-animation-id="at_anim_fan" data-animation-type="rotate">
+      <g fill="url(#atFanG)" stroke="#1F2937" stroke-width="0.5">
+        <path d="M 120 92 Q 100 80 80 88 Q 100 100 120 92 Z"/>
+        <path d="M 120 92 Q 100 80 80 88 Q 100 100 120 92 Z" transform="rotate(90, 120, 92)"/>
+        <path d="M 120 92 Q 100 80 80 88 Q 100 100 120 92 Z" transform="rotate(180, 120, 92)"/>
+        <path d="M 120 92 Q 100 80 80 88 Q 100 100 120 92 Z" transform="rotate(270, 120, 92)"/>
+      </g>
+      <circle cx="120" cy="92" r="4" fill="#1F2937"/>
+    </g>
+
+    <!-- 出风格栅 -->
+    <g fill="#1F2937" stroke="#6B7280" stroke-width="0.5" class="anim-louver-wave">
+      <path d="M 50 96 L 80 94 L 80 100 L 50 102 Z"/>
+      <path d="M 88 96 L 118 94 L 118 100 L 88 102 Z"/>
+      <path d="M 126 96 L 156 94 L 156 100 L 126 102 Z"/>
+      <path d="M 164 96 L 194 94 L 194 100 L 164 102 Z"/>
+    </g>
+
+    <!-- 出风粒子（向下方流动，模拟冷/热风） -->
+    <g data-animation-id="at_anim_air_flow">
+      <circle class="anim-air-particle" cx="65" cy="115" r="1.5" fill="#0EA5E9" style="animation-delay: 0s"/>
+      <circle class="anim-air-particle" cx="90" cy="115" r="1.5" fill="#0EA5E9" style="animation-delay: 0.2s"/>
+      <circle class="anim-air-particle" cx="115" cy="115" r="1.5" fill="#0EA5E9" style="animation-delay: 0.4s"/>
+      <circle class="anim-air-particle" cx="140" cy="115" r="1.5" fill="#0EA5E9" style="animation-delay: 0.6s"/>
+      <circle class="anim-air-particle" cx="165" cy="115" r="1.5" fill="#0EA5E9" style="animation-delay: 0.8s"/>
+      <circle class="anim-air-particle" cx="190" cy="115" r="1.5" fill="#0EA5E9" style="animation-delay: 1.0s"/>
+    </g>
+
+    <!-- LCD 左：设定温度 -->
+    <rect x="36" y="128" width="64" height="28" rx="3" fill="url(#lcd11)" stroke="#1F2937" stroke-width="1"/>
+    <rect x="38" y="130" width="60" height="24" fill="#0F172A"/>
+    <text data-field="at_set_label" x="44" y="140" font-size="7" fill="#9CA3AF" font-family="monospace">{{at_set_label}}</text>
+    <text data-field="at_set_temp" x="44" y="154" font-size="14" font-weight="bold" fill="#FCD34D" font-family="monospace">{{at_set_temp}}</text>
+
+    <!-- LCD 右：模式 -->
+    <rect x="140" y="128" width="64" height="28" rx="3" fill="url(#lcd11)" stroke="#1F2937" stroke-width="1"/>
+    <rect x="142" y="130" width="60" height="24" fill="#0F172A"/>
+    <text data-field="at_mode_label" x="148" y="140" font-size="7" fill="#9CA3AF" font-family="monospace">{{at_mode_label}}</text>
+    <text data-field="at_mode" x="148" y="154" font-size="13" font-weight="bold" fill="#0EA5E9" font-family="monospace">{{at_mode}}</text>
+
+    <!-- v0.3.2: 状态 LED 颜色（cool=蓝 / heat=橙 / off=灰） -->
+    <circle data-field="at_status_glow" cx="50" cy="170" r="6" fill="url(#ledGl11)" filter="url(#gl11)"/>
+    <circle data-field="at_status_led" class="anim-at-status-led" cx="50" cy="170" r="3.5" fill="url(#ledB11)"/>
+    <text data-field="at_status_text" class="anim-at-status-text" x="62" y="173" font-size="7" fill="#0EA5E9" font-family="monospace">{{at_status_text}}</text>
+
+    <!-- 风速档位指示（4 档 LED 灯，按 at_anim_fan_speed 值点亮） -->
+    <g data-animation-id="at_anim_fan_speed" class="anim-fan-leds">
+      <rect class="anim-fan-led" data-led="0" x="140" y="160" width="6" height="10" rx="1" fill="#9CA3AF"/>
+      <rect class="anim-fan-led" data-led="1" x="150" y="160" width="6" height="10" rx="1" fill="#9CA3AF"/>
+      <rect class="anim-fan-led" data-led="2" x="160" y="160" width="6" height="10" rx="1" fill="#9CA3AF"/>
+      <rect class="anim-fan-led" data-led="3" x="170" y="160" width="6" height="10" rx="1" fill="#9CA3AF"/>
+      <text x="155" y="178" text-anchor="middle" font-size="6" fill="#9CA3AF" font-family="monospace">FAN</text>
+    </g>
+
+    <circle cx="190" cy="170" r="3" fill="#EF4444"/>
+
+    <rect x="40" y="76" width="40" height="3" fill="#6B7280"/>
+    <rect x="160" y="76" width="40" height="3" fill="#6B7280"/>
+    <circle cx="35" cy="100" r="1.5" fill="#1F2937"/>
+    <circle cx="205" cy="100" r="1.5" fill="#1F2937"/>
+
+    <!-- 点击热区 -->
+    <rect data-click-target="air-terminal" x="0" y="0" width="240" height="220" fill="transparent" pointer-events="all" style="cursor: pointer;"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">末端 ×<tspan data-field="at_count">3</tspan> · <tspan data-field="at_fan_speed_label">{{at_fan_speed_label}}</tspan></text>
+</svg>

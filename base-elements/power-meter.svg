@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="power-meter">
+  <defs>
+    <!-- v0.4.5: 三相 DIN 导轨电表 -->
+    <linearGradient id="pmCase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E5E7EB"/><stop offset="50%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#4B5563"/>
+    </linearGradient>
+    <linearGradient id="pmLcd" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E0E7FF"/><stop offset="100%" stop-color="#BFDBFE"/>
+    </linearGradient>
+    <linearGradient id="pmTerminal" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#374151"/>
+    </linearGradient>
+    <radialGradient id="pmPulseR" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FEF08A"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <radialGradient id="pmPulseG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FEF08A"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="pmLedG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="pmLedR" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <filter id="ds13"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl13"><feGaussianBlur stdDeviation="1.5"/></filter>
+  </defs>
+
+  <style>
+    /* 红色脉冲 LED 按功率比例闪烁（--anim-pulse-duration 由注入器 pm_pulse_speed 通道写入） */
+    .anim-pm-pulse { animation: pm-pulse var(--anim-pulse-duration, 0.4s) ease-in-out infinite; }
+    @keyframes pm-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+    .anim-pm-led { animation: pm-led-blink 1.5s ease-in-out infinite; }
+    @keyframes pm-led-blink { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+  </style>
+
+  <ellipse cx="120" cy="216" rx="80" ry="8" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds13)" data-component-id="power-meter" data-clickable="true">
+    <!-- 顶部 POWER METER 标识牌 -->
+    <rect x="20" y="14" width="200" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="28" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">POWER METER 三相电表 · DIN 导轨</text>
+
+    <!-- v0.4.5: DIN 导轨长条电表外壳（比单表盘更专业） -->
+    <rect x="30" y="42" width="180" height="160" rx="3" fill="url(#pmCase)" stroke="#1F2937" stroke-width="1.5"/>
+    <!-- DIN 导轨卡扣（顶部和底部） -->
+    <rect x="30" y="42" width="180" height="6" fill="#0F172A"/>
+    <rect x="30" y="196" width="180" height="6" fill="#0F172A"/>
+    <rect x="30" y="48" width="6" height="148" fill="#374151"/>
+    <rect x="204" y="48" width="6" height="148" fill="#374151"/>
+
+    <!-- 顶部：3 个三相指示灯（L1/L2/L3） -->
+    <g class="anim-pm-led">
+      <circle data-field="pm_l1_glow" cx="60" cy="56" r="4" fill="url(#pmLedG)" opacity="0.6"/>
+      <circle data-field="pm_l1" cx="60" cy="56" r="2.5" fill="url(#pmLedG)"/>
+      <text x="60" y="68" text-anchor="middle" font-size="5" fill="#22C55E" font-family="monospace">L1</text>
+    </g>
+    <g class="anim-pm-led">
+      <circle data-field="pm_l2_glow" cx="100" cy="56" r="4" fill="url(#pmLedG)" opacity="0.6"/>
+      <circle data-field="pm_l2" cx="100" cy="56" r="2.5" fill="url(#pmLedG)"/>
+      <text x="100" y="68" text-anchor="middle" font-size="5" fill="#22C55E" font-family="monospace">L2</text>
+    </g>
+    <g class="anim-pm-led">
+      <circle data-field="pm_l3_glow" cx="140" cy="56" r="4" fill="url(#pmLedG)" opacity="0.6"/>
+      <circle data-field="pm_l3" cx="140" cy="56" r="2.5" fill="url(#pmLedG)"/>
+      <text x="140" y="68" text-anchor="middle" font-size="5" fill="#22C55E" font-family="monospace">L3</text>
+    </g>
+    <!-- 红色脉冲 LED（功率指示） -->
+    <g data-animation-id="pm_pulse_speed">
+      <circle class="anim-pm-pulse" data-field="pm_pulse_glow" cx="180" cy="56" r="9" fill="url(#pmPulseR)" opacity="0.5" filter="url(#gl13)"/>
+      <circle class="anim-pm-pulse" data-field="pm_pulse" cx="180" cy="56" r="5" fill="url(#pmPulseR)"/>
+      <text x="180" y="58" text-anchor="middle" font-size="4" font-weight="bold" fill="#FFFFFF" font-family="monospace">PULSE</text>
+    </g>
+
+    <!-- 中央 3 行大字显示块（v0.6 起：电压/电流/功率三行，数值像温度计一样大） -->
+    <!-- 块 1：电压 V -->
+    <g>
+      <rect x="44" y="74" width="152" height="28" rx="3" fill="url(#pmLcd)" stroke="#1E3A8A" stroke-width="0.8"/>
+      <text x="52" y="93" font-size="11" font-weight="bold" fill="#1E40AF" font-family="sans-serif">电压</text>
+      <text x="96" y="93" font-size="11" font-weight="bold" fill="#93C5FD" font-family="sans-serif">V</text>
+      <text class="anim-pm-value" data-field="pm_l1_value" x="188" y="96" text-anchor="end" font-size="26" font-weight="bold" fill="#1E3A8A" font-family="monospace">220.0</text>
+    </g>
+    <!-- 块 2：电流 A -->
+    <g>
+      <rect x="44" y="104" width="152" height="28" rx="3" fill="url(#pmLcd)" stroke="#1E3A8A" stroke-width="0.8"/>
+      <text x="52" y="123" font-size="11" font-weight="bold" fill="#1E40AF" font-family="sans-serif">电流</text>
+      <text x="96" y="123" font-size="11" font-weight="bold" fill="#93C5FD" font-family="sans-serif">A</text>
+      <text class="anim-pm-value" data-field="pm_l2_value" x="188" y="126" text-anchor="end" font-size="26" font-weight="bold" fill="#1E3A8A" font-family="monospace">5.8</text>
+    </g>
+    <!-- 块 3：功率 kW -->
+    <g>
+      <rect x="44" y="134" width="152" height="28" rx="3" fill="url(#pmLcd)" stroke="#1E3A8A" stroke-width="0.8"/>
+      <text x="52" y="153" font-size="11" font-weight="bold" fill="#1E40AF" font-family="sans-serif">功率</text>
+      <text x="96" y="153" font-size="11" font-weight="bold" fill="#93C5FD" font-family="sans-serif">kW</text>
+      <text class="anim-pm-value" data-field="pm_l3_value" x="188" y="156" text-anchor="end" font-size="26" font-weight="bold" fill="#1E3A8A" font-family="monospace">1.23</text>
+    </g>
+
+    <!-- 底部条：瞬时总功率 P total -->
+    <rect x="44" y="166" width="152" height="18" rx="2" fill="url(#pmLcd)" stroke="#1E3A8A" stroke-width="0.5"/>
+    <text x="48" y="179" font-size="8" font-weight="bold" fill="#1E40AF" font-family="sans-serif">P total</text>
+    <text x="82" y="179" font-size="8" fill="#93C5FD" font-family="sans-serif">kW</text>
+    <text data-field="pm_total" x="188" y="180" text-anchor="end" font-size="13" font-weight="bold" fill="#065F46" font-family="monospace">0.72</text>
+
+    <!-- 底部 4 颗大型接线螺钉（L1/L2/L3/N） -->
+    <g>
+      <rect x="48" y="188" width="20" height="10" rx="2" fill="url(#pmTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="58" cy="193" r="3" fill="#0F172A"/>
+      <circle cx="58" cy="193" r="1.5" fill="#FCD34D"/>
+      <text x="58" y="206" text-anchor="middle" font-size="5" font-weight="bold" fill="#1F2937" font-family="monospace">L1</text>
+
+      <rect x="80" y="188" width="20" height="10" rx="2" fill="url(#pmTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="90" cy="193" r="3" fill="#0F172A"/>
+      <circle cx="90" cy="193" r="1.5" fill="#FCD34D"/>
+      <text x="90" y="206" text-anchor="middle" font-size="5" font-weight="bold" fill="#1F2937" font-family="monospace">L2</text>
+
+      <rect x="112" y="188" width="20" height="10" rx="2" fill="url(#pmTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="122" cy="193" r="3" fill="#0F172A"/>
+      <circle cx="122" cy="193" r="1.5" fill="#FCD34D"/>
+      <text x="122" y="206" text-anchor="middle" font-size="5" font-weight="bold" fill="#1F2937" font-family="monospace">L3</text>
+
+      <rect x="144" y="188" width="20" height="10" rx="2" fill="url(#pmTerminal)" stroke="#1F2937" stroke-width="0.5"/>
+      <circle cx="154" cy="193" r="3" fill="#0F172A"/>
+      <circle cx="154" cy="193" r="1.5" fill="#FCD34D"/>
+      <text x="154" y="206" text-anchor="middle" font-size="5" font-weight="bold" fill="#1F2937" font-family="monospace">N</text>
+
+      <!-- 接地螺钉（绿色） -->
+      <circle cx="186" cy="193" r="3" fill="#22C55E" stroke="#1F2937" stroke-width="0.5"/>
+      <text x="186" y="206" text-anchor="middle" font-size="5" font-weight="bold" fill="#22C55E" font-family="monospace">⏚</text>
+    </g>
+
+    <!-- 顶部挂耳 -->
+    <rect x="60" y="36" width="120" height="6" rx="1" fill="url(#pmCase)" stroke="#374151" stroke-width="0.5"/>
+
+    <!-- 螺丝 -->
+    <circle cx="36" cy="48" r="1.5" fill="#1F2937"/>
+    <circle cx="204" cy="48" r="1.5" fill="#1F2937"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">三相电表 · <tspan data-field="pm_id">{{pm_id}}</tspan></text>
+</svg>

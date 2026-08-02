@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="pv-array">
+  <defs>
+    <linearGradient id="alH" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="50%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#4B5563"/>
+    </linearGradient>
+    <linearGradient id="alV" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#6B7280"/><stop offset="100%" stop-color="#1F2937"/>
+    </linearGradient>
+    <linearGradient id="cellB" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/><stop offset="40%" stop-color="#3B82F6"/><stop offset="100%" stop-color="#1E40AF"/>
+    </linearGradient>
+    <linearGradient id="cellHi" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/><stop offset="50%" stop-color="#ffffff" stop-opacity="0.05"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sunray" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCD34D" stop-opacity="0.5"/><stop offset="100%" stop-color="#FCD34D" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lcd" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="ledG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="40%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="ledY" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FEF08A"/><stop offset="40%" stop-color="#EAB308"/><stop offset="100%" stop-color="#713F12"/>
+    </radialGradient>
+    <radialGradient id="ledR" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="40%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <radialGradient id="ledGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.6"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="glow"><feGaussianBlur stdDeviation="2"/></filter>
+  </defs>
+
+  <style>
+    /* 太阳：JS 驱动位置（usePvSunAnimation hook）*/
+    .anim-sun { opacity: 0; transform-origin: center; transform-box: fill-box; }
+[data-anim-state="on"] .anim-sun {
+  opacity: 1;
+}
+   [data-anim-state="on"] .anim-sun-rays { opacity: 1; transform-origin: center; transform-box: fill-box; animation: sun-rays-pulse 1.2s ease-in-out infinite; }
+   @keyframes sun-rays-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.3); } }
+
+    /* 板面组：JS 每帧通过 style.opacity + style.filter 设置连续亮度 */
+    .anim-panel-group-left, .anim-panel-group-mid, .anim-panel-group-right {
+      transition: filter 0.3s ease;
+      opacity: 0.15;
+    }
+
+    /* 板面反光：被太阳照到时播放扫动动画 */
+    .anim-panel-reflect { opacity: 0; }
+    [data-sun-illuminated="true"] .anim-panel-reflect {
+      animation: panel-reflect-sweep 2.5s ease-in-out infinite;
+    }
+    @keyframes panel-reflect-sweep {
+      0% { opacity: 0; transform: translateX(-15px); }
+      50% { opacity: 0.8; }
+      100% { opacity: 0; transform: translateX(15px); }
+    }
+
+    /* 动态光锥：JS 每帧更新 points，从太阳位置向下辐射 */
+    .anim-sun-cone-dynamic { opacity: 0; transition: opacity 0.3s; }
+    [data-anim-state="on"] .anim-sun-cone-dynamic { opacity: 0.2; }
+  </style>
+
+  <g opacity="0.5">
+    <path d="M 0 200 L 240 200 L 240 240 L 0 240 Z" fill="#7C2D12"/>
+    <g fill="#9A3412">
+      <path d="M 0 200 L 20 200 L 10 210 L 0 210 Z"/><path d="M 20 200 L 40 200 L 30 210 L 10 210 Z"/>
+      <path d="M 40 200 L 60 200 L 50 210 L 30 210 Z"/><path d="M 60 200 L 80 200 L 70 210 L 50 210 Z"/>
+      <path d="M 80 200 L 100 200 L 90 210 L 70 210 Z"/><path d="M 100 200 L 120 200 L 110 210 L 90 210 Z"/>
+      <path d="M 120 200 L 140 200 L 130 210 L 110 210 Z"/><path d="M 140 200 L 160 200 L 150 210 L 130 210 Z"/>
+      <path d="M 160 200 L 180 200 L 170 210 L 150 210 Z"/><path d="M 180 200 L 200 200 L 190 210 L 170 210 Z"/>
+      <path d="M 200 200 L 220 200 L 210 210 L 190 210 Z"/><path d="M 220 200 L 240 200 L 240 210 L 210 210 Z"/>
+    </g>
+  </g>
+
+  <polygon data-field="sun_intensity" data-animation-id="pv_anim_sun_beam" class="anim-sun-beam"
+           points="0,0 60,0 180,240 0,240" fill="url(#sunray)" opacity="0.6"/>
+
+  <ellipse cx="120" cy="210" rx="95" ry="10" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds)" data-component-id="pv-array" data-clickable="true" data-anim-state="on" id="pv-root">
+    <path d="M 40 200 L 50 210 L 190 210 L 200 200 Z" fill="url(#alV)"/>
+    <rect x="45" y="140" width="6" height="65" fill="url(#alV)"/>
+    <rect x="105" y="140" width="6" height="65" fill="url(#alV)"/>
+    <rect x="165" y="140" width="6" height="65" fill="url(#alV)"/>
+    <rect x="189" y="140" width="6" height="65" fill="url(#alV)"/>
+    <rect x="40" y="135" width="156" height="6" fill="url(#alH)"/>
+    <rect x="40" y="178" width="156" height="6" fill="url(#alH)"/>
+
+    <rect x="40" y="6" width="160" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="20" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">PHOTOVOLTAIC 光伏阵列</text>
+
+    <!-- 6 块电池板 (3 路分组) -->
+    <g>
+      <g class="anim-panel-group-left" data-tier="left">
+        <polygon points="40,80 90,68 90,128 40,140" fill="url(#alV)"/>
+        <polygon points="40,80 90,68 90,128 40,140" fill="url(#cellB)"/>
+        <polygon class="anim-panel-reflect" points="40,80 90,68 90,128 40,140" fill="url(#cellHi)"/>
+        <g stroke="#0B1E3F" stroke-width="0.7" opacity="0.85"><line x1="40" y1="95" x2="90" y2="83"/><line x1="40" y1="110" x2="90" y2="98"/><line x1="40" y1="125" x2="90" y2="113"/></g>
+        <polygon points="40,80 90,68 90,128 40,140" fill="none" stroke="#9CA3AF" stroke-width="1.2"/>
+      </g>
+      <polygon points="40,150 90,138 90,198 40,210" fill="url(#alV)"/>
+      <polygon points="40,150 90,138 90,198 40,210" fill="url(#cellB)"/>
+      <polygon class="anim-panel-reflect" style="animation-delay: 0.5s" points="40,150 90,138 90,198 40,210" fill="url(#cellHi)"/>
+      <g stroke="#0B1E3F" stroke-width="0.7" opacity="0.85"><line x1="40" y1="165" x2="90" y2="153"/><line x1="40" y1="180" x2="90" y2="168"/><line x1="40" y1="195" x2="90" y2="183"/></g>
+      <polygon points="40,150 90,138 90,198 40,210" fill="none" stroke="#9CA3AF" stroke-width="1.2"/>
+    </g>
+
+    <g class="anim-panel-group-mid" data-tier="mid">
+      <polygon points="95,68 145,56 145,116 95,128" fill="url(#alV)"/>
+      <polygon points="95,68 145,56 145,116 95,128" fill="url(#cellB)"/>
+      <polygon class="anim-panel-reflect" style="animation-delay: 1s" points="95,68 145,56 145,116 95,128" fill="url(#cellHi)"/>
+      <g stroke="#0B1E3F" stroke-width="0.7" opacity="0.85"><line x1="95" y1="83" x2="145" y2="71"/><line x1="95" y1="98" x2="145" y2="86"/><line x1="95" y1="113" x2="145" y2="101"/></g>
+      <polygon points="95,68 145,56 145,116 95,128" fill="none" stroke="#9CA3AF" stroke-width="1.2"/>
+      <polygon points="95,138 145,126 145,186 95,198" fill="url(#alV)"/>
+      <polygon points="95,138 145,126 145,186 95,198" fill="url(#cellB)"/>
+      <polygon class="anim-panel-reflect" style="animation-delay: 1.5s" points="95,138 145,126 145,186 95,198" fill="url(#cellHi)"/>
+      <g stroke="#0B1E3F" stroke-width="0.7" opacity="0.85"><line x1="95" y1="153" x2="145" y2="141"/><line x1="95" y1="168" x2="145" y2="156"/><line x1="95" y1="183" x2="145" y2="171"/></g>
+      <polygon points="95,138 145,126 145,186 95,198" fill="none" stroke="#9CA3AF" stroke-width="1.2"/>
+    </g>
+
+    <g class="anim-panel-group-right" data-tier="right">
+      <polygon points="150,56 200,44 200,104 150,116" fill="url(#alV)"/>
+      <polygon points="150,56 200,44 200,104 150,116" fill="url(#cellB)"/>
+      <polygon class="anim-panel-reflect" style="animation-delay: 2s" points="150,56 200,44 200,104 150,116" fill="url(#cellHi)"/>
+      <g stroke="#0B1E3F" stroke-width="0.7" opacity="0.85"><line x1="150" y1="71" x2="200" y2="59"/><line x1="150" y1="86" x2="200" y2="74"/><line x1="150" y1="101" x2="200" y2="89"/></g>
+      <polygon points="150,56 200,44 200,104 150,116" fill="none" stroke="#9CA3AF" stroke-width="1.2"/>
+      <polygon points="150,126 200,114 200,174 150,186" fill="url(#alV)"/>
+      <polygon points="150,126 200,114 200,174 150,186" fill="url(#cellB)"/>
+      <polygon class="anim-panel-reflect" style="animation-delay: 2.5s" points="150,126 200,114 200,174 150,186" fill="url(#cellHi)"/>
+      <g stroke="#0B1E3F" stroke-width="0.7" opacity="0.85"><line x1="150" y1="141" x2="200" y2="129"/><line x1="150" y1="156" x2="200" y2="144"/><line x1="150" y1="171" x2="200" y2="159"/></g>
+      <polygon points="150,126 200,114 200,174 150,186" fill="none" stroke="#9CA3AF" stroke-width="1.2"/>
+    </g>
+
+<!-- 动态光锥：JS 每帧更新 points，从太阳位置向下辐射到面板区域 -->
+    <polygon class="anim-sun-cone-dynamic" id="pv-light-cone"
+             points="90,50 150,50 200,200 40,200" fill="url(#sunray)" opacity="0.25"/>
+
+    <!-- 太阳图标 (扫描动画) -->
+    <g class="anim-sun" data-animation-id="pv_anim_sun_speed" data-animation-type="translate" id="pv-sun">
+      <g transform="translate(0,0)">
+        <circle r="20" fill="none" stroke="#FCD34D" stroke-width="0.8" opacity="0.25"/>
+        <circle r="17" fill="none" stroke="#FCD34D" stroke-width="0.6" opacity="0.35"/>
+        <circle r="14" fill="none" stroke="#FCD34D" stroke-width="0.5" opacity="0.5"/>
+        <circle r="12" fill="url(#ledY)"/>
+        <g class="anim-sun-rays" stroke="#FCD34D" stroke-width="2" stroke-linecap="round">
+          <line x1="0" y1="-18" x2="0" y2="-24"/><line x1="0" y1="18" x2="0" y2="24"/>
+          <line x1="-18" y1="0" x2="-24" y2="0"/><line x1="18" y1="0" x2="24" y2="0"/>
+          <line x1="-13" y1="-13" x2="-18" y2="-18"/><line x1="13" y1="-13" x2="18" y2="-18"/>
+          <line x1="-13" y1="13" x2="-18" y2="18"/><line x1="13" y1="13" x2="18" y2="18"/>
+        </g>
+      </g>
+    </g>
+
+    <g transform="translate(155,42)">
+      <rect x="0" y="0" width="55" height="32" rx="3" fill="url(#lcd)" stroke="#374151" stroke-width="0.8"/>
+      <text x="4" y="9" font-size="6" fill="#9CA3AF" font-family="monospace">PV</text>
+      <text data-field="pv_power" x="4" y="22" font-size="11" font-weight="bold" fill="#FCD34D" font-family="monospace">{{pv_power}}</text>
+      <text data-field="pv_progress" x="4" y="29" font-size="7" fill="#22C55E" font-family="monospace">{{pv_progress}}</text>
+    </g>
+
+    <circle data-field="status_glow" cx="218" cy="42" r="6" fill="url(#ledGlow)" filter="url(#glow)"/>
+    <circle data-field="status_led" cx="218" cy="42" r="3.5" fill="url(#ledG)"/>
+
+    <circle cx="48" cy="138" r="2" fill="#1F2937"/>
+    <circle cx="108" cy="138" r="2" fill="#1F2937"/>
+    <circle cx="168" cy="138" r="2" fill="#1F2937"/>
+    <circle cx="48" cy="181" r="2" fill="#1F2937"/>
+    <circle cx="108" cy="181" r="2" fill="#1F2937"/>
+    <circle cx="168" cy="181" r="2" fill="#1F2937"/>
+
+    <rect data-click-target="pv-array" x="0" y="0" width="240" height="220" fill="transparent" pointer-events="all" style="cursor: pointer;"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">光伏阵列 · <tspan data-field="pv_capacity">{{pv_capacity}}</tspan></text>
+</svg>

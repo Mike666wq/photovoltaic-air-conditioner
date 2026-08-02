@@ -1,0 +1,13 @@
+node_modules
+.git
+.mimocode
+.DS_Store
+*.md
+!apps/web/README.md
+data/
+scenarios/
+apps/web/dist
+apps/web/tsconfig.tsbuildinfo
+apps/web/apps
+.vscode
+.idea

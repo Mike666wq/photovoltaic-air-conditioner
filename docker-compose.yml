@@ -1,0 +1,68 @@
+services:
+  web:
+    # 生产环境只拉取 GitHub Actions 已构建并验收的不可变镜像。
+    # 本地开发可执行：IMAGE_REF=pv-ac-sim:local docker compose up
+    image: "${IMAGE_REF:?请设置 IMAGE_REF（应为 ghcr.io/...@sha256:...）}"
+    container_name: pv-ac-sim-web
+    user: "${APP_UID:?请在 .env 设置 APP_UID}:${APP_GID:?请在 .env 设置 APP_GID}"
+    restart: unless-stopped
+    ports:
+      # 保持原线上访问方式：公网服务器 IP:8765 -> 容器 8080。
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8765}:8080"
+    volumes:
+      - ${SCENARIOS_DIR:-./scenarios}:/app/scenarios
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # M2 阶段启用：
+    # depends_on:
+    #   - server
+
+  # ==================== 未来后端扩展（暂未启用） ====================
+  # server:
+  #   build: ./apps/server
+  #   container_name: pv-ac-sim-server
+  #   restart: unless-stopped
+  #   environment:
+  #     - NODE_ENV=production
+  #   volumes:
+  #     - ./data:/app/data
+  #   # 暂不对外暴露端口，由 caddy 反代
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-q", "-O-", "http://localhost:3000/health"]
+  #     interval: 30s
+  #     timeout: 3s
+  #     retries: 3
+
+  # ==================== P2 阶段启用（Caddy 反代） ====================
+  # caddy:
+  #   image: caddy:2
+  #   container_name: pv-ac-sim-caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #   depends_on:
+  #     - web
+
+# volumes:
+#   caddy_data:
+#   caddy_config:

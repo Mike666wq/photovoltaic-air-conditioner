@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm --filter web typecheck
+
+      - name: Build
+        run: pnpm --filter web build
+
+      - name: Check build output
+        run: |
+          test -f apps/web/dist/index.html
+          test -f apps/web/dist/base-elements/index.html
+          test -f apps/web/dist/base-elements/pv-array.svg
+          echo "✓ 关键构建产物齐全"
+
+      - name: Build production image
+        run: docker build -t pv-ac-sim:ci .
+
+      - name: Smoke test production image
+        run: |
+          set -e
+          cleanup() { docker rm -f pv-ac-sim-ci >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run -d --name pv-ac-sim-ci -p 127.0.0.1:18080:8080 pv-ac-sim:ci
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18080/health >/dev/null
+          curl --fail --silent http://127.0.0.1:18080/ >/dev/null
+          curl --fail --silent http://127.0.0.1:18080/base-elements/index.html >/dev/null
+          curl --fail --silent -X POST -H 'Content-Type: application/json' \
+            --data '{"smoke":true}' http://127.0.0.1:18080/scenarios/ci-smoke.json >/dev/null
+          curl --fail --silent http://127.0.0.1:18080/scenarios/ci-smoke.json >/dev/null
+          curl --fail --silent -X DELETE http://127.0.0.1:18080/scenarios/ci-smoke.json >/dev/null

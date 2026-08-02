@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-rc*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag and source
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$ ]]
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm --filter web typecheck
+
+      - name: Build
+        run: pnpm --filter web build
+
+  publish-image:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      image_ref: ${{ steps.image-ref.outputs.value }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push immutable image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Record immutable image reference
+        id: image-ref
+        shell: bash
+        run: |
+          IMAGE_REF="ghcr.io/${GITHUB_REPOSITORY,,}@${{ steps.build.outputs.digest }}"
+          echo "value=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: publish-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout deployment configuration
+        uses: actions/checkout@v4
+
+      - name: Package deployment configuration
+        run: tar -czf deployment.tgz docker-compose.yml deploy/deploy.sh
+
+      - name: Upload deployment configuration
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          port: ${{ secrets.SERVER_PORT }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          fingerprint: ${{ secrets.SERVER_FINGERPRINT }}
+          source: "deployment.tgz"
+          target: "/opt/pv-ac-sim/.incoming-${{ github.run_id }}"
+
+      - name: Pull image and deploy on server
+        uses: appleboy/ssh-action@v1
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          IMAGE_REF: ${{ needs.publish-image.outputs.image_ref }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          port: ${{ secrets.SERVER_PORT }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          fingerprint: ${{ secrets.SERVER_FINGERPRINT }}
+          envs: GITHUB_REF_NAME,IMAGE_REF,GITHUB_RUN_ID
+          script: |
+            set -e
+            INCOMING_DIR="/opt/pv-ac-sim/.incoming-${GITHUB_RUN_ID}"
+            trap 'rm -rf "$INCOMING_DIR"' EXIT
+            mkdir -p "$INCOMING_DIR/config"
+            tar -xzf "$INCOMING_DIR/deployment.tgz" -C "$INCOMING_DIR/config"
+            chmod +x "$INCOMING_DIR/config/deploy/deploy.sh"
+            "$INCOMING_DIR/config/deploy/deploy.sh" \
+              "$GITHUB_REF_NAME" "$IMAGE_REF" "$INCOMING_DIR/config/docker-compose.yml"
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "✅ 镜像发布并部署成功：${{ github.ref_name }}"
+          echo "✅ 公网地址：http://${{ secrets.SERVER_HOST }}:8765/"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "❌ 镜像发布或部署失败，请查看日志"
+          echo "🔗 https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

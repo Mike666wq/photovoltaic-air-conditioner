@@ -1,0 +1,239 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="grid">
+  <defs>
+    <!-- v0.3.2 完全重做：金属立体风 + 输电塔 + LCD -->
+    <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/><stop offset="60%" stop-color="#3B82F6"/><stop offset="100%" stop-color="#93C5FD"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#86EFAC"/><stop offset="100%" stop-color="#166534"/>
+    </linearGradient>
+    <linearGradient id="towerG" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D1D5DB"/><stop offset="50%" stop-color="#6B7280"/><stop offset="100%" stop-color="#1F2937"/>
+    </linearGradient>
+    <linearGradient id="towerS" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4B5563"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="insulatorG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FEF3C7"/><stop offset="50%" stop-color="#EAB308"/><stop offset="100%" stop-color="#713F12"/>
+    </radialGradient>
+    <linearGradient id="lcd6" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="ledG6" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="ledR6" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <radialGradient id="ledGl6" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.6"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ledRgl" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#EF4444" stop-opacity="0.6"/><stop offset="100%" stop-color="#EF4444" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds6"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl6"><feGaussianBlur stdDeviation="2"/></filter>
+  </defs>
+
+  <style>
+    /* 输电线流动效果 */
+    .anim-power-flow {
+      stroke-dasharray: 6 4;
+      animation: power-flow 0.8s linear infinite;
+    }
+@keyframes power-flow { to { stroke-dashoffset: -10; } }
+
+    /* v0.4.0: 方向粒子动画（上网向右） */
+    .grid-particle-right { opacity: 0; animation: grid-flow-right 1.5s linear infinite; }
+    @keyframes grid-flow-right {
+      0%   { transform: translateX(0); opacity: 0; filter: drop-shadow(0 0 2px #22C55E); }
+      10%  { opacity: 1; filter: drop-shadow(0 0 4px #22C55E); }
+      90%  { opacity: 1; filter: drop-shadow(0 0 4px #22C55E); }
+      100% { transform: translateX(80px); opacity: 0; }
+    }
+    /* 错开延迟 */
+    .grid-particle-right:nth-child(2) { animation-delay: 0.3s; }
+    .grid-particle-right:nth-child(3) { animation-delay: 0.6s; }
+    .grid-particle-right:nth-child(4) { animation-delay: 0.9s; }
+    .grid-particle-right:nth-child(5) { animation-delay: 1.2s; }
+    .grid-particle-right:nth-child(6) { animation-delay: 0.15s; }
+    .grid-particle-right:nth-child(7) { animation-delay: 0.45s; }
+    .grid-particle-right:nth-child(8) { animation-delay: 0.75s; }
+    .grid-particle-right:nth-child(9) { animation-delay: 1.05s; }
+
+    /* v0.3.2 status lights: on-grid 绿脉冲 / offline 红脉冲 */
+    .anim-on-grid-light { opacity: 0.3; }
+    [data-anim-grid-state="on-grid"] .anim-on-grid-light {
+      opacity: 1;
+      animation: status-pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes status-pulse {
+      0%, 100% { opacity: 0.6; }
+      50%      { opacity: 1; }
+    }
+
+    .anim-offline-light { opacity: 0; }
+    [data-anim-grid-state="offline"] .anim-offline-light {
+      opacity: 1;
+      animation: offline-pulse 0.5s ease-in-out infinite;
+    }
+    @keyframes offline-pulse {
+      0%, 100% { opacity: 0.4; }
+      50%      { opacity: 1; }
+    }
+
+    /* 输电线流动 + on-grid 时更明显 */
+    .anim-power-flow { stroke-dasharray: 6 4; }
+    [data-anim-grid-state="on-grid"] .anim-power-flow {
+      animation: power-flow 0.6s linear infinite;
+    }
+    [data-anim-grid-state="offline"] .anim-power-flow {
+      stroke: #6B7280;
+      opacity: 0.3;
+    }
+@keyframes power-flow { to { stroke-dashoffset: -10; } }
+
+    /* v0.4.0: 方向粒子动画（上网向右） */
+    .grid-particle-right { opacity: 0; animation: grid-flow-right 1.5s linear infinite; }
+    @keyframes grid-flow-right {
+      0%   { transform: translateX(0); opacity: 0; filter: drop-shadow(0 0 2px #22C55E); }
+      10%  { opacity: 1; filter: drop-shadow(0 0 4px #22C55E); }
+      90%  { opacity: 1; filter: drop-shadow(0 0 4px #22C55E); }
+      100% { transform: translateX(80px); opacity: 0; }
+    }
+    /* 错开延迟 */
+    .grid-particle-right:nth-child(2) { animation-delay: 0.3s; }
+    .grid-particle-right:nth-child(3) { animation-delay: 0.6s; }
+    .grid-particle-right:nth-child(4) { animation-delay: 0.9s; }
+    .grid-particle-right:nth-child(5) { animation-delay: 1.2s; }
+    .grid-particle-right:nth-child(6) { animation-delay: 0.15s; }
+    .grid-particle-right:nth-child(7) { animation-delay: 0.45s; }
+    .grid-particle-right:nth-child(8) { animation-delay: 0.75s; }
+    .grid-particle-right:nth-child(9) { animation-delay: 1.05s; }
+
+    /* 远景塔 */
+    .anim-distant-tower { opacity: 0.6; }
+  </style>
+
+  <!-- 天空背景 -->
+  <rect x="0" y="0" width="240" height="180" fill="url(#sky)"/>
+  <!-- 地面 -->
+  <rect x="0" y="180" width="240" height="60" fill="url(#ground)"/>
+
+  <!-- 远景输电塔群（3 座，简化轮廓） -->
+  <g class="anim-distant-tower" fill="#374151" stroke="#1F2937" stroke-width="0.5">
+    <polygon points="20,180 30,120 40,180" opacity="0.5"/>
+    <line x1="22" y1="135" x2="38" y2="135" stroke="#374151" stroke-width="1.5"/>
+    <line x1="20" y1="150" x2="40" y2="150" stroke="#374151" stroke-width="1.5"/>
+    <polygon points="200,180 210,130 220,180" opacity="0.5"/>
+    <line x1="202" y1="142" x2="218" y2="142" stroke="#374151" stroke-width="1.5"/>
+    <line x1="200" y1="158" x2="220" y2="158" stroke="#374151" stroke-width="1.5"/>
+    <polygon points="225,180 232,150 240,180" opacity="0.4"/>
+  </g>
+
+<!-- v0.4.0: 输电线（3 条横向 + 方向粒子） -->
+  <g fill="none">
+    <line class="anim-power-flow" x1="20" y1="135" x2="220" y2="142" stroke="#FCD34D" stroke-width="2" opacity="0.9"/>
+    <line class="anim-power-flow" style="animation-delay: 0.3s" x1="20" y1="150" x2="220" y2="158" stroke="#FCD34D" stroke-width="2" opacity="0.9"/>
+    <line class="anim-power-flow" style="animation-delay: 0.6s" x1="30" y1="120" x2="210" y2="130" stroke="#FCD34D" stroke-width="1.5" opacity="0.7"/>
+  </g>
+
+  <!-- v0.4.0: 方向粒子 - 上网=绿向右，下网=橙向左 -->
+  <g class="anim-grid-direction" data-animation-id="grid_anim_state">
+    <!-- 上网（向右，绿） -->
+    <g data-anim-grid-state="on-grid">
+      <circle class="grid-particle-right" cx="50" cy="135" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="80" cy="138" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="110" cy="140" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="140" cy="141" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="170" cy="142" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="60" cy="153" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="95" cy="155" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="135" cy="157" r="2.5" fill="#22C55E"/>
+      <circle class="grid-particle-right" cx="180" cy="158" r="2.5" fill="#22C55E"/>
+    </g>
+  </g>
+
+  <ellipse cx="120" cy="216" rx="70" ry="7" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds6)" data-component-id="grid" data-anim-grid-state="on-grid">
+    <!-- 顶部 GRID 标识牌 -->
+    <rect x="20" y="22" width="200" height="22" rx="2" fill="#0F172A"/>
+    <text x="120" y="37" text-anchor="middle" font-size="12" font-weight="bold" fill="#FCD34D" font-family="sans-serif">GRID 公用电网</text>
+
+    <!-- 主输电塔（梯形塔架，金属立体） -->
+    <!-- 塔身（梯形：顶部窄、底部宽） -->
+    <polygon points="105,180 135,180 128,70 112,70" fill="url(#towerG)"/>
+    <polygon points="105,180 135,180 128,70 112,70" fill="url(#towerS)" opacity="0.4"/>
+    <!-- 塔身内部 X 形支架 -->
+    <g stroke="#1F2937" stroke-width="1" opacity="0.7">
+      <line x1="112" y1="80" x2="128" y2="100"/>
+      <line x1="128" y1="80" x2="112" y2="100"/>
+      <line x1="113" y1="105" x2="127" y2="125"/>
+      <line x1="127" y1="105" x2="113" y2="125"/>
+      <line x1="114" y1="130" x2="126" y2="150"/>
+      <line x1="126" y1="130" x2="114" y2="150"/>
+      <line x1="115" y1="155" x2="125" y2="175"/>
+      <line x1="125" y1="155" x2="115" y2="175"/>
+    </g>
+
+    <!-- 3 道横担（顶部窄、中部宽、底部最宽） -->
+    <!-- 顶部横担 -->
+    <rect x="108" y="68" width="24" height="3" fill="url(#towerG)"/>
+    <!-- 中横担 -->
+    <rect x="100" y="98" width="40" height="3.5" fill="url(#towerG)"/>
+    <!-- 下横担 -->
+    <rect x="92" y="128" width="56" height="4" fill="url(#towerG)"/>
+
+    <!-- 顶部避雷针 -->
+    <line x1="120" y1="68" x2="120" y2="58" stroke="#374151" stroke-width="1.5"/>
+    <circle cx="120" cy="56" r="2" fill="#1F2937"/>
+
+    <!-- 陶瓷绝缘子（6 个，金属帽 + 瓷裙） -->
+    <g>
+      <!-- 顶横担 1 个（中间） -->
+      <rect x="118" y="64" width="4" height="6" fill="url(#insulatorG)"/>
+      <rect x="117" y="60" width="6" height="4" fill="#1F2937"/>
+      <!-- 中横担 2 个 -->
+      <rect x="103" y="94" width="4" height="6" fill="url(#insulatorG)"/>
+      <rect x="102" y="90" width="6" height="4" fill="#1F2937"/>
+      <rect x="133" y="94" width="4" height="6" fill="url(#insulatorG)"/>
+      <rect x="132" y="90" width="6" height="4" fill="#1F2937"/>
+      <!-- 下横担 3 个 -->
+      <rect x="93" y="124" width="4" height="6" fill="url(#insulatorG)"/>
+      <rect x="92" y="120" width="6" height="4" fill="#1F2937"/>
+      <rect x="118" y="124" width="4" height="6" fill="url(#insulatorG)"/>
+      <rect x="117" y="120" width="6" height="4" fill="#1F2937"/>
+      <rect x="143" y="124" width="4" height="6" fill="url(#insulatorG)"/>
+      <rect x="142" y="120" width="6" height="4" fill="#1F2937"/>
+    </g>
+
+    <!-- 顶部状态灯（合闸/离网指示） -->
+    <circle class="anim-on-grid-light" cx="90" cy="80" r="6" fill="url(#ledGl6)" filter="url(#gl6)"/>
+    <circle class="anim-on-grid-light" cx="90" cy="80" r="3.5" fill="url(#ledG6)"/>
+    <text x="82" y="83" text-anchor="end" font-size="6" fill="#9CA3AF" font-family="monospace">ON-GRID</text>
+
+    <!-- 离网警告灯（off 时显示） -->
+    <circle class="anim-offline-light" data-field="grid_offline_glow" cx="150" cy="80" r="5" fill="url(#ledRgl)" filter="url(#gl6)"/>
+    <circle class="anim-offline-light" data-field="grid_offline_led" cx="150" cy="80" r="3" fill="url(#ledR6)"/>
+
+    <!-- LCD 显示屏（电压 + 频率） -->
+    <rect x="64" y="148" width="112" height="32" rx="3" fill="url(#lcd6)" stroke="#1F2937" stroke-width="1"/>
+    <rect x="66" y="150" width="108" height="28" fill="#0F172A"/>
+    <text data-field="grid_label" x="70" y="160" font-size="6" fill="#9CA3AF" font-family="monospace">{{grid_label}}</text>
+    <text data-field="grid_spec" x="70" y="175" font-size="14" font-weight="bold" fill="#FCD34D" font-family="monospace">{{grid_spec}}</text>
+
+    <!-- 接地线（底部） -->
+    <line x1="120" y1="180" x2="120" y2="195" stroke="#1F2937" stroke-width="2"/>
+    <line x1="110" y1="195" x2="130" y2="195" stroke="#1F2937" stroke-width="2"/>
+    <line x1="113" y1="198" x2="127" y2="198" stroke="#1F2937" stroke-width="2"/>
+    <line x1="116" y1="201" x2="124" y2="201" stroke="#1F2937" stroke-width="2"/>
+
+    <!-- 螺丝 -->
+    <circle cx="50" cy="65" r="2" fill="#1F2937"/>
+    <circle cx="190" cy="65" r="2" fill="#1F2937"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">电网 · <tspan data-field="grid_capacity">{{grid_capacity}}</tspan></text>
+</svg>

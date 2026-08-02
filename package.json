@@ -1,0 +1,18 @@
+{
+  "name": "photovoltaic-air-conditioner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "光伏·空调仿真平台（光储直柔空调实验平台 Web 端可视化）",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm --filter web build",
+    "preview": "pnpm --filter web preview",
+    "typecheck": "pnpm --filter web typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "engines": {
+    "node": ">=18",
+    "pnpm": ">=8"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

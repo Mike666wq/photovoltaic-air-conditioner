@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>基础元件 · 数据驱动演示（V3 优化版）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", sans-serif; background: #f1f5f9; padding: 14px; color: #0f172a; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .sub { color: #64748b; font-size: 12px; margin-bottom: 12px; }
+  h2 { font-size: 14px; margin: 12px 0 6px 0; color: #1e293b; padding: 4px 8px; background: #e0e7ff; border-left: 4px solid #4f46e5; border-radius: 4px; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 12px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+  .card { background: white; border-radius: 6px; padding: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); position: relative; }
+  .card h3 { font-size: 10px; color: #475569; margin-bottom: 3px; font-weight: 600; display: flex; justify-content: space-between; }
+  .card h3 .badge { background: #fef3c7; color: #92400e; padding: 1px 4px; border-radius: 3px; font-size: 9px; }
+  .card h3 .clickable { background: #dbeafe; color: #1e40af; padding: 1px 4px; border-radius: 3px; font-size: 9px; }
+  .mount { width: 100%; height: 180px; display: flex; align-items: center; justify-content: center; }
+  .mount svg { max-width: 100%; max-height: 100%; }
+  .panel { background: white; border-radius: 6px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 12px; }
+  .field-row { display: grid; grid-template-columns: 130px 1fr 60px 80px; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 11px; }
+  .field-label { font-weight: 500; color: #1e293b; cursor: help; position: relative; }
+  .field-label:hover .tooltip { display: block; }
+  .tooltip { display: none; position: absolute; bottom: 100%; left: 0; background: #1e293b; color: white; padding: 6px 10px; border-radius: 4px; font-size: 10px; white-space: nowrap; z-index: 10; min-width: 200px; line-height: 1.4; }
+  .tooltip::after { content: ''; position: absolute; top: 100%; left: 12px; border: 4px solid transparent; border-top-color: #1e293b; }
+  input[type=range], select { padding: 3px 5px; border: 1px solid #cbd5e1; border-radius: 3px; font-size: 11px; width: 100%; }
+  .val-display { font-family: monospace; font-size: 10px; color: #6b7280; text-align: right; }
+  .unit { font-size: 9px; color: #9ca3af; text-align: left; }
+  button { background: #2563eb; color: white; border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 4px; }
+  button:hover { background: #1d4ed8; }
+  button.gray { background: #64748b; }
+  button.green { background: #16a34a; }
+  button.orange { background: #ea580c; }
+  .preset { background: #f1f5f9; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-right: 4px; display: inline-block; margin-bottom: 4px; border: 1px solid #cbd5e1; }
+  .preset:hover { background: #e0e7ff; border-color: #818cf8; }
+  .log { background: #0f172a; color: #22c55e; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 10px; max-height: 100px; overflow: auto; margin-top: 8px; }
+  .legend-section { background: #fef9c3; padding: 8px; border-radius: 4px; margin-bottom: 8px; font-size: 11px; }
+  .legend-section b { color: #854d0e; }
+  .mount.terminal { height: 110px; }
+  .interactive-section { background: #ecfdf5; border: 1px solid #6ee7b7; padding: 10px; border-radius: 6px; margin-bottom: 12px; }
+  .interactive-section h3 { font-size: 12px; color: #065f46; margin-bottom: 6px; }
+  .interactive-row { display: flex; gap: 8px; align-items: center; font-size: 11px; margin-bottom: 4px; }
+  .toggle-pill { padding: 4px 12px; border-radius: 999px; background: #e0e7ff; color: #4338ca; font-weight: 500; cursor: pointer; user-select: none; }
+  .toggle-pill.on { background: #22c55e; color: white; }
+  .toggle-pill.off { background: #ef4444; color: white; }
+  .toggle-pill.cool { background: #0ea5e9; color: white; }
+  .toggle-pill.heat { background: #f97316; color: white; }
+
+  /* v0.7.0: 部件 Tooltip（鼠标悬停显示名称+类型+额定参数） */
+  .component-tooltip {
+    position: fixed;
+    z-index: 9999;
+    background: rgba(15, 23, 42, 0.96);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease-out;
+    max-width: 260px;
+  }
+  .component-tooltip.visible { opacity: 1; }
+  .component-tooltip .tt-name { font-weight: 600; font-size: 12px; color: #FCD34D; margin-bottom: 2px; }
+  .component-tooltip .tt-type { color: #93C5FD; font-size: 10px; margin-bottom: 4px; }
+  .component-tooltip .tt-row { display: flex; gap: 6px; font-size: 10px; }
+  .component-tooltip .tt-label { color: #94a3b8; min-width: 70px; }
+  .component-tooltip .tt-value { color: #e2e8f0; font-family: monospace; }
+  .component-tooltip::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-top-color: rgba(15, 23, 42, 0.96);
+  }
+  .mount { position: relative; }
+</style>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor"/><g stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="6.9" y2="6.9"/><line x1="17.1" y1="17.1" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.9" y2="17.1"/><line x1="17.1" y1="6.9" x2="19.1" y2="4.9"/></g></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path fill="currentColor" d="M13 2L3 14h7l-1 8l10-12h-7l1-8z"/></symbol>
+  <symbol id="i-snow" viewBox="0 0 24 24"><g stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/><line x1="19.1" y1="4.9" x2="4.9" y2="19.1"/></g></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2c1 4 5 5 5 10a5 5 0 11-10 0c0-2 1-3 2-4c0 2 2 2 2 0c0-3-1-4 1-6z"/></symbol>
+  <symbol id="i-drop" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2c-3 5-7 9-7 13a7 7 0 1014 0c0-4-4-8-7-13z"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="7" width="18" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="4" y="9" width="12" height="6" fill="currentColor"/><line x1="22" y1="11" x2="22" y2="13" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-temp" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 14.76V4a2 2 0 10-4 0v10.76a4 4 0 105 2.24z"/><circle cx="12" cy="17" r="2" fill="currentColor"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><text x="12" y="16" text-anchor="middle" font-size="11" font-weight="bold" fill="currentColor">A</text></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,17 9,11 13,15 21,7"/><polyline points="14,7 21,7 21,14"/></g></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.7l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.7l7 4a2 2 0 002 0l7-4A2 2 0 001 16z"/><polyline points="3.3,7 12,12 20.7,7"/><line x1="12" y1="22" x2="12" y2="12"/></symbol>
+  <symbol id="i-cable" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 4c0 8 16 8 16 0"/><path d="M4 20c0-8 16-8 16 0"/><line x1="4" y1="4" x2="4" y2="20"/><line x1="20" y1="4" x2="20" y2="20"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v20"/><path d="M5 5l14 14"/><path d="M19 5L5 19"/><circle cx="12" cy="12" r="3" fill="currentColor"/></symbol>
+  <symbol id="i-fan" viewBox="0 0 24 24"><g fill="currentColor"><path d="M12 2c-1 4-4 6-4 9a4 4 0 008 0c0-3-3-5-4-9z"/><path d="M12 2c1 4 4 6 4 9a4 4 0 11-8 0c0-3 3-5 4-9z" opacity="0.7"/><circle cx="12" cy="12" r="2" fill="#fff"/></symbol>
+  <symbol id="i-switch" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="8" y1="12" x2="16" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="2" fill="currentColor"/></symbol>
+</svg>
+<style>
+.icon { width: 14px; height: 14px; display: inline-block; vertical-align: -2px; }
+.icon-lg { width: 18px; height: 18px; display: inline-block; vertical-align: -3px; }
+.icon-sm { width: 12px; height: 12px; display: inline-block; vertical-align: -1px; }
+</style>
+</head>
+<body>
+  <h1><svg class="icon-lg" style="color:#EAB308"><use href="#i-bolt"/></svg> 基础元件 · 数据驱动演示 V3</h1>
+  <div class="sub">7 个部件动画已优化：太阳扫动、点击切换连接、风扇转动、水位+水温色、点击交互。鼠标悬停字段标签可查看说明，点击部件可直接切换状态。</div>
+
+  <!-- 14 个部件 -->
+  <h2><svg class="icon" style="color:#A855F7"><use href="#i-package"/></svg> 14 个部件 <span style="font-size: 10px; color: #64748b; font-weight: normal; margin-left: 8px;">🔵 蓝色徽标 = 可点击切换状态</span></h2>
+  <div class="grid">
+    <div class="card"><h3>光伏阵列 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-pv"></div></div>
+    <div class="card"><h3>汇流箱 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-cb"></div></div>
+    <div class="card"><h3>电网 </h3><div class="mount" id="m-grid"></div></div>
+    <div class="card"><h3>并网开关 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-gs"></div></div>
+    <div class="card"><h3>双向逆变器 </h3><div class="mount" id="m-iv"></div></div>
+    <div class="card"><h3>蓄电池 </h3><div class="mount" id="m-bat"></div></div>
+    <div class="card"><h3>室内用电 </h3><div class="mount" id="m-load"></div></div>
+
+    <div class="card"><h3>热泵机组 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-hp"></div></div>
+    <div class="card"><h3>水箱 ⭐v3</h3><div class="mount" id="m-tank"></div></div>
+    <div class="card"><h3>循环水泵 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-pump"></div></div>
+    <div class="card"><h3>相变材料 </h3><div class="mount" id="m-pcm"></div></div>
+    <div class="card"><h3>室内末端 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-at"></div></div>
+    <div class="card"><h3>功率检测器 </h3><div class="mount" id="m-pm"></div></div>
+    <div class="card"><h3>温度检测器 </h3><div class="mount" id="m-ts"></div></div>
+  </div>
+
+  <!-- 3 种线缆 -->
+  <h2><svg class="icon" style="color:#1D6996"><use href="#i-cable"/></svg> 3 种线缆</h2>
+  <div class="grid-3">
+    <div class="card"><h3>电力线 </h3><div class="mount terminal" id="m-pl"></div></div>
+    <div class="card"><h3>制冷剂线 </h3><div class="mount terminal" id="m-rl"></div></div>
+    <div class="card"><h3>水线 </h3><div class="mount terminal" id="m-wl"></div></div>
+  </div>
+
+  <!-- 点击交互状态条 -->
+  <div class="interactive-section">
+    <h3>🎯 点击交互状态（点击上方对应部件的 SVG 即可切换）</h3>
+    <div class="interactive-row">
+      <span style="width: 90px;">光伏阵列：</span>
+      <span class="toggle-pill on" id="pill-pv">ON</span>
+    </div>
+    <div class="interactive-row">
+      <span style="width: 90px;">汇流箱：</span>
+      <span class="toggle-pill on" id="pill-cb">合闸</span>
+    </div>
+    <div class="interactive-row">
+      <span style="width: 90px;">并网开关：</span>
+      <span class="toggle-pill on" id="pill-gs">合闸</span>
+    </div>
+    <div class="interactive-row">
+      <span style="width: 90px;">热泵机组：</span>
+      <span class="toggle-pill on" id="pill-hp">运行</span>
+    </div>
+    <div class="interactive-row">
+      <span style="width: 90px;">循环水泵：</span>
+      <span class="toggle-pill on" id="pill-pump">运行</span>
+    </div>
+    <div class="interactive-row">
+      <span style="width: 90px;">末端风盘：</span>
+      <span class="toggle-pill cool" id="pill-at">❄ 制冷</span>
+    </div>
+  </div>
+
+  <!-- 控制面板 -->
+  <div class="panel">
+    <h2 style="margin: 0 0 10px 0; padding: 0; background: none; border: 0;"><svg class="icon"><use href="#i-chart"/></svg> 数据控制台（鼠标悬停标签查看字段说明）</h2>
+
+    <div class="legend-section">
+      <b>💡 字段说明：</b>
+      SOC = 荷电状态 | COP = 性能系数 | kWp = 千瓦峰值 | kWh = 千瓦时 | m³/h = 流量
+      | <b>水箱 v3 新增：</b>FLOW 流速 / VOL 水量 / TEMP 水温（≤85 蓝，>85 红）
+    </div>
+
+    <div style="margin-bottom: 8px;">
+      <span style="font-size: 11px; color: #475569; margin-right: 6px;">📦 预设场景：</span>
+      <span class="preset" onclick="loadPreset('daytime')">☀ 日间满发</span>
+      <span class="preset" onclick="loadPreset('evening')">🌆 傍晚</span>
+      <span class="preset" onclick="loadPreset('night')">🌙 夜间</span>
+      <span class="preset" onclick="loadPreset('cooling')">❄ 全力制冷</span>
+      <span class="preset" onclick="loadPreset('heating')">♨ 全力制热</span>
+      <span class="preset" onclick="loadPreset('hotWater')">🔥 高温水</span>
+      <span class="preset" onclick="loadPreset('fault')">⚠ 故障演练</span>
+      <span class="preset" onclick="loadPreset('summer')">☀🌡 盛夏</span>
+      <span class="preset" onclick="loadPreset('winter')">❄🌡 寒冬</span>
+    </div>
+
+    <div class="field-row">
+      <span class="field-label">光伏功率<span class="tooltip">PV 当前输出功率<br>单位：kW</span></span>
+      <input type="range" id="pv_power" min="0" max="6" step="0.1" value="3.24">
+      <span class="val-display" id="pv_power_v">3.24</span><span class="unit">kW</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">阳光强度<span class="tooltip">影响太阳光束扫动速度<br>0=夜间 1=正午晴天</span></span>
+      <input type="range" id="pv_sun" min="0" max="1" step="0.05" value="0.6">
+      <span class="val-display" id="pv_sun_v">0.6</span><span class="unit">系数</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">逆变器功率<span class="tooltip">逆变器当前输出<br>单位：kW</span></span>
+      <input type="range" id="iv_power" min="0" max="10" step="0.1" value="4.50">
+      <span class="val-display" id="iv_power_v">4.50</span><span class="unit">kW</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">电池 SOC<span class="tooltip">电池剩余电量<br>0-100%</span></span>
+      <input type="range" id="bat_soc" min="0" max="100" step="1" value="78">
+      <span class="val-display" id="bat_soc_v">78</span><span class="unit">%</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">热泵温度<span class="tooltip">热泵设定温度<br>同时影响风扇转速</span></span>
+      <input type="range" id="hp_temp" min="16" max="30" step="1" value="24">
+      <span class="val-display" id="hp_temp_v">24</span><span class="unit">℃</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">热泵功率<span class="tooltip">热泵当前输入功率<br>决定风扇转速 duration</span></span>
+      <input type="range" id="hp_power" min="0" max="8" step="0.1" value="3.2">
+      <span class="val-display" id="hp_power_v">3.2</span><span class="unit">kW</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水箱水温 ⭐<span class="tooltip">水温阈值 85℃<br>≤85 = 蓝色，=85 = 橙，>85 = 红色</span></span>
+      <input type="range" id="tank_temp" min="0" max="100" step="1" value="28">
+      <span class="val-display" id="tank_temp_v">28</span><span class="unit">℃</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水箱水量 ⭐<span class="tooltip">水量 0-100%<br>驱动水位 y 坐标（200→80）</span></span>
+      <input type="range" id="tank_volume" min="0" max="100" step="1" value="65">
+      <span class="val-display" id="tank_volume_v">65</span><span class="unit">%</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水箱流量 ⭐<span class="tooltip">水流速 m³/h<br>驱动气泡/盘管动画</span></span>
+      <input type="range" id="tank_flow" min="0" max="5" step="0.1" value="2.5">
+      <span class="val-display" id="tank_flow_v">2.5</span><span class="unit">m³/h</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水泵流量<span class="tooltip">水泵流量<br>驱动叶轮转速</span></span>
+      <input type="range" id="pump_flow" min="0" max="5" step="0.1" value="2.5">
+      <span class="val-display" id="pump_flow_v">2.5</span><span class="unit">m³/h</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">末端温度<span class="tooltip">风盘设定温度</span></span>
+      <input type="range" id="at_temp" min="18" max="28" step="1" value="24">
+      <span class="val-display" id="at_temp_v">24</span><span class="unit">℃</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">PCM 温度<span class="tooltip">相变材料温度<br>0-50℃ 独立设定</span></span>
+      <input type="range" id="pcm_temp" min="0" max="50" step="0.5" value="28">
+      <span class="val-display" id="pcm_temp_v">28</span><span class="unit">℃</span>
+    </div>
+
+    <div class="field-row">
+      <span class="field-label">电力线流量 🆕<span class="tooltip">电力线粒子流速<br>0=静止 5=最快</span></span>
+      <input type="range" id="pl_flow" min="0" max="5" step="0.1" value="3.0">
+      <span class="val-display" id="pl_flow_v">3.0</span><span class="unit">kW·eq</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">制冷剂量 🆕<span class="tooltip">制冷剂线粒子流速<br>0=静止 5=最快</span></span>
+      <input type="range" id="rl_flow" min="0" max="5" step="0.1" value="2.5">
+      <span class="val-display" id="rl_flow_v">2.5</span><span class="unit">eq</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水线流速 🆕<span class="tooltip">水线粒子流速<br>0=静止 5=最快</span></span>
+      <input type="range" id="wl_flow" min="0" max="5" step="0.1" value="2.5">
+      <span class="val-display" id="wl_flow_v">2.5</span><span class="unit">eq</span>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <button class="green" onclick="applyData()">🔄 应用数据（刷新所有 SVG）</button>
+      <button class="orange" onclick="randomize()">🎲 随机扰动</button>
+      <button class="gray" onclick="resetAll()">⏮ 全部重置</button>
+      <button class="gray" onclick="clearLog()">清空日志</button>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <!-- v0.7.0: 部件 Tooltip -->
+  <div class="component-tooltip" id="component-tooltip"></div>
+
+<script type="module">
+// ============== 状态层 ==============
+const STATE = {
+  // 可点击部件状态
+  pv: 'on',
+  cb: 'connected',
+  gs: 'on',
+  hp: { fan: 'on', compressor: 'on', refrigerant: 'cool' },
+  pump: { impeller: 'on' },
+  at: 'cool',
+};
+
+// ============== 工具函数 ==============
+function tempColor(tempC, _threshold) {
+  // v0.3.2: 5 段 HSL 插值（与 injector.ts 一致）
+  const c = Math.max(0, Math.min(120, tempC));
+  const stops = [
+    { t: 0,  h: 230, s: 80, l: 35 },
+    { t: 15, h: 210, s: 85, l: 50 },
+    { t: 30, h: 50,  s: 90, l: 55 },
+    { t: 50, h: 25,  s: 95, l: 55 },
+    { t: 85, h: 0,   s: 90, l: 55 },
+  ];
+  if (c >= 85) return 'hsl(0, 90%, 55%)';
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i], b = stops[i + 1];
+    if (c >= a.t && c <= b.t) {
+      const r = (c - a.t) / (b.t - a.t);
+      const h = a.h + (b.h - a.h) * r;
+      const s = a.s + (b.s - a.s) * r;
+      const l = a.l + (b.l - a.l) * r;
+      return `hsl(${h.toFixed(0)}, ${s.toFixed(0)}%, ${l.toFixed(0)}%)`;
+    }
+  }
+  return 'hsl(230, 80%, 35%)';
+}
+
+function fanSpeedNorm(value, max = 8) {
+  return Math.max(0, Math.min(1, value / max));
+}
+
+// v0.4 PCM 重构：与 apps/web/src/engine/pcm.ts 的 derivePcmVisual 契约一致
+// 派生规则：melt = clamp((tank_temp-22)/8, 0, 1)；相变平台 25℃
+function derivePcmVisualDemo(input) {
+  const { tank_temp, pump_on, pump_flow } = input;
+  const melt = Math.max(0, Math.min(1, tank_temp / 50));
+  let phase;
+  if (melt <= 0.02) phase = 'solid';
+  else if (melt >= 0.98) phase = 'liquid';
+  else phase = tank_temp >= 25 ? 'melting' : 'freezing';
+  const statusText = phase === 'solid' ? '固态'
+    : phase === 'melting' ? '蓄热·恒温25℃'
+    : phase === 'liquid' ? '液态'
+    : '释热·恒温25℃';
+  const transitionSec = (pump_on && pump_flow > 0)
+    ? Math.max(1.5, Math.min(8, 8 / pump_flow))
+    : 30;
+  return { melt, phase, statusText, transitionSec };
+}
+
+function waterLevelY(percent) {
+  return 200 - percent * 1.2; // 200(0%) -> 80(100%)
+}
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString();
+  el.innerHTML = `<div>[${t}] ${msg}</div>` + el.innerHTML;
+}
+window.clearLog = () => document.getElementById('log').innerHTML = '';
+
+// ============== 注入器（精简版，含动画）==============
+async function loadAndInject(path, mountEl, opts = {}) {
+  // v0.13.0: 加 cache-buster 防止 fetch 命中浏览器缓存
+  const url = path + '?t=' + Date.now();
+  const res = await fetch(url);
+  const text = await res.text();
+  // 用 DOMParser 解析 SVG，保留 SVG namespace，确保 class 属性被正确识别
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, 'image/svg+xml');
+  const svg = doc.documentElement;
+  mountEl.innerHTML = '';
+  mountEl.appendChild(svg);
+  injectAll(svg, opts);
+  return svg;
+}
+
+function injectAll(svg, opts) {
+  if (opts.fields) injectFields(svg, opts.fields);
+  if (opts.status) injectStatus(svg, opts.status);
+  if (opts.levels) injectLevels(svg, opts.levels);
+  if (opts.animations) injectAnimations(svg, opts.animations);
+  if (opts.animStates) injectAnimStates(svg, opts.animStates);
+}
+
+function injectFields(svg, fields) {
+  Object.entries(fields).forEach(([key, value]) => {
+    const nodes = svg.querySelectorAll(`[data-field="${key}"]`);
+    nodes.forEach(node => {
+      if (key.endsWith('_intensity') && typeof value === 'number') {
+        node.setAttribute('opacity', String(value));
+      } else if (node.tagName === 'text' || node.tagName === 'tspan') {
+        node.textContent = String(value);
+      }
+    });
+  });
+}
+
+function injectStatus(svg, status) {
+  const colors = {
+    running: '#22C55E', standby: '#9CA3AF', fault: '#EF4444',
+    cool: '#0EA5E9', heat: '#F97316', idle: '#9CA3AF', off: '#6B7280',
+    charging: '#22C55E', discharging: '#0EA5E9',
+    on: '#22C55E', warn: '#EAB308',
+    connected: '#22C55E', disconnected: '#9CA3AF',
+  };
+  Object.entries(status).forEach(([key, val]) => {
+    const color = colors[val]; if (!color) return;
+    const led = svg.querySelector(`[data-field="${key}_led"]`);
+    if (led) led.setAttribute('fill', color);
+    const glow = svg.querySelector(`[data-field="${key}_glow"]`);
+    if (glow) glow.setAttribute('opacity', ['fault','off','idle','standby','disconnected'].includes(val) ? '0' : '1');
+    const t = svg.querySelector(`[data-field="${key}_status_text"]`);
+    if (t) t.setAttribute('fill', color);
+  });
+}
+
+function injectLevels(svg, levels) {
+  Object.entries(levels).forEach(([key, value]) => {
+    const group = svg.querySelector(`[data-field="${key}"]`);
+    if (!group) return;
+    const max = value > 10 ? 10 : value;
+    const cells = group.querySelectorAll('[data-cell]');
+    cells.forEach((cell, idx) => {
+      if (idx < max) { cell.setAttribute('fill', 'url(#btCell)'); cell.setAttribute('opacity', '1'); }
+      else { cell.setAttribute('fill', 'url(#btCellE)'); cell.setAttribute('opacity', '0.7'); }
+    });
+  });
+}
+
+function injectAnimations(svg, animations) {
+  Object.entries(animations).forEach(([key, value]) => {
+    const nodes = svg.querySelectorAll(`[data-animation-id="${key}"]`);
+    nodes.forEach(node => {
+      node.setAttribute('data-animation-value', String(value));
+      const htmlNode = node;
+      const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0.5;
+      if (key.includes('fan')) {
+        const dur = Math.max(0.3, 3 - num * 2.5);
+        htmlNode.style.setProperty('--anim-fan-duration', `${dur}s`);
+      } else if (key.includes('impeller')) {
+        const dur = Math.max(0.3, 2.5 - num * 2);
+        htmlNode.style.setProperty('--anim-impeller-duration', `${dur}s`);
+      } else if (key.includes('sun')) {
+        const dur = Math.max(2, 12 - num * 10);
+        htmlNode.style.setProperty('--anim-sun-duration', `${dur}s`);
+      } else if (key.includes('panel')) {
+        // 板面反光扫动 duration（v0.3.1 新增）
+        const dur = Math.max(2, 5 - num * 3);
+        htmlNode.style.setProperty('--anim-panel-duration', `${dur}s`);
+      } else if (key === 'at_anim_fan_speed') {
+        // 末端风盘 4 档离散映射（v0.3.1 新增）
+        const speedTable = { 0: 0, 1: 2, 2: 1.2, 3: 0.6 };
+        const dur = speedTable[num] ?? 1.5;
+        htmlNode.style.setProperty('--anim-fan-duration', `${dur}s`);
+        htmlNode.style.setProperty('--anim-fan-speed-norm', String(num / 3));
+        htmlNode.style.setProperty('--anim-fan-running', dur === 0 ? '0' : '1');
+      } else if (key === 'at_anim_fan_color') {
+        // 末端风扇颜色（v0.3.2 新增）
+        htmlNode.style.setProperty('--anim-fan-color', String(value));
+      } else if (key === 'pv_anim_sun_x' || key === 'pv_anim_sun_y') {
+        // PV 太阳位置（v0.3.2 新增）
+        htmlNode.style.setProperty(`--anim-${key.replace('pv_anim_', '')}`, `${num}px`);
+      } else if (key === 'bat_anim_flow_dir') {
+        // 蓄电池电流方向（v0.3.2 新增）
+        htmlNode.style.setProperty('--anim-flow-dir', String(value));
+      } else if (key === 'pcm_anim_melt') {
+        // v19 PCM 重构：只写 3 个 CSS 变量
+        const norm = Math.max(0, Math.min(1, num));
+        htmlNode.style.setProperty('--pcm-melt', String(norm));
+        // 色带：深蓝→中蓝→浅蓝→水白（v21 物理直觉）
+        const stops = [
+          [0.00, 0x1E, 0x40, 0xAF], // #1E40AF 深蓝
+          [0.20, 0x3B, 0x82, 0xF6], // #3B82F6 中蓝
+          [0.45, 0x60, 0xA5, 0xFA], // #60A5FA 中浅蓝
+          [0.65, 0x93, 0xC5, 0xFD], // #93C5FD 浅蓝
+          [0.85, 0xBF, 0xDB, 0xFE], // #BFDBFE 很浅蓝
+          [1.00, 0xE0, 0xF2, 0xFE], // #E0F2FE 接近水
+        ];
+        let i = 0;
+        for (; i < stops.length - 1; i++) {
+          if (norm >= stops[i][0] && norm <= stops[i + 1][0]) break;
+        }
+        const [t1, r1, g1, b1] = stops[i];
+        const [t2, r2, g2, b2] = stops[Math.min(i + 1, stops.length - 1)];
+        const range = t2 - t1 || 1;
+        const k = (norm - t1) / range;
+        const r = Math.round(r1 + (r2 - r1) * k);
+        const g = Math.round(g1 + (g2 - g1) * k);
+        const b = Math.round(b1 + (b2 - b1) * k);
+        htmlNode.style.setProperty('--pcm-piece-color', `rgb(${r}, ${g}, ${b})`);
+        // 气泡阈值 0.3（v21 提前，28℃ 就有 1-2 个气泡）
+        const bubbleVis = norm < 0.3 ? 0 : Math.max(0, Math.min(1, (norm - 0.3) / 0.4));
+        htmlNode.style.setProperty('--pcm-bubble-vis', String(bubbleVis));
+      } else if (key === 'pcm_anim_transition') {
+        // v0.4 PCM 重构：相变过渡时长（秒）→ --pcm-transition
+        htmlNode.style.setProperty('--pcm-transition', `${Math.max(0.3, num)}s`);
+      } else if (key === 'gs_anim_handle_color') {
+        // 并网开关手柄色（v0.3.2 新增）
+        htmlNode.style.setProperty('--anim-handle-color', String(value));
+      } else if (key === 'ts_anim_temp') {
+        // v0.4.8: 温度传感器指针+水银柱 (CSS变量 + 根属性)
+        htmlNode.style.setProperty('--anim-ts-temp', String(num));
+        const tsRoot = svg.querySelector('[data-component-id="temp-sensor"]');
+        if (tsRoot) tsRoot.setAttribute('data-ts-temp', String(num));
+      } else if (key === 'pcm_anim_temp') {
+        // v0.4 PCM 重构后此分支已废弃（旧 --anim-pcm-temp 不再被任何 SVG 消费），保留为空以避免 JS 抛错
+      } else if (key.includes('air')) {
+        const dur = Math.max(0.4, 2 - num * 1.5);
+        htmlNode.style.setProperty('--anim-air-speed', `${dur}s`);
+      } else if (key.includes('water_fill')) {
+        // 水箱水位：v0.3.2 改用 --anim-water-norm（0~1），SVG 端 transform: translateY()
+        const vol = typeof value === 'number' ? value : parseFloat(String(value)) || 0;
+        const norm = Math.max(0, Math.min(1, vol));
+        htmlNode.style.setProperty('--anim-water-norm', String(norm));
+        // 兼容旧 CSS 变量
+        const y = 200 - norm * 120;
+        htmlNode.style.setProperty('--anim-water-y', `${y}px`);
+        const height = norm * 120;
+        htmlNode.style.setProperty('--anim-water-height', `${height}px`);
+      } else if (key.includes('flow_speed') || key === 'tank_flow') {
+        // 水箱气泡流速绑定（v0.3.1 新增）
+        if (num <= 0) {
+          htmlNode.style.setProperty('--anim-bubble-duration', '0s');
+          htmlNode.style.setProperty('--anim-bubble-opacity', '0');
+        } else {
+          const dur = Math.max(0.6, Math.min(4, 5 / num));
+          htmlNode.style.setProperty('--anim-bubble-duration', `${dur}s`);
+          htmlNode.style.setProperty('--anim-bubble-opacity', '1');
+        }
+      } else if (key.includes('water_color')) {
+        htmlNode.style.setProperty('--anim-water-color', String(value));
+      } else if (key.includes('temp_color')) {
+        htmlNode.style.setProperty('--anim-temp-color', String(value));
+        // 温度色同步到水色（用 data-animation-id-color 关联的元素）
+        const colorTargets = svg.querySelectorAll(`[data-animation-id-color="${key}"]`);
+        colorTargets.forEach(t => t.style.setProperty('--anim-water-color', String(value)));
+      } else if (key === 'pl_anim_speed') {
+        // v0.9.0: 电力线粒子动画速度（直接修改 animationDuration 以触发重启动）
+        const dur = num > 0 ? Math.max(0.4, 4 - num * 0.7) : 0;
+        const particles = svg.querySelectorAll('.anim-pl-particle');
+        particles.forEach((p, i) => {
+          p.style.animationDuration = dur === 0 ? '0s' : `${dur}s`;
+          p.style.animationDelay = `${-i * dur / particles.length}s`;
+          p.style.opacity = num > 0 ? '1' : '0';
+          p.style.animationPlayState = num > 0 ? 'running' : 'paused';
+        });
+      } else if (key === 'rl_anim_speed') {
+        // v0.9.0: 制冷剂线粒子动画速度
+        const dur = num > 0 ? Math.max(0.4, 4 - num * 0.6) : 0;
+        const particles = svg.querySelectorAll('.anim-rl-particle');
+        particles.forEach((p, i) => {
+          p.style.animationDuration = dur === 0 ? '0s' : `${dur}s`;
+          p.style.animationDelay = `${-i * dur / particles.length}s`;
+          p.style.opacity = num > 0 ? '1' : '0';
+          p.style.animationPlayState = num > 0 ? 'running' : 'paused';
+        });
+      } else if (key === 'wl_anim_speed') {
+        // v0.9.0: 水线粒子动画速度
+        const dur = num > 0 ? Math.max(0.4, 5 - num * 0.9) : 0;
+        const particles = svg.querySelectorAll('.anim-wl-particle');
+        particles.forEach((p, i) => {
+          p.style.animationDuration = dur === 0 ? '0s' : `${dur}s`;
+          p.style.animationDelay = `${-i * dur / particles.length}s`;
+          p.style.opacity = num > 0 ? '1' : '0';
+          p.style.animationPlayState = num > 0 ? 'running' : 'paused';
+        });
+      }
+    });
+  });
+}
+
+function injectAnimStates(svg, animStates) {
+  Object.entries(animStates).forEach(([key, value]) => {
+    const root = svg.querySelector('[data-component-id]');
+    if (root) root.setAttribute(`data-anim-${key}-state`, value);
+  });
+}
+
+function updateMounted(mountEl, opts) {
+  const svg = mountEl.querySelector('svg');
+  if (svg) injectAll(svg, opts);
+}
+
+// ============== 点击交互 ==============
+function attachClick(mountEl, componentId, handler) {
+  const svg = mountEl.querySelector('svg');
+  if (!svg) return;
+  // 直接绑到 SVG 根元素（避免 fill="transparent" rect 不参与 hit-test 的坑）
+  svg.style.cursor = 'pointer';
+  svg.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handler(svg);
+  });
+}
+
+function setupClickHandlers() {
+  // 通用：null 安全 + 防多次绑定
+  function safeFind(svg, selector) {
+    if (!svg) return null;
+    return svg.querySelector(selector);
+  }
+  function safeSet(el, attr, val) {
+    if (el) el.setAttribute(attr, val);
+  }
+  function setPill(id, text, cls) {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = text; el.className = 'toggle-pill ' + cls; }
+  }
+
+  attachClick(M.pv, 'pv-array', (svg) => {
+    if (!svg) { log('⚠ PV SVG 未加载'); return; }
+    STATE.pv = STATE.pv === 'on' ? 'off' : 'on';
+    const root = safeFind(svg, '[data-component-id]');
+    safeSet(root, 'data-anim-state', STATE.pv);
+    setPill('pill-pv', STATE.pv === 'on' ? 'ON' : 'OFF', STATE.pv);
+    applyData();
+    log(`🔆 光伏阵列 → ${STATE.pv === 'on' ? '运行' : '停机'}`);
+  });
+
+  attachClick(M.cb, 'combiner-box', (svg) => {
+    if (!svg) { log('⚠ 汇流箱 SVG 未加载'); return; }
+    STATE.cb = STATE.cb === 'connected' ? 'disconnected' : 'connected';
+    const root = safeFind(svg, '[data-component-id]');
+    safeSet(root, 'data-anim-state', STATE.cb);
+    // v0.3.1: 两个 DC OUT 同步切换（IV + BAT）
+    ['iv', 'bat'].forEach(target => {
+      const led = safeFind(svg, `[data-field="cb_out_${target}_led"]`);
+      if (led) led.setAttribute('fill', STATE.cb === 'connected' ? '#22C55E' : '#9CA3AF');
+      const label = safeFind(svg, `[data-field="cb_out_${target}_label"]`);
+      if (label) {
+        label.textContent = STATE.cb === 'connected' ? `DC→${target.toUpperCase()} · ON` : `DC→${target.toUpperCase()} · OFF`;
+        label.setAttribute('fill', STATE.cb === 'connected' ? '#22C55E' : '#9CA3AF');
+      }
+    });
+    const arc = safeFind(svg, '[data-animation-id="cb_anim_arc"]');
+    if (arc) {
+      arc.style.display = 'block';
+      setTimeout(() => { arc.style.display = 'none'; }, 800);
+    }
+    setPill('pill-cb', STATE.cb === 'connected' ? '合闸' : '分闸', STATE.cb === 'connected' ? 'on' : 'off');
+    applyData();
+    log(`⚡ 汇流箱 → ${STATE.cb === 'connected' ? '合闸（DC→IV + DC→BAT 同时接通）' : '分闸（双路同时断开）'}`);
+  });
+
+  attachClick(M.gs, 'grid-switch', (svg) => {
+    if (!svg) { log('⚠ 并网开关 SVG 未加载'); return; }
+    STATE.gs = STATE.gs === 'on' ? 'off' : 'on';
+    const root = safeFind(svg, '[data-component-id]');
+    safeSet(root, 'data-anim-state', STATE.gs);
+    const handle = safeFind(svg, '[data-field="gs_handle"]');
+    if (handle) {
+      handle.style.transform = STATE.gs === 'on' ? 'rotate(0deg)' : 'rotate(60deg)';
+    }
+    const text = safeFind(svg, '[data-field="gs_status_text"]');
+    if (text) {
+      text.textContent = STATE.gs === 'on' ? '● 合闸' : '● 分闸';
+      safeSet(text, 'fill', STATE.gs === 'on' ? '#22C55E' : '#EF4444');
+    }
+    const spark = safeFind(svg, '[data-animation-id="gs_anim_spark"]');
+    if (spark) {
+      spark.style.display = 'block';
+      setTimeout(() => { spark.style.display = 'none'; }, 800);
+    }
+    setPill('pill-gs', STATE.gs === 'on' ? '合闸' : '分闸', STATE.gs === 'on' ? 'on' : 'off');
+    applyData();
+    log(`🔌 并网开关 → ${STATE.gs === 'on' ? '合闸' : '分闸'}`);
+  });
+
+  attachClick(M.hp, 'heat-pump', (svg) => {
+    if (!svg) { log('⚠ 热泵 SVG 未加载'); return; }
+    STATE.hp.fan = STATE.hp.fan === 'on' ? 'off' : 'on';
+    const root = safeFind(svg, '[data-component-id]');
+    safeSet(root, 'data-anim-state', STATE.hp.fan);
+    setPill('pill-hp', STATE.hp.fan === 'on' ? '运行' : '停机', STATE.hp.fan === 'on' ? 'on' : 'off');
+    applyData();
+    log(`❄ 热泵机组 → ${STATE.hp.fan === 'on' ? '运行（风扇转动）' : '停机（风扇静止）'}`);
+  });
+
+  attachClick(M.pump, 'pump', (svg) => {
+    if (!svg) { log('⚠ 水泵 SVG 未加载'); return; }
+    STATE.pump.impeller = STATE.pump.impeller === 'on' ? 'off' : 'on';
+    const root = safeFind(svg, '[data-component-id]');
+    safeSet(root, 'data-anim-state', STATE.pump.impeller);
+    setPill('pill-pump', STATE.pump.impeller === 'on' ? '运行' : '停机', STATE.pump.impeller === 'on' ? 'on' : 'off');
+    applyData();
+    log(`💧 循环水泵 → ${STATE.pump.impeller === 'on' ? '运行（叶轮转动）' : '停机（叶轮静止）'}`);
+  });
+
+  function setupLoadClick() {
+    const load = M.load && M.load.querySelector('[data-component-id="load"]');
+    if (!load) return;
+    attachClick(M.load, 'load', (svg) => {
+      const cur = load.getAttribute('data-load-state');
+      const state = cur === 'on' ? 'off' : 'on';
+      load.setAttribute('data-load-state', state);
+      // 开关仅影响电视/笔记本时钟的显隐，不影响其他元素
+      setPill('load-pill', state === 'on' ? '运行' : '关闭', state === 'on' ? 'on' : 'off');
+      log(`🔌 室内用电 → ${state === 'on' ? '通电 (时钟开启)' : '断电 (时钟隐藏)'}`);
+    });
+  }
+
+  attachClick(M.at, 'air-terminal', (svg) => {
+    if (!svg) { log('⚠ 末端 SVG 未加载'); return; }
+    STATE.at = STATE.at === 'cool' ? 'heat' : (STATE.at === 'heat' ? 'off' : 'cool');
+    const root = safeFind(svg, '[data-component-id]');
+    safeSet(root, 'data-anim-state', STATE.at);
+    // v0.4.1: 同步热泵模式（cool/heat/off）
+    const hpRoot = M.hp && M.hp.querySelector('[data-component-id]');
+    if (hpRoot) {
+      const hpState = STATE.at === 'cool' ? 'cool' : (STATE.at === 'heat' ? 'heat' : 'off');
+      hpRoot.setAttribute('data-anim-state', hpState);
+    }
+    const labels = { cool: '❄ 制冷', heat: '♨ 制热', off: 'OFF' };
+    const classes = { cool: 'cool', heat: 'heat', off: 'off' };
+    setPill('pill-at', labels[STATE.at], classes[STATE.at]);
+    applyData();
+    log(`🌬 末端风盘 → ${labels[STATE.at]}（热泵同步）`);
+  });
+
+  // v0.4.7: load 点击交互（定义在内部，调用在内部）
+  setupLoadClick();
+}
+
+// ============== 部件挂载 ==============
+const M = {
+  pv: document.getElementById('m-pv'), cb: document.getElementById('m-cb'),
+  grid: document.getElementById('m-grid'), gs: document.getElementById('m-gs'),
+  iv: document.getElementById('m-iv'), bat: document.getElementById('m-bat'),
+  load: document.getElementById('m-load'), hp: document.getElementById('m-hp'),
+  tank: document.getElementById('m-tank'), pump: document.getElementById('m-pump'),
+  pcm: document.getElementById('m-pcm'), at: document.getElementById('m-at'),
+  pm: document.getElementById('m-pm'), ts: document.getElementById('m-ts'),
+  pl: document.getElementById('m-pl'), rl: document.getElementById('m-rl'),
+  wl: document.getElementById('m-wl'),
+};
+
+// 加载 + 绑定点击
+await loadAndInject('./pv-array.svg', M.pv);
+await loadAndInject('./combiner-box.svg', M.cb);
+await loadAndInject('./grid.svg', M.grid);
+await loadAndInject('./grid-switch.svg', M.gs);
+await loadAndInject('./inverter.svg', M.iv);
+await loadAndInject('./battery.svg', M.bat);
+await loadAndInject('./load.svg', M.load);
+await loadAndInject('./heat-pump.svg', M.hp);
+await loadAndInject('./tank.svg', M.tank);
+await loadAndInject('./pump.svg', M.pump);
+await loadAndInject('./pcm.svg', M.pcm);
+await loadAndInject('./air-terminal.svg', M.at);
+await loadAndInject('./power-meter.svg', M.pm);
+await loadAndInject('./temp-sensor.svg', M.ts);
+await loadAndInject('./power-line.svg', M.pl);
+await loadAndInject('./refrigerant-line.svg', M.rl);
+await loadAndInject('./water-line.svg', M.wl);
+
+setupClickHandlers();
+
+// ============== v0.7.0: 部件 Tooltip 系统 ==============
+const TOOLTIP_DATA = {
+  'pv-array':      { name: '光伏阵列',     type: '太阳能发电设备',     spec: '5 kWp',    rating: '额定功率 5 kWp' },
+  'combiner-box':  { name: '汇流箱',       type: '直流汇集设备',       spec: '1000V/32A', rating: 'DC 1000V · 32A' },
+  'grid':          { name: '电网',         type: '公共电网',           spec: '380V/220V', rating: 'AC 380V/220V · 50Hz' },
+  'grid-switch':   { name: '并网开关',     type: '并网隔离开关',       spec: '100A',      rating: '额定电流 100A' },
+  'inverter':      { name: '双向逆变器',   type: 'DC ⇄ AC 变流器',     spec: '10 kW',     rating: '额定功率 10 kW' },
+  'battery':       { name: '蓄电池',       type: '磷酸铁锂储能',       spec: '10 kWh',    rating: '容量 10 kWh · SOC' },
+  'load':          { name: '室内用电',     type: '终端负载',           spec: '0.62 kW',   rating: '实时功率 0.62 kW' },
+  'heat-pump':     { name: '热泵机组',     type: '空气源热泵',         spec: '8 kW',      rating: 'COP 3.8 · 制冷/制热' },
+  'tank':          { name: '水箱（盘管）', type: '蓄热水箱',           spec: '300L',      rating: '容量 300L + 盘管' },
+  'pump':          { name: '循环水泵',     type: '离心泵',             spec: '0.75kW',    rating: 'H=3m · 流量可调' },
+  'pcm':           { name: '相变材料',     type: '相变蓄能',           spec: 'PCM 50kg',  rating: '融化/凝固 0~50℃' },
+  'air-terminal':  { name: '末端风盘',     type: '风机盘管',           spec: '3 台',      rating: '送风温度可调' },
+  'power-meter':   { name: '功率检测器',   type: '电参数测量',         spec: 'PT100',     rating: '实时功率 · 趋势' },
+  'temp-sensor':   { name: '温度检测器',   type: '温度变送器',         spec: 'PT100',     rating: '范围 0~100℃' },
+  'power-line':        { name: '电力线',     type: '三相交流传输',       spec: '380V AC',  rating: '3 相 · 50Hz' },
+  'refrigerant-line':  { name: '制冷剂线',   type: '冷凝/蒸发循环',     spec: '双线',      rating: '制冷模式可切换' },
+  'water-line':        { name: '水线',       type: '供回水循环',         spec: '蓝波浪',    rating: '供/回水双管' },
+};
+
+let _ttTimer = null;
+let _ttTarget = null;
+
+function showTooltip(el, data) {
+  const tt = document.getElementById('component-tooltip');
+  if (!tt || !data) return;
+  tt.innerHTML = `
+    <div class="tt-name">${data.name}</div>
+    <div class="tt-type">${data.type}</div>
+    <div class="tt-row"><span class="tt-label">规格</span><span class="tt-value">${data.spec}</span></div>
+    <div class="tt-row"><span class="tt-label">额定</span><span class="tt-value">${data.rating}</span></div>
+  `;
+  tt.classList.add('visible');
+  positionTooltip(el, tt);
+}
+
+function hideTooltip() {
+  const tt = document.getElementById('component-tooltip');
+  if (tt) tt.classList.remove('visible');
+  _ttTarget = null;
+}
+
+function positionTooltip(el, tt) {
+  const rect = el.getBoundingClientRect();
+  const ttRect = tt.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - ttRect.width / 2;
+  let top = rect.top - ttRect.height - 8;
+  // 边界保护
+  if (left < 8) left = 8;
+  if (left + ttRect.width > window.innerWidth - 8) left = window.innerWidth - ttRect.width - 8;
+  if (top < 8) top = rect.bottom + 8; // 显示在下方
+  tt.style.left = `${left}px`;
+  tt.style.top = `${top}px`;
+}
+
+// Mount ID → 组件 ID 映射
+const MOUNT_TO_COMPONENT = {
+  'pv': 'pv-array',
+  'cb': 'combiner-box',
+  'grid': 'grid',
+  'gs': 'grid-switch',
+  'iv': 'inverter',
+  'bat': 'battery',
+  'load': 'load',
+  'hp': 'heat-pump',
+  'tank': 'tank',
+  'pump': 'pump',
+  'pcm': 'pcm',
+  'at': 'air-terminal',
+  'pm': 'power-meter',
+  'ts': 'temp-sensor',
+  'pl': 'power-line',
+  'rl': 'refrigerant-line',
+  'wl': 'water-line',
+};
+
+function setupTooltips() {
+  Object.entries(M).forEach(([key, mountEl]) => {
+    if (!mountEl) return;
+    const id = mountEl.id.replace('m-', '');
+    const componentId = MOUNT_TO_COMPONENT[id];
+    const data = TOOLTIP_DATA[componentId];
+    if (!data) return;
+
+    mountEl.addEventListener('mouseenter', (e) => {
+      _ttTarget = mountEl;
+      clearTimeout(_ttTimer);
+      _ttTimer = setTimeout(() => {
+        if (_ttTarget === mountEl) showTooltip(mountEl, data);
+      }, 200); // 200ms 延迟显示
+    });
+
+    mountEl.addEventListener('mouseleave', () => {
+      clearTimeout(_ttTimer);
+      if (_ttTarget === mountEl) hideTooltip();
+    });
+  });
+}
+
+setupTooltips();
+
+log('✓ 18 个 SVG 加载完成 + 6 个点击交互 + 18 个 Tooltip 就绪');
+
+// ============== 默认字段（静态值，覆盖所有 SVG 中的 {{xxx}} 占位符）==============
+const DEFAULTS = {
+  // PV
+  pv_label: 'PV',
+  pv_spec: '5 kWp',
+  pv_kwh: '18.5 kWh',
+  // Inverter
+  iv_label: 'INVERTER · ON-GRID',
+  iv_subtitle: 'DC ⇄ AC',
+  iv_pv_label: 'PV',
+  iv_bat_label: 'BAT',
+  iv_grid_label: 'GRID',
+  iv_load_label: 'LOAD',
+  iv_pwr_label: '4.50',
+  // Battery
+  bat_status_label: '运行',
+  bat_charge_rate: '▲ +1.2kW',
+  bat_pwr: '▲ 1.2 kW',
+  // Tank
+  tank_label: 'WATER TANK',
+  tank_subtitle: '300L + 盘管',
+  // Pump
+  pump_label: 'WATER PUMP',
+  pump_motor_label: 'MOTOR',
+  pump_out: 'OUT',
+  pump_in: 'IN',
+  // PCM
+  pcm_label: '相变材料',
+  pcm_label_en: 'PHASE CHANGE',
+  pcm_label2: 'PCM TEMP',
+  pcm_status_text: '蓄热',
+  // Air terminal
+  at_label: 'AIR TERMINAL',
+  at_set: 'SET TEMP',
+  at_mode_label: 'MODE',
+  at_pwr_label: 'PWR',
+  at_fan_label: 'AUTO',
+  // Power meter
+  pm_value: '4.50',
+  pm_trend: '▲ +0.20',
+  pm_label: 'POWER · kW',
+  pm_id: '#01',
+  pm_l1: 'L1', pm_l2: 'L2', pm_l3: 'L3',
+  pm_a1: '3.2', pm_a2: '2.1', pm_a3: '-1.3',
+  // Temp sensor
+  ts_value: '26.5',
+  ts_label: 'TEMP',
+  ts_unit: '℃',
+  ts_pwr_label: 'PWR',
+  ts_tx_label: 'TX',
+  ts_id: 'PT100',
+  // Load
+  load_weather: '☀ 28℃',
+  load_time: '14:32',
+  load_room: '客厅',
+  load_summary: 'LOAD 0.62 kW · 3台设备',
+  load_devices: 3,
+  load_summary_label: '总功率',
+  fridge_label: '冰箱',
+  fridge_temp: '4℃',
+  // Grid
+  grid_spec: '220V 50Hz',
+  grid_capacity: '380V/220V',
+  grid_label: 'GRID · AC',
+  // Combiner
+  cb_label: 'DC COMBINER',
+  cb_spec: '1000V · 32A',
+  cb_capacity: 'DC 1000V',
+  cb_voltage: '1000V',
+  cb_current: '32A',
+  cb_pv_count: 6,
+  cb_out_iv_label: 'DC→IV · ON',
+  cb_out_bat_label: 'DC→BAT · ON',
+  cb_pm_iv_value: '3.24',
+  cb_pm_bat_value: '1.20',
+  // Grid switch
+  gs_status_text: '● 合闸',
+  gs_label: 'GRID SWITCH',
+  gs_label_on: 'ON',
+  gs_label_off: 'OFF',
+  gs_capacity: '100A',
+  // Cables
+  pl_label: '⚡ 电力线 · 380V AC · 3相',
+  rl_label: '❄ 制冷剂线 · 双线 · 冷凝/蒸发',
+  wl_label: '💧 水线 · 蓝波浪 · 供回水',
+  // 总览图（如果存在）
+  ov_clock: '14:32:18',
+  ov_title_sub: 'Photovoltaic · Storage · Heat Pump · PCM · AC Terminals',
+  ov_pv_today: '18.5 kWh',
+  ov_bat_status: '▲ +1.2kW',
+  ov_iv_temp: 'DC⇄AC',
+};
+
+// ============== 数据应用 ==============
+function getVal(id) { return parseFloat(document.getElementById(id).value); }
+
+window.applyData = function() {
+  const pvPower = getVal('pv_power');
+  const pvSun = getVal('pv_sun');
+  const ivPower = getVal('iv_power');
+  const batSoc = getVal('bat_soc');
+  const hpTemp = getVal('hp_temp');
+  const hpPower = getVal('hp_power');
+  const tankTemp = getVal('tank_temp');
+  const tankVolume = getVal('tank_volume');
+  const tankFlow = getVal('tank_flow');
+  const pumpFlow = getVal('pump_flow');
+  const atTemp = getVal('at_temp');
+  const pcmTemp = getVal('pcm_temp');
+
+  // v0.4 PCM 重构：派生融化比例/相态/过渡时长
+  const _pcmMeltInput = { tank_temp: pcmTemp, pump_on: STATE.pump.impeller === 'on', pump_flow: pumpFlow };
+  const _pcm = derivePcmVisualDemo(_pcmMeltInput);
+  const _pcmLiquidFill = _pcm.melt <= 0.5 ? 0 : Math.min(1, (_pcm.melt - 0.5) * 2);
+  const _pcmBubbleVis = _pcm.melt <= 0.5 ? 0 : Math.min(1, (_pcm.melt - 0.5) * 3);
+  const _pcmHexM = [];
+  for (let i = 1; i <= 6; i++) {
+    _pcmHexM.push(Math.max(0, Math.min(1, (_pcm.melt - (i - 1) / 6) * 6)));
+  }
+
+  // 基础字段（DEFAULTS 提供静态值，下面覆盖动态值）
+  const fields = {
+    ...DEFAULTS,
+    // PV 动态
+    pv_power: pvPower.toFixed(2) + ' kW',
+    pv_progress: Math.round(pvPower / 5 * 100) + '%',
+    pv_capacity: '5 kWp',
+    pv_status_text: '运行',
+    pv_sun_intensity: pvSun,
+    // Inverter 动态
+    iv_power: ivPower.toFixed(2),
+    iv_capacity: '10 kW',
+    iv_mode: 'INVERTER · ON-GRID',
+    iv_trend: '▲ +' + (Math.random() * 0.5).toFixed(2),
+    iv_pwr_label: ivPower.toFixed(2),
+    // Battery 动态
+    bat_soc: Math.round(batSoc) + '%',
+    bat_capacity: '10 kWh',
+    bat_label: 'LiFePO4 · STORAGE',
+    bat_status_text: '▲ CHG',
+    bat_charge_rate: '▲ +' + (Math.random() * 2).toFixed(1) + 'kW',
+    bat_pwr: '▲ ' + (Math.random() * 2).toFixed(1) + ' kW',
+    // Heat pump 动态
+    hp_temp: Math.round(hpTemp) + '℃',
+    hp_capacity: '8 kW',
+    hp_mode: 'HEAT PUMP · COOL',
+    hp_cop: 'COP 3.8',
+    hp_power: hpPower.toFixed(1) + ' kW',
+    hp_status_text: 'COOL · 制冷',
+    hp_mode_icon: '❄',
+    // 水箱 ⭐v3
+    tank_temp: Math.round(tankTemp) + '℃',
+    tank_capacity: '300L',
+    tank_label: 'WATER TANK',
+    tank_subtitle: '300L + 盘管',
+    tank_flow: tankFlow.toFixed(1) + ' m³/h',
+    tank_volume: Math.round(tankVolume) + '%',
+    tank_threshold: tankTemp > 85 ? '>85℃' : (tankTemp === 85 ? '=85℃' : '≤85℃'),
+    // Pump
+    pump_flow_label: pumpFlow.toFixed(1),
+    pump_head: 'H=3m',
+    pump_capacity: '0.75kW',
+    pump_power: pumpFlow.toFixed(2),
+    pump_status_text: STATE.pump.impeller === 'on' ? '运行' : '停止',
+    pump_motor_label: 'MOTOR',
+    // PCM (v0.4.8: 独立滑块 pcmTemp)
+    pcm_temp: pcmTemp.toFixed(1) + '℃',
+    pcm_capacity: 'PCM 50kg',
+    pcm_label: 'Phase Change Material',
+    pcm_label2: 'PCM TEMP',
+    pcm_status_text: _pcm.statusText,
+    // Air terminal（v0.3.2: 同步 STATE.at 决定文字/颜色）
+    at_set_temp: Math.round(atTemp) + '℃',
+    at_set_label: 'SET TEMP',
+    at_mode: STATE.at === 'cool' ? '❄ COOL' : (STATE.at === 'heat' ? '♨ HEAT' : 'OFF'),
+    at_mode_label: 'MODE',
+    at_status_text: STATE.at === 'off' ? '停机' : '运行',
+    at_count: 3,
+    at_fan_speed_label: STATE.at === 'off' ? 'OFF' : 'AUTO',
+  };
+
+  const status = {
+    pv_status: STATE.pv === 'on' ? 'running' : 'standby',
+    bat_status: 'charging',
+    tank_status: tankTemp > 85 ? 'heat' : (tankTemp < 20 ? 'cool' : 'idle'),
+    hp_status: STATE.hp.fan === 'on' ? 'cool' : 'off',
+    pump_status: STATE.pump.impeller === 'on' ? 'running' : 'stopped',
+  };
+
+  const levels = {
+    bat_charge_level: Math.round(batSoc / 10),
+    cb_pv_inputs: Math.min(4, Math.ceil(pvPower / 1.5)),
+  };
+
+  // ⭐ 动画字段（v0.3.1 扩展：新增 pv_anim_sun_speed / pv_anim_panel_speed / tank_flow）
+  const animations = {
+    // PV 太阳转速（0=夜间、1=正午）
+    pv_anim_sun_speed: pvSun,
+    // PV 太阳位置（v0.5.0: JS 驱动太阳 + 光锥 + 面板亮度）
+    pv_anim_sun_x: -30 + pvSun * 280,
+    pv_anim_sun_y: 30 + pvSun * 40,
+    // PV 板反光扫动转速
+    pv_anim_panel_speed: pvSun,
+    // 热泵风扇转速（归一化到 0‑1，热泵停机时为 0）
+    hp_anim_fan_speed: STATE.hp.fan === 'on' ? fanSpeedNorm(hpPower, 8) : 0,
+    // 水泵叶轮转速（停机时为 0）
+    pump_anim_impeller_speed: STATE.pump.impeller === 'on' ? fanSpeedNorm(pumpFlow, 5) : 0,
+    // 末端送风档位（0/1/2/3）
+    at_anim_fan_speed: STATE.at === 'off' ? 0 : Math.min(3, Math.max(1, Math.round(pumpFlow))),
+    // 末端风扇颜色（v0.3.2 新增）
+    at_anim_fan_color: STATE.at === 'cool' ? '#0EA5E9' : (STATE.at === 'heat' ? '#F97316' : '#9CA3AF'),
+    // 水箱水位（0=空, 1=满）
+    tank_anim_water_fill: tankVolume / 100,
+    // 水箱水温色（5 段 HSL 插值）
+    tank_anim_temp_color: tempColor(tankTemp),
+    // 水箱气泡流速绑定
+    tank_anim_flow_speed: STATE.pump.impeller === 'on' ? tankFlow : 0,
+    // 蓄电池电流方向（v0.3.2 新增：in/out/idle）
+    bat_anim_flow_dir: pvPower > batSoc / 10 ? 'in' : 'out',
+    // v0.4 PCM 重构：融化比例驱动（替代旧的温度直驱）
+    pcm_anim_melt: _pcm.melt,
+    pcm_anim_transition: _pcm.transitionSec,
+    // v0.4.7: 温度传感器指针驱动 (0~1 归一化, 0°C→-90° 100°C→+90°)
+    ts_anim_temp: Math.max(0, Math.min(1, (tankTemp - 10) / 90)),
+    // 并网开关手柄色（v0.3.2 新增）
+    gs_anim_handle_color: STATE.gs === 'on' ? '#22C55E' : '#EF4444',
+    // 电网状态（v0.3.2：跟 gs 联动）
+    grid_anim_state: STATE.gs === 'on' ? 'on-grid' : 'offline',
+    // v0.8.0: 三大流体粒子动画速度（使用专用滑块）
+    pl_anim_speed: getVal('pl_flow'),
+    rl_anim_speed: getVal('rl_flow'),
+    wl_anim_speed: getVal('wl_flow'),
+  };
+
+  // 动画状态
+  const animStates = {
+    fan: STATE.hp.fan,
+    compressor: STATE.hp.compressor,
+    refrigerant: STATE.hp.refrigerant,
+    impeller: STATE.pump.impeller,
+    // v0.4 PCM 重构：相态走 animStates 通道写入 data-anim-phase-state
+    phase: _pcm.phase,
+  };
+
+  // 逐个 SVG 应用
+  Object.entries(M).forEach(([k, el]) => {
+    const opts = { fields, status, levels, animations, animStates };
+    // 部件级覆写
+    if (k === 'iv') opts.status = { ...status, iv_pv: 'on', iv_bat: 'on', iv_grid: 'on', iv_load: 'warn' };
+    if (k === 'gs') opts.status = { ...status, gs_status: STATE.gs };
+    if (k === 'cb') opts.status = { ...status, cb_led: STATE.cb === 'connected' ? 'on' : 'off' };
+    if (k === 'tank') {
+      // 水箱温度色通过 fields（直接 hex 注入 fill 避免 status 枚举颜色误映射）
+      opts.fields = { ...fields, tank_temp_led: tempColor(tankTemp) };
+    }
+    if (k === 'pump') opts.status = { ...status, pump_status: STATE.pump.impeller === 'on' ? 'running' : 'stopped' };
+    if (k === 'at') {
+      opts.animStates = { fan: STATE.at };
+    }
+    updateMounted(el, opts);
+  });
+
+  log(`✓ PV=${pvPower}kW(光${pvSun}) | IV=${ivPower}kW | BAT=${batSoc}% | HP=${hpTemp}℃/${hpPower}kW | TANK=${tankTemp}℃/${tankVolume}% | PCM=${pcmTemp}℃`);
+};
+
+// ============== 预设场景 ==============
+window.loadPreset = function(name) {
+  const presets = {
+    daytime: { pv_power: 4.85, pv_sun: 0.85, iv_power: 4.85, bat_soc: 82, bat_status: 'charging', hp_temp: 24, hp_power: 3.5, tank_temp: 35, tank_volume: 70, tank_flow: 3.0, pump_flow: 3.0, at_temp: 24, pcm_temp: 32 },
+    evening: { pv_power: 1.20, pv_sun: 0.25, iv_power: 3.10, bat_soc: 65, bat_status: 'discharging', hp_temp: 25, hp_power: 3.0, tank_temp: 42, tank_volume: 60, tank_flow: 2.0, pump_flow: 2.0, at_temp: 25, pcm_temp: 38 },
+    night:   { pv_power: 0.00, pv_sun: 0.0, iv_power: 0.60, bat_soc: 45, bat_status: 'discharging', hp_temp: 23, hp_power: 2.0, tank_temp: 45, tank_volume: 55, tank_flow: 1.5, pump_flow: 1.5, at_temp: 23, pcm_temp: 36 },
+    cooling: { pv_power: 3.20, pv_sun: 0.6, iv_power: 6.80, bat_soc: 75, bat_status: 'idle', hp_temp: 22, hp_power: 5.0, tank_temp: 18, tank_volume: 80, tank_flow: 4.0, pump_flow: 4.0, at_temp: 22, pcm_temp: 14 },
+    heating: { pv_power: 1.50, pv_sun: 0.3, iv_power: 5.20, bat_soc: 55, bat_status: 'discharging', hp_temp: 26, hp_power: 4.5, tank_temp: 50, tank_volume: 65, tank_flow: 3.5, pump_flow: 3.5, at_temp: 26, pcm_temp: 45 },
+    hotWater:{ pv_power: 2.00, pv_sun: 0.5, iv_power: 4.00, bat_soc: 60, bat_status: 'charging', hp_temp: 28, hp_power: 4.0, tank_temp: 88, tank_volume: 90, tank_flow: 3.0, pump_flow: 3.0, at_temp: 24, pcm_temp: 48 },
+    fault:   { pv_power: 0.00, pv_sun: 0.0, iv_power: 0.00, bat_soc: 20, bat_status: 'fault', hp_temp: 24, hp_power: 0.0, tank_temp: 28, tank_volume: 30, tank_flow: 0.0, pump_flow: 0.0, at_temp: 24, pcm_temp: 22 },
+    summer:  { pv_power: 5.20, pv_sun: 1.0, iv_power: 8.50, bat_soc: 95, bat_status: 'charging', hp_temp: 22, hp_power: 6.0, tank_temp: 12, tank_volume: 85, tank_flow: 4.5, pump_flow: 4.5, at_temp: 22, pcm_temp: 10 },
+    winter:  { pv_power: 0.80, pv_sun: 0.15, iv_power: 6.20, bat_soc: 35, bat_status: 'discharging', hp_temp: 28, hp_power: 5.5, tank_temp: 55, tank_volume: 50, tank_flow: 3.5, pump_flow: 3.5, at_temp: 28, pcm_temp: 42 },
+  };
+  const p = presets[name];
+  if (!p) return;
+  Object.entries(p).forEach(([k, v]) => {
+    const el = document.getElementById(k);
+    if (el) {
+      el.value = v;
+      const out = document.getElementById(k + '_v');
+      if (out) out.textContent = v;
+    }
+  });
+  applyData();
+  log(`📦 场景: ${name}`);
+};
+
+window.randomize = function() {
+  const jitter = (base, range) => (base + (Math.random() - 0.5) * range).toFixed(2);
+  document.getElementById('pv_power').value = jitter(3.5, 2);
+  document.getElementById('pv_sun').value = jitter(0.6, 0.5);
+  document.getElementById('iv_power').value = jitter(4.5, 2);
+  document.getElementById('bat_soc').value = jitter(70, 20);
+  document.getElementById('hp_temp').value = jitter(24, 4);
+  document.getElementById('hp_power').value = jitter(3.5, 2);
+  document.getElementById('tank_temp').value = jitter(40, 50);
+  document.getElementById('tank_volume').value = jitter(60, 30);
+  document.getElementById('tank_flow').value = jitter(2.5, 2);
+  document.getElementById('pump_flow').value = jitter(2.5, 2);
+  document.getElementById('at_temp').value = jitter(24, 3);
+  document.getElementById('pcm_temp').value = jitter(25, 15);
+  document.querySelectorAll('input[type=range]').forEach(inp => {
+    const out = document.getElementById(inp.id + '_v');
+    if (out) out.textContent = inp.value;
+  });
+  applyData();
+  log('🎲 随机扰动');
+};
+
+window.resetAll = function() {
+  // 重置所有可点击状态
+  STATE.pv = 'on';
+  STATE.cb = 'connected';
+  STATE.gs = 'on';
+  STATE.hp = { fan: 'on', compressor: 'on', refrigerant: 'cool' };
+  STATE.pump = { impeller: 'on' };
+  STATE.at = 'cool';
+  // 重置所有滑块
+  document.getElementById('pv_power').value = 3.24;
+  document.getElementById('pv_sun').value = 0.6;
+  document.getElementById('iv_power').value = 4.50;
+  document.getElementById('bat_soc').value = 78;
+  document.getElementById('hp_temp').value = 24;
+  document.getElementById('hp_power').value = 3.2;
+  document.getElementById('tank_temp').value = 28;
+  document.getElementById('tank_volume').value = 65;
+  document.getElementById('tank_flow').value = 2.5;
+  document.getElementById('pump_flow').value = 2.5;
+  document.getElementById('at_temp').value = 24;
+  document.getElementById('pcm_temp').value = 28;
+  document.querySelectorAll('input[type=range]').forEach(inp => {
+    const out = document.getElementById(inp.id + '_v');
+    if (out) out.textContent = inp.value;
+  });
+  applyData();
+  // 重置所有 SVG 的动画状态属性
+  Object.entries(M).forEach(([k, el]) => {
+    const svg = el.querySelector('svg');
+    if (!svg) return;
+    const root = svg.querySelector('[data-component-id]');
+    if (!root) return;
+    if (k === 'pv') root.setAttribute('data-anim-state', 'on');
+    if (k === 'cb') root.setAttribute('data-anim-state', 'connected');
+    if (k === 'gs') {
+      root.setAttribute('data-anim-state', 'on');
+      const handle = svg.querySelector('[data-field="gs_handle"]');
+      if (handle) handle.style.transform = 'rotate(0deg)';
+    }
+    if (k === 'hp') {
+      root.setAttribute('data-anim-state', 'on');
+    }
+    if (k === 'pump') {
+      root.setAttribute('data-anim-state', 'on');
+    }
+    if (k === 'at') root.setAttribute('data-anim-state', 'cool');
+  });
+  // 重置 pill
+  document.getElementById('pill-pv').textContent = 'ON';
+  document.getElementById('pill-pv').className = 'toggle-pill on';
+  document.getElementById('pill-cb').textContent = '合闸';
+  document.getElementById('pill-cb').className = 'toggle-pill on';
+  document.getElementById('pill-gs').textContent = '合闸';
+  document.getElementById('pill-gs').className = 'toggle-pill on';
+  document.getElementById('pill-hp').textContent = '运行';
+  document.getElementById('pill-hp').className = 'toggle-pill on';
+  document.getElementById('pill-pump').textContent = '运行';
+  document.getElementById('pill-pump').className = 'toggle-pill on';
+  document.getElementById('pill-at').textContent = '❄ 制冷';
+  document.getElementById('pill-at').className = 'toggle-pill cool';
+  log('⏮ 全部重置完成');
+};
+
+// 滑块实时显示 + 实时刷新 SVG（v0.3.2 修复：拖动即生效）
+document.querySelectorAll('input[type=range]').forEach(inp => {
+  const out = document.getElementById(inp.id + '_v');
+  inp.oninput = () => {
+    if (out) out.textContent = inp.value;
+    applyData();
+  };
+});
+
+// 实时时钟更新（每 1 秒）
+function updateClocks() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  const timeStr = `${hh}:${mm}:${ss}`;
+  document.querySelectorAll('[data-field="real_clock"]').forEach(el => {
+    el.textContent = timeStr;
+  });
+}
+setInterval(updateClocks, 1000);
+updateClocks(); // 立即更新一次
+
+  // v0.6.0: PV 太阳自主移动动画 + 光锥同步 + 面板亮度 + 反光控制
+  let sunAngle = 0; // 0~2π，控制太阳位置
+  const SUN_BASE_SPEED = 0.012; // 基础速度（弧度/帧）
+
+  function animateSun() {
+    const pvSun = getVal('pv_sun'); // 0~1，控制速度
+    const root = M.pv && M.pv.querySelector('[data-component-id="pv-array"]');
+    const sun = M.pv && M.pv.querySelector('#pv-sun');
+    const cone = M.pv && M.pv.querySelector('#pv-light-cone');
+
+    if (root && sun) {
+      // 太阳自主移动：正弦波平滑扫动
+      if (pvSun > 0) {
+        sunAngle += SUN_BASE_SPEED * pvSun;
+        if (sunAngle > Math.PI * 2) sunAngle -= Math.PI * 2;
+      }
+
+      // 计算太阳位置：x 从 -30 到 270，y 用抛物线
+      const t = (Math.sin(sunAngle - Math.PI / 2) + 1) / 2; // 0~1，从左到右
+      const x = -30 + t * 300;
+      const y = 0.00756 * (x - 120) * (x - 120) + 30;
+
+      // 1. 设置太阳位置
+      const scale = 0.6 + 0.6 * (1 - Math.abs(x - 120) / 150);
+      sun.setAttribute('transform', `translate(${x.toFixed(1)}, ${y.toFixed(1)}) scale(${scale.toFixed(2)})`);
+
+      // 2. 更新光锥：从太阳底部向下辐射到面板区域
+      if (cone) {
+        const coneTopLeft = x - 30;
+        const coneTopRight = x + 30;
+        cone.setAttribute('points', `${coneTopLeft.toFixed(1)},${(y + 20).toFixed(1)} ${coneTopRight.toFixed(1)},${(y + 20).toFixed(1)} 200,200 40,200`);
+        // 光锥透明度随太阳高度变化
+        const heightFactor = 1 - (y - 30) / 170;
+        cone.style.opacity = (0.1 + heightFactor * 0.3).toFixed(2);
+      }
+
+      // 3. 面板亮度 + 照射状态
+      const panelCenters = { left: 65, mid: 120, right: 175 };
+      const groups = { left: '.anim-panel-group-left', mid: '.anim-panel-group-mid', right: '.anim-panel-group-right' };
+      const maxDist = 120;
+
+      Object.entries(groups).forEach(([key, sel]) => {
+        const g = root.querySelector(sel);
+        if (!g) return;
+        const dist = Math.abs(x - panelCenters[key]);
+        const brightness = Math.max(0.15, 1 - dist / maxDist);
+        const glowIntensity = Math.max(0, (1 - dist / maxDist) * 0.8);
+        const illuminated = dist < 80; // 距离太阳 < 80px 时被照射
+
+        g.style.opacity = brightness.toFixed(2);
+        g.style.filter = glowIntensity > 0.1
+          ? `drop-shadow(0 0 ${(glowIntensity * 8).toFixed(1)}px rgba(252, 211, 77, ${glowIntensity.toFixed(2)}))`
+          : 'none';
+        g.setAttribute('data-sun-illuminated', illuminated);
+      });
+    }
+
+    requestAnimationFrame(animateSun);
+  }
+  requestAnimationFrame(animateSun);
+
+  // v0.10.0: JS 驱动的线缆粒子动画（兜底，确保粒子可见）
+  const lineState = {
+    pl: { offset: 0, speed: 0, particles: [] },
+    rl: { offset: 0, speed: 0, particles: [] },
+    wl: { offset: 0, speed: 0, particles: [] },
+  };
+
+  // 初始化：收集每个线缆的粒子元素
+  function initLineParticles() {
+    [['pl', M.pl, '.anim-pl-particle', 28, 200],
+     ['rl', M.rl, '.anim-rl-particle', 40, 200],
+     ['wl', M.wl, '.anim-wl-particle', 36, 200]].forEach(([key, mount, sel, startX, endX]) => {
+       if (!mount) return;
+       const svg = mount.querySelector('svg');
+       if (!svg) return;
+       const particles = svg.querySelectorAll(sel);
+       console.log(`[init ${key}] particles found:`, particles.length);
+       // v0.13.0: 调试 - 检查 SVG 内部结构
+       const allCircles = svg.querySelectorAll('circle');
+       console.log(`[init ${key}] total circles in SVG:`, allCircles.length);
+       if (allCircles.length > 0) {
+         const first = allCircles[0];
+         console.log(`[init ${key}] first circle className:`, first.getAttribute('class'), '/ nodeName:', first.nodeName);
+         console.log(`[init ${key}] first circle classList:`, first.classList ? Array.from(first.classList).join(',') : 'no classList');
+       }
+       lineState[key].particles = Array.from(particles).map((p, i) => ({
+         el: p,
+         y: parseFloat(p.getAttribute('cy')),
+         phase: i / Math.max(1, particles.length),
+         r: parseFloat(p.getAttribute('r')),
+         color: p.getAttribute('fill'),
+       }));
+       // 禁用 CSS animation，避免冲突
+       particles.forEach(p => {
+         p.style.animation = 'none';
+         p.style.opacity = '1';
+       });
+     });
+   }
+
+  // 速度映射
+  function getLineSpeed(key) {
+    if (key === 'pl') return getVal('pl_flow');
+    if (key === 'rl') return getVal('rl_flow');
+    if (key === 'wl') return getVal('wl_flow');
+    return 0;
+  }
+
+  // JS 粒子更新循环
+  let _lineFrameCount = 0;
+  function animateLines() {
+    _lineFrameCount++;
+    if (_lineFrameCount === 1 || _lineFrameCount === 60) {
+      console.log(`[animateLines] frame ${_lineFrameCount}, pl particles:`, lineState.pl.particles.length);
+    }
+    Object.entries(lineState).forEach(([key, state]) => {
+      if (state.particles.length === 0) return;
+      state.speed = getLineSpeed(key);
+      if (state.speed <= 0) {
+        // 静止状态：粒子淡出
+        state.particles.forEach(p => {
+          p.el.style.opacity = '0.2';
+        });
+        return;
+      }
+      // 移动粒子
+      state.offset += state.speed * 0.4; // 速度倍率
+      const cycleDist = 170; // 粒子循环距离
+      state.particles.forEach(p => {
+        // 周期位置：0~1
+        const baseT = (state.offset / cycleDist + p.phase) % 1;
+        const x = 28 + baseT * 170; // 从 x=28 到 x=198
+        p.el.setAttribute('cx', x.toFixed(1));
+        // 透明度：进入和退出时淡出
+        let opacity = 1;
+        if (baseT < 0.1) opacity = baseT / 0.1;
+        else if (baseT > 0.9) opacity = (1 - baseT) / 0.1;
+        p.el.style.opacity = String(opacity);
+      });
+    });
+    requestAnimationFrame(animateLines);
+  }
+
+  initLineParticles();
+  requestAnimationFrame(animateLines);
+  log('✓ JS 线缆粒子动画已启动（兜底）');
+
+  // v0.4.6: temp-sensor 指针旋转 (0°C→-90°, 50°C→0°, 100°C→+90°)
+  function updateTsPointer() {
+    document.querySelectorAll('[data-component-id="temp-sensor"]').forEach(s => {
+      const pointer = s.querySelector('.anim-ts-pointer');
+      if (!pointer) return;
+      const t = parseFloat(s.getAttribute('data-ts-temp')) || 0.5;
+      const angle = -90 + t * 180;
+      pointer.setAttribute('transform', `rotate(${angle} 120 100)`);
+    });
+  }
+  setInterval(updateTsPointer, 200);
+  updateTsPointer();
+
+// 初次应用
+applyData();
+log('💡 提示：点击上方带 🔵 徽标的部件 SVG 可直接切换运行状态');
+</script>
+</body>
+</html>

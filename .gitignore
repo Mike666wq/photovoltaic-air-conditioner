@@ -1,0 +1,53 @@
+# 依赖
+node_modules/
+**/node_modules/
+**/dist/
+.pnpm-store/
+
+# 当前仓库只发布 apps/web；site 为独立的大型工作目录
+apps/site/
+
+# 开发期间遗留的嵌套调试页面，不属于 Vite 正式 public 目录
+apps/web/apps/
+
+# 类型检查缓存
+**/*.tsbuildinfo
+
+# 编辑器 / 系统
+.DS_Store
+.vscode/
+.idea/
+.mimocode/
+
+# 数据 / 场景
+.env
+.env.*
+!.env.example
+data/
+scenarios/
+**/scenarios/
+
+# 文档（关键文档显式保留）
+*.md
+!AGENTS.md
+!apps/web/README.md
+!CICD持续集成部署.md
+!CICD持续集成概念.md
+!README.md
+!deploy/*.md
+!deploy/README.md
+!deploy/LEGACY-MANUAL.md
+
+# 部署产物（保留 docker-compose.yml 等）
+**/deploy/LEGACY-MANUAL.md.bak
+
+# 日志
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 临时文件
+tmp/
+temp/

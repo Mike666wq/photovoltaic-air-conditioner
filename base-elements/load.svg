@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="load">
+  <defs>
+    <linearGradient id="ldTV" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1F2937"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="ldTVS" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/><stop offset="50%" stop-color="#0EA5E9"/><stop offset="100%" stop-color="#1E40AF"/>
+    </linearGradient>
+    <linearGradient id="ldFridge" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="100%" stop-color="#9CA3AF"/>
+    </linearGradient>
+    <radialGradient id="ldLedY" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FEF08A"/><stop offset="50%" stop-color="#EAB308"/><stop offset="100%" stop-color="#713F12"/>
+    </radialGradient>
+    <radialGradient id="ldLedGl" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#EAB308" stop-opacity="0.5"/><stop offset="100%" stop-color="#EAB308" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ldDesk" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#D1D5DB"/><stop offset="100%" stop-color="#6B7280"/>
+    </linearGradient>
+    <filter id="ds12"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl12"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+
+  <style>
+    .anim-load-active { animation: load-blink 1s ease-in-out infinite; }
+    @keyframes load-blink { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+    .anim-load-bar { transition: width 0.5s ease-in-out; }
+    .anim-load-power-scroll { animation: load-scroll 1.5s ease-in-out infinite; }
+    @keyframes load-scroll { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    /* 实时时钟脉冲（每秒） */
+    .anim-load-clock { animation: load-clock-tick 1s steps(1) infinite; }
+    @keyframes load-clock-tick { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    /* v0.4.6: 关停状态整体暗化 */
+    [data-load-state="off"] .anim-load-clock { visibility: hidden; }
+    /* 关闭时整个 load card 变暗（v0.4.2：补齐缺失的 load_off 视觉反馈） */
+    [data-load-state="off"] .anim-load-active { opacity: 0.25; }
+    [data-load-state="off"] .anim-load-bar { opacity: 0.3; }
+    [data-load-state="off"] .anim-load-power-scroll { opacity: 0.3; }
+  </style>
+
+  <ellipse cx="120" cy="216" rx="100" ry="8" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds12)" data-component-id="load" data-clickable="true" data-anim-state="on" data-load-state="on">
+    <rect data-click-target="load" x="0" y="0" width="240" height="220" fill="transparent" pointer-events="all" style="cursor: pointer;"/>
+    <rect x="20" y="14" width="200" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="28" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">LOAD 室内用电</text>
+
+    <!-- 桌面（v0.4.5: 加木质桌面） -->
+    <rect x="0" y="200" width="240" height="16" fill="url(#ldDesk)" stroke="#374151" stroke-width="0.5"/>
+    <line x1="0" y1="200" x2="240" y2="200" stroke="#1F2937" stroke-width="1"/>
+
+    <!-- 电视（v0.4.5: 加实时时钟在电视屏幕上） -->
+    <g>
+      <rect x="20" y="60" width="100" height="68" rx="3" fill="url(#ldTV)"/>
+      <rect x="24" y="64" width="92" height="58" fill="url(#ldTVS)"/>
+      <!-- 电视内容：实时时钟 + 频道标识 -->
+      <text class="anim-load-clock" data-field="real_clock" x="70" y="88" text-anchor="middle" font-size="18" font-weight="bold" fill="#FFFFFF" font-family="monospace">14:32:18</text>
+      <text x="70" y="100" text-anchor="middle" font-size="6" fill="#93C5FD" font-family="monospace">CH-7 CCTV-1</text>
+      <!-- 扫描线动画（CRT 电视效果） -->
+      <g class="anim-load-active" transform="translate(0, 0)">
+        <rect x="24" y="64" width="92" height="1" fill="#FFFFFF" opacity="0.2"/>
+      </g>
+      <text data-field="load_weather" x="70" y="112" text-anchor="middle" font-size="8" fill="white" font-family="monospace">{{load_weather}}</text>
+      <text data-field="load_room" x="70" y="120" text-anchor="middle" font-size="7" fill="white" font-family="monospace">{{load_room}}</text>
+      <!-- 电视底座 -->
+      <rect x="58" y="128" width="24" height="6" fill="#374151"/>
+      <rect x="36" y="134" width="68" height="3" fill="#1F2937"/>
+    </g>
+
+    <!-- 冰箱 -->
+    <g>
+      <rect x="130" y="60" width="60" height="100" fill="url(#ldFridge)" rx="2"/>
+      <line x1="130" y1="100" x2="190" y2="100" stroke="#4B5563" stroke-width="1.5"/>
+      <rect x="184" y="70" width="3" height="20" fill="#374151"/>
+      <rect x="184" y="110" width="3" height="32" fill="#374151"/>
+      <circle data-field="fridge_status" cx="142" cy="75" r="2" fill="#22C55E"/>
+      <text data-field="fridge_temp" x="148" y="79" font-size="6" fill="#374151" font-family="monospace">{{fridge_temp}}</text>
+      <rect x="138" y="154" width="44" height="6" fill="#1F2937"/>
+      <text x="160" y="159" text-anchor="middle" font-size="5" font-weight="bold" fill="#FCD34D" font-family="sans-serif">HAIER</text>
+    </g>
+
+    <!-- 台灯（v0.4.5: 加灯罩和灯泡） -->
+    <g>
+      <!-- 灯罩 -->
+      <path d="M 105 110 L 120 90 L 135 110 Z" fill="#9CA3AF" stroke="#1F2937" stroke-width="0.8"/>
+      <!-- 灯泡（亮黄） -->
+      <circle data-field="lamp_glow" cx="120" cy="106" r="3" fill="#FCD34D"/>
+      <circle data-field="lamp_led" cx="120" cy="106" r="1.5" fill="#FEF08A"/>
+      <!-- 灯杆 -->
+      <rect x="118" y="110" width="4" height="20" fill="#1F2937"/>
+      <!-- 灯底 -->
+      <ellipse cx="120" cy="130" rx="10" ry="3" fill="#374151"/>
+    </g>
+
+    <!-- 笔记本电脑（v0.4.5 新增: 桌面上加笔记本） -->
+    <g>
+      <rect x="30" y="155" width="44" height="3" fill="#374151"/>
+      <rect x="32" y="142" width="40" height="14" fill="#1F2937" stroke="#0F172A" stroke-width="0.5"/>
+      <rect x="34" y="144" width="36" height="10" fill="#0EA5E9"/>
+      <text class="anim-load-clock" data-field="real_clock" x="52" y="152" text-anchor="middle" font-size="6" font-weight="bold" fill="#FFFFFF" font-family="monospace">14:32</text>
+    </g>
+
+    <!-- 5 个设备活跃指示（按 load_devices 数量显示） -->
+    <g transform="translate(80, 175)">
+      <text x="0" y="0" font-size="5" fill="#9CA3AF" font-family="monospace">DEVICES</text>
+      <g class="anim-load-active">
+        <circle cx="42" cy="-2" r="3" fill="url(#ldLedY)"/>
+        <circle cx="50" cy="-2" r="3" fill="url(#ldLedY)"/>
+        <circle cx="58" cy="-2" r="3" fill="url(#ldLedY)"/>
+        <circle cx="66" cy="-2" r="3" fill="#374151"/>
+        <circle cx="74" cy="-2" r="3" fill="#374151"/>
+      </g>
+    </g>
+
+    <!-- 功率进度条 -->
+    <g transform="translate(105, 188)">
+      <text x="0" y="-1" font-size="5" fill="#9CA3AF" font-family="monospace">PWR</text>
+      <rect x="18" y="-5" width="100" height="6" rx="3" fill="#1F2937"/>
+      <rect class="anim-load-bar" data-field="load_power_bar" x="18" y="-5" width="50" height="6" rx="3" fill="#FCD34D"/>
+    </g>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text class="anim-load-power-scroll" data-field="load_summary" x="120" y="233" text-anchor="middle" font-size="8" fill="#FCD34D" font-family="monospace" font-weight="bold">{{load_summary}}</text>
+</svg>

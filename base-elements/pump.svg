@@ -1,0 +1,295 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="pump">
+  <defs>
+    <!-- 圆柱电机 -->
+    <linearGradient id="pmMotor" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9CA3AF"/><stop offset="50%" stop-color="#4B5563"/><stop offset="100%" stop-color="#1F2937"/>
+    </linearGradient>
+    <!-- 电机散热鳍片 -->
+    <linearGradient id="pmFin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#93C5FD"/><stop offset="100%" stop-color="#3B82F6"/>
+    </linearGradient>
+    <!-- 电机风扇 -->
+    <radialGradient id="pmMotorFan" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#E5E7EB"/><stop offset="60%" stop-color="#6B7280"/><stop offset="100%" stop-color="#1F2937"/>
+    </radialGradient>
+    <!-- 泵头 -->
+    <linearGradient id="pmHead" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="50%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#374151"/>
+    </linearGradient>
+    <!-- 水环 -->
+    <radialGradient id="pmWater" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BAE6FD" stop-opacity="0.8"/>
+      <stop offset="80%" stop-color="#0EA5E9" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#1E40AF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ledG9" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="ledGl9" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.5"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds9"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl9"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+
+  <style>
+    /* ============ 水泵动画 v0.3.2 ============ */
+    .anim-impeller, .anim-water-flow, .anim-water-up, .anim-motor-fan, .anim-motor-fin,
+    .anim-shaft, .anim-coupling {
+      opacity: 0;
+    }
+    /* 圆柱电机 + 联轴器 + 风扇在 [data-anim-state=on] 时显示 */
+    [data-anim-state="on"] .anim-motor-fan { opacity: 1; }
+    [data-anim-state="on"] .anim-motor-fin { opacity: 0.7; }
+    [data-anim-state="on"] .anim-shaft { opacity: 1; }
+    [data-anim-state="on"] .anim-coupling { opacity: 1; }
+    [data-anim-state="on"] .anim-impeller { opacity: 1; }
+    [data-anim-state="on"] .anim-water-flow { opacity: 1; }
+    [data-anim-state="on"] .anim-water-up { opacity: 1; }
+
+    /* 电机风扇（左侧）：5 片叶轮旋转 */
+    .anim-motor-fan {
+      transform-origin: 80px 130px;
+      transform-box: view-box;
+    }
+    [data-anim-state="on"] .anim-motor-fan {
+      animation: motor-fan-spin var(--anim-impeller-duration, 1s) linear infinite;
+    }
+    @keyframes motor-fan-spin { to { transform: rotate(360deg); } }
+
+    /* 散热鳍片脉动 */
+    [data-anim-state="on"] .anim-motor-fin {
+      animation: fin-pulse 0.8s ease-in-out infinite;
+    }
+    @keyframes fin-pulse {
+      0%, 100% { opacity: 0.5; }
+      50%      { opacity: 0.9; }
+    }
+
+    /* 联轴器（电机↔泵头）旋转 */
+    [data-anim-state="on"] .anim-coupling {
+      animation: coupling-spin var(--anim-impeller-duration, 1s) linear infinite;
+    }
+    @keyframes coupling-spin { to { transform: rotate(360deg); } }
+
+    /* 泵头叶轮（右侧） */
+    .anim-impeller {
+      transform-origin: 162px 142px;
+      transform-box: view-box;
+    }
+    [data-anim-state="on"] .anim-impeller {
+      animation: impeller-spin var(--anim-impeller-duration, 1s) linear infinite;
+    }
+    @keyframes impeller-spin { to { transform: rotate(360deg); } }
+
+    /* 水环（围绕叶轮） */
+    @keyframes water-ring {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50%      { opacity: 0.7; transform: scale(1.05); }
+    }
+    [data-anim-state="on"] .anim-water-ring {
+      opacity: 0.6;
+      animation: water-ring 1s ease-in-out infinite;
+    }
+
+    /* 水流粒子（向上，密集） */
+    [data-anim-state="on"] .anim-water-flow {
+      animation: water-up 1s linear infinite;
+    }
+    @keyframes water-up {
+      0%   { transform: translateY(0); opacity: 0; }
+      20%  { opacity: 0.9; }
+      100% { transform: translateY(-40px); opacity: 0; }
+    }
+
+    /* 水流粒子（向下进入） */
+    [data-anim-state="on"] .anim-water-up {
+      animation: water-down 1.2s linear infinite;
+    }
+    @keyframes water-down {
+      0%   { transform: translateY(0); opacity: 0; }
+      30%  { opacity: 0.7; }
+      100% { transform: translateY(30px); opacity: 0; }
+    }
+
+    /* 铭牌 LED 通电指示 */
+    .anim-motor-led { opacity: 0.3; }
+    [data-anim-state="on"] .anim-motor-led {
+      opacity: 1;
+      animation: motor-led-blink 2s ease-in-out infinite;
+    }
+    @keyframes motor-led-blink {
+      0%, 90%, 100% { opacity: 1; }
+      95%           { opacity: 0.4; }
+    }
+  </style>
+
+  <ellipse cx="120" cy="220" rx="80" ry="8" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds9)" data-component-id="pump" data-clickable="true" data-anim-state="on">
+    <rect x="60" y="190" width="120" height="22" rx="2" fill="#374151"/>
+    <rect x="60" y="190" width="120" height="4" fill="#1F2937"/>
+    <circle cx="68" cy="201" r="2" fill="#1F2937"/>
+    <circle cx="112" cy="201" r="2" fill="#1F2937"/>
+    <circle cx="172" cy="201" r="2" fill="#1F2937"/>
+
+    <!-- 顶部 WATER PUMP 标识牌 -->
+    <rect x="60" y="20" width="120" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="34" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">WATER PUMP 水泵</text>
+
+    <!-- v0.3.2 重做：圆柱电机（左） + 联轴器（中） + 泵头（右） -->
+
+    <!-- 圆柱电机外壳（左侧） -->
+    <rect x="40" y="110" width="65" height="55" fill="url(#pmMotor)" rx="4"/>
+    <!-- 散热鳍片（垂直） -->
+    <g class="anim-motor-fin" fill="url(#pmFin)">
+      <rect x="42" y="115" width="1.5" height="45"/>
+      <rect x="46" y="115" width="1.5" height="45"/>
+      <rect x="50" y="115" width="1.5" height="45"/>
+      <rect x="54" y="115" width="1.5" height="45"/>
+      <rect x="58" y="115" width="1.5" height="45"/>
+      <rect x="62" y="115" width="1.5" height="45"/>
+      <rect x="66" y="115" width="1.5" height="45"/>
+      <rect x="70" y="115" width="1.5" height="45"/>
+      <rect x="74" y="115" width="1.5" height="45"/>
+      <rect x="78" y="115" width="1.5" height="45"/>
+      <rect x="82" y="115" width="1.5" height="45"/>
+      <rect x="86" y="115" width="1.5" height="45"/>
+      <rect x="90" y="115" width="1.5" height="45"/>
+      <rect x="94" y="115" width="1.5" height="45"/>
+      <rect x="98" y="115" width="1.5" height="45"/>
+      <rect x="102" y="115" width="1.5" height="45"/>
+    </g>
+
+    <!-- 电机铭牌 -->
+    <rect x="48" y="170" width="50" height="14" rx="1" fill="#F3F4F6"/>
+    <text x="73" y="178" text-anchor="middle" font-size="6" fill="#374151" font-family="monospace">MOTOR</text>
+    <text data-field="pump_power" x="73" y="184" text-anchor="middle" font-size="6" fill="#1E40AF" font-family="monospace">{{pump_power}}kW</text>
+    <!-- 铭牌通电指示灯 -->
+    <circle class="anim-motor-led" cx="95" cy="172" r="1.5" fill="#22C55E"/>
+
+<!-- v0.4.0: 电机散热风扇 - 对称弧形 5 片（每片是一段圆弧，不是倒水滴） -->
+    <g class="anim-motor-fan">
+      <circle cx="80" cy="130" r="22" fill="#0F172A" stroke="#374151" stroke-width="0.8"/>
+      <g transform="translate(80,130)">
+        <!-- 5 个对称叶片：从中心向外的弧形（fan blade shape） -->
+        <g fill="url(#pmMotorFan)" stroke="#1F2937" stroke-width="0.5">
+          <!-- v0.4.4: 对称叶形（Q 8 -8 0 -16 Q -8 -8 0 0 Z），中心对称 5 片 -->
+          <path d="M 0 0 Q 8 -8 0 -16 Q -8 -8 0 0 Z"/>
+          <path d="M 0 0 Q 8 -8 0 -16 Q -8 -8 0 0 Z" transform="rotate(72)"/>
+          <path d="M 0 0 Q 8 -8 0 -16 Q -8 -8 0 0 Z" transform="rotate(144)"/>
+          <path d="M 0 0 Q 8 -8 0 -16 Q -8 -8 0 0 Z" transform="rotate(216)"/>
+          <path d="M 0 0 Q 8 -8 0 -16 Q -8 -8 0 0 Z" transform="rotate(288)"/>
+          <!-- 叶根反光线（每片一条白线指示旋转中心） -->
+          <line x1="0" y1="-2" x2="0" y2="-13" stroke="#FFFFFF" stroke-width="0.6" opacity="0.7"/>
+        </g>
+        <circle r="5" fill="#374151"/>
+        <circle r="2" fill="#FCD34D"/>
+      </g>
+    </g>
+
+<!-- v0.4.0: 电机→泵头之间的水流 + 联轴器 -->
+    <g data-animation-id="pump_anim_impeller">
+      <!-- 水滴粒子（电机→联轴器流向泵头） -->
+      <circle class="anim-motor-water" cx="108" cy="158" r="2.5" fill="#0EA5E9"/>
+      <circle class="anim-motor-water mw-2" cx="115" cy="158" r="2.2" fill="#3B82F6"/>
+      <circle class="anim-motor-water mw-3" cx="122" cy="158" r="2.5" fill="#0EA5E9"/>
+    </g>
+
+    <!-- 联轴器（电机↔泵头，2 段轴，加粗 + 旋转色环） -->
+    <g class="anim-shaft">
+      <rect x="105" y="137" width="20" height="8" fill="#6B7280" stroke="#1F2937" stroke-width="0.8" rx="1"/>
+      <rect x="107" y="139" width="16" height="4" fill="#374151"/>
+    </g>
+    <!-- 联轴器圆盘（旋转） -->
+    <g class="anim-coupling" transform-origin="115px 140px" transform-box="view-box">
+      <ellipse cx="115" cy="140" rx="4" ry="6" fill="#9CA3AF" stroke="#1F2937" stroke-width="0.6"/>
+      <line x1="115" y1="135" x2="115" y2="145" stroke="#1F2937" stroke-width="0.8"/>
+    </g>
+
+    <!-- 泵头外壳（右侧） -->
+    <rect x="130" y="100" width="65" height="85" fill="url(#pmHead)" rx="6"/>
+    <rect x="130" y="100" width="65" height="85" fill="#BAE6FD" opacity="0.3" rx="6"/>
+
+    <!-- 进出水法兰 -->
+    <rect x="142" y="86" width="18" height="14" fill="#9CA3AF" stroke="#374151" stroke-width="0.5"/>
+    <text x="151" y="96" text-anchor="middle" font-size="5" fill="#1F2937" font-family="monospace">OUT</text>
+    <rect x="166" y="184" width="18" height="14" fill="#9CA3AF" stroke="#374151" stroke-width="0.5"/>
+    <text x="175" y="194" text-anchor="middle" font-size="5" fill="#1F2937" font-family="monospace">IN</text>
+    <circle cx="151" cy="84" r="2" fill="#374151"/>
+    <circle cx="175" cy="198" r="2" fill="#374151"/>
+
+    <!-- 水环（围绕叶轮，蓝色光环） -->
+    <g class="anim-water-ring">
+      <circle cx="162" cy="142" r="26" fill="none" stroke="#0EA5E9" stroke-width="2" opacity="0.6"/>
+      <circle cx="162" cy="142" r="30" fill="none" stroke="#3B82F6" stroke-width="1" opacity="0.3"/>
+    </g>
+
+    <!-- 叶轮舱 -->
+    <ellipse cx="162" cy="142" rx="22" ry="22" fill="#4B5563"/>
+    <ellipse cx="162" cy="142" rx="18" ry="18" fill="#1F2937"/>
+
+    <!-- 叶轮（5 片） -->
+    <g class="anim-impeller" data-animation-id="pump_anim_impeller" data-animation-type="rotate">
+      <g transform="translate(162,142)" opacity="0.95">
+        <g fill="url(#pmMotorFan)" stroke="#1F2937" stroke-width="0.6">
+          <path d="M 0 0 Q 8 -10 16 0 Q 8 10 0 0 Z"/>
+          <path d="M 0 0 Q 8 -10 16 0 Q 8 10 0 0 Z" transform="rotate(72)"/>
+          <path d="M 0 0 Q 8 -10 16 0 Q 8 10 0 0 Z" transform="rotate(144)"/>
+          <path d="M 0 0 Q 8 -10 16 0 Q 8 10 0 0 Z" transform="rotate(216)"/>
+          <path d="M 0 0 Q 8 -10 16 0 Q 8 10 0 0 Z" transform="rotate(288)"/>
+        </g>
+        <circle r="4" fill="#1F2937"/>
+      </g>
+    </g>
+
+    <!-- 上升水流粒子（出水口，从下往上，密集） -->
+    <g data-animation-id="pump_anim_water_flow" data-field="pump_particles">
+      <circle class="anim-water-flow" style="animation-delay: 0s" cx="146" cy="170" r="2.6" fill="#0EA5E9"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.15s" cx="150" cy="170" r="2.6" fill="#0EA5E9"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.3s" cx="155" cy="170" r="2.2" fill="#3B82F6"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.45s" cx="170" cy="170" r="2.6" fill="#0EA5E9"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.6s" cx="175" cy="170" r="2.2" fill="#3B82F6"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.75s" cx="180" cy="170" r="2.6" fill="#0EA5E9"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.05s" cx="186" cy="170" r="2.6" fill="#0EA5E9"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.2s" cx="158" cy="170" r="1.8" fill="#0EA5E9"/>
+      <circle class="anim-water-flow" style="animation-delay: 0.4s" cx="178" cy="170" r="1.8" fill="#0EA5E9"/>
+    </g>
+
+    <!-- 下降水流粒子（进水口，补充） -->
+    <g class="anim-water-up-group">
+      <circle class="anim-water-up" style="animation-delay: 0s" cx="166" cy="190" r="1.5" fill="#3B82F6"/>
+      <circle class="anim-water-up" style="animation-delay: 0.3s" cx="170" cy="190" r="1.5" fill="#3B82F6"/>
+      <circle class="anim-water-up" style="animation-delay: 0.6s" cx="174" cy="190" r="1.5" fill="#3B82F6"/>
+      <circle class="anim-water-up" style="animation-delay: 0.9s" cx="178" cy="190" r="1.5" fill="#3B82F6"/>
+    </g>
+
+    <!-- 接线盒 + 状态灯 -->
+    <rect x="50" y="100" width="34" height="10" rx="2" fill="#1F2937"/>
+    <circle data-field="pump_status_glow" cx="56" cy="105" r="2" fill="url(#ledGl9)" filter="url(#gl9)"/>
+    <circle data-field="pump_status_led" cx="56" cy="105" r="1.5" fill="url(#ledG9)"/>
+
+    <!-- 状态 LED -->
+    <circle data-field="pump_status_glow2" cx="36" cy="148" r="6" fill="url(#ledGl9)" filter="url(#gl9)"/>
+    <circle data-field="pump_status_led2" cx="36" cy="148" r="3.5" fill="url(#ledG9)"/>
+    <text data-field="pump_status_text" x="24" y="166" font-size="7" fill="#22C55E" font-family="monospace">{{pump_status_text}}</text>
+
+    <!-- 流量标识 -->
+    <g transform="translate(36,178)">
+      <text data-field="pump_flow_label" x="0" y="0" font-size="8" fill="#1E40AF" font-family="monospace" font-weight="bold">{{pump_flow_label}}</text>
+      <text x="0" y="9" font-size="6" fill="#6B7280" font-family="monospace">m³/h</text>
+    </g>
+
+    <!-- H=3m 标识 -->
+    <g transform="translate(186,52)">
+      <rect x="-2" y="-2" width="26" height="12" rx="1" fill="#FCD34D"/>
+      <text data-field="pump_head" x="11" y="7" text-anchor="middle" font-size="8" fill="#1F2937" font-family="monospace" font-weight="bold">{{pump_head}}</text>
+    </g>
+
+    <!-- 点击热区 -->
+    <rect data-click-target="pump" x="0" y="0" width="240" height="220" fill="transparent" pointer-events="all" style="cursor: pointer;"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">循环水泵 · <tspan data-field="pump_capacity">{{pump_capacity}}</tspan></text>
+</svg>

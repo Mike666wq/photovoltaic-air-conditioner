@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="grid-switch">
+  <defs>
+
+    <linearGradient id="gsT" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="100%" stop-color="#6B7280"/>
+    </linearGradient>
+    <linearGradient id="gsS" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4B5563"/><stop offset="100%" stop-color="#1F2937"/>
+    </linearGradient>
+    <linearGradient id="lcd7" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="handleR" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </linearGradient>
+    <linearGradient id="handleG" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#86EFAC"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </linearGradient>
+    <radialGradient id="ledG7" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="ledR7" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <radialGradient id="ledGl7" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.55"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds7"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl7"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+
+  <style>
+      /* ============ 并网开关动画 ============ */
+      .anim-handle { transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+      .anim-connection-glow { opacity: 0.15; }
+      .anim-spark { opacity: 0; }
+      /* M1.5: 电火花组 display:block 时（useTransientSpark 触发），子圆点显示并衰减 */
+      @keyframes spark-pulse {
+        0%   { opacity: 1; transform: scale(1.4); }
+        100% { opacity: 0; transform: scale(0.6); }
+      }
+      [data-animation-id="gs_anim_spark"] .anim-spark {
+        animation: spark-pulse 0.8s ease-out forwards;
+      }
+      /* v0.3.1: 线缆断点显隐 */
+      .anim-wire-continuous { stroke: #E63946; transition: stroke 0.3s, stroke-dasharray 0.3s, opacity 0.3s; }
+      .anim-break { opacity: 0; transition: opacity 0.3s; }
+      /* 合闸：手柄直立、LED 亮、电火花出现 */
+      [data-anim-state="on"] .anim-handle { transform: rotate(0deg); }
+      [data-anim-state="off"] .anim-handle { transform: rotate(60deg); }
+      [data-anim-state="on"] .anim-connection-glow {
+        opacity: 1;
+        animation: connection-pulse 1.2s ease-in-out infinite;
+      }
+      /* v0.3.1: 分闸时线缆变灰虚线 + 显示断点 + 闪电符号 */
+      [data-anim-state="off"] .anim-wire-continuous {
+        stroke: #9CA3AF;
+        stroke-dasharray: 4 2;
+        opacity: 0.5;
+      }
+      [data-anim-state="off"] .anim-break {
+        opacity: 1;
+        animation: break-flicker 0.8s ease-in-out infinite;
+      }
+      @keyframes connection-pulse {
+        0%, 100% { opacity: 0.4; }
+        50%      { opacity: 1; }
+      }
+      @keyframes break-flicker {
+        0%, 100% { opacity: 0.4; }
+        50%      { opacity: 1; }
+      }
+
+      /* v0.3.2: 手柄球颜色（由 --anim-handle-color 控制，绿=合闸/红=分闸） */
+      .anim-handle-ball { fill: var(--anim-handle-color, #EF4444); transition: fill 0.3s; }
+    </style>
+
+  <ellipse cx="120" cy="216" rx="80" ry="9" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds7)" data-component-id="grid-switch" data-clickable="true" data-anim-state="on">
+    <polygon points="55,80 120,60 185,80 120,100" fill="url(#gsT)"/>
+    <polygon points="55,80 55,200 120,220 120,100" fill="url(#gsS)"/>
+    <polygon points="185,80 185,200 120,220 120,100" fill="#F3F4F6"/>
+
+    <!-- v0.3.1: 左侧进线缆（合闸时连续） -->
+    <path class="anim-wire-continuous" data-animation-id="gs_anim_wire_left"
+          d="M 10 148 L 55 148" stroke-width="3" fill="none"/>
+    <!-- v0.3.1: 左侧分闸断点（5px 间隙 + 闪电符号） -->
+    <g class="anim-break" data-animation-id="gs_anim_break_left">
+      <line x1="10" y1="148" x2="48" y2="148" stroke="#9CA3AF" stroke-width="3" stroke-dasharray="4 2"/>
+      <path d="M 50 138 L 47 148 L 53 148 L 50 158" stroke="#FCD34D" stroke-width="1.5" fill="none"/>
+    </g>
+
+    <!-- v0.3.1: 右侧出线缆（合闸时连续） -->
+    <path class="anim-wire-continuous" data-animation-id="gs_anim_wire_right"
+          d="M 185 148 L 230 148" stroke-width="3" fill="none"/>
+    <!-- v0.3.1: 右侧分闸断点（5px 间隙 + 闪电符号） -->
+    <g class="anim-break" data-animation-id="gs_anim_break_right">
+      <line x1="192" y1="148" x2="230" y2="148" stroke="#9CA3AF" stroke-width="3" stroke-dasharray="4 2"/>
+      <path d="M 190 138 L 187 148 L 193 148 L 190 158" stroke="#FCD34D" stroke-width="1.5" fill="none"/>
+    </g>
+
+    <!-- 顶部 GRID SWITCH 大标识牌 -->
+    <rect x="55" y="42" width="130" height="22" rx="2" fill="#0F172A"/>
+    <text x="120" y="57" text-anchor="middle" font-size="13" font-weight="bold" fill="#FCD34D" font-family="sans-serif">GRID SWITCH 并网开关</text>
+
+    <!-- LCD 大字显示 ON/OFF -->
+    <rect x="65" y="100" width="110" height="38" rx="3" fill="url(#lcd7)" stroke="#1F2937" stroke-width="1"/>
+    <rect x="67" y="102" width="106" height="34" fill="#0F172A"/>
+    <text data-field="gs_status_text" data-animation-id="gs_anim_status_text"
+          x="120" y="125" text-anchor="middle" font-size="22" font-weight="bold"
+          fill="#22C55E" font-family="monospace">{{gs_status_text}}</text>
+
+    <!-- 大型旋转手柄（核心辨识：圆柱手柄 + 把手，点击后旋转 60°） -->
+    <g transform="translate(120,170)" data-animation-id="gs_anim_handle">
+      <!-- 底座圆盘 -->
+      <ellipse cx="0" cy="0" rx="28" ry="10" fill="#1F2937"/>
+      <ellipse cx="0" cy="-2" rx="26" ry="9" fill="#374151"/>
+      <ellipse cx="0" cy="-2" rx="26" ry="9" fill="none" stroke="#9CA3AF" stroke-width="0.5"/>
+      <!-- ON/OFF 标记 -->
+      <text x="-18" y="2" text-anchor="middle" font-size="6" fill="#22C55E" font-family="monospace" font-weight="bold">ON</text>
+      <text x="18" y="2" text-anchor="middle" font-size="6" fill="#9CA3AF" font-family="monospace" font-weight="bold">OFF</text>
+      <!-- 手柄杆 + 把手球（数据驱动旋转） -->
+      <g class="anim-handle" data-field="gs_handle" data-animation-type="rotate">
+        <rect x="-3" y="-32" width="6" height="28" fill="url(#gsT)" stroke="#1F2937" stroke-width="0.5"/>
+        <circle class="anim-handle-ball" data-animation-id="gs_anim_handle_color" cx="0" cy="-32" r="10" stroke="#1F2937" stroke-width="1" data-field="gs_handle_ball"/>
+        <circle cx="-2" cy="-34" r="3" fill="#FCA5A5"/>
+      </g>
+    </g>
+
+    <!-- 连接通路指示（左右各一个 LED） -->
+    <g data-animation-id="gs_anim_left_led">
+      <circle class="anim-connection-glow" data-field="gs_led_glow_on" cx="48" cy="148" r="6" fill="url(#ledGl7)" filter="url(#gl7)"/>
+      <circle data-field="gs_led_on" cx="48" cy="148" r="3.5" fill="url(#ledG7)"/>
+      <text data-field="gs_label_on" x="60" y="151" font-size="8" fill="#22C55E" font-family="monospace">{{gs_label_on}}</text>
+    </g>
+
+    <g data-animation-id="gs_anim_right_led">
+      <circle data-field="gs_led_off" cx="192" cy="148" r="6" fill="url(#ledR7)" opacity="0.4"/>
+      <text data-field="gs_label_off" x="180" y="151" font-size="8" fill="#9CA3AF" font-family="monospace">{{gs_label_off}}</text>
+    </g>
+
+    <!-- 切换电火花（仅在状态切换瞬间出现） -->
+    <g data-animation-id="gs_anim_spark" style="display: none;">
+      <circle class="anim-spark" cx="120" cy="150" r="4" fill="#FCD34D"/>
+      <circle class="anim-spark" style="animation-delay: 0.2s" cx="110" cy="155" r="3" fill="#FBBF24"/>
+      <circle class="anim-spark" style="animation-delay: 0.4s" cx="130" cy="160" r="3" fill="#F59E0B"/>
+    </g>
+
+    <circle cx="65" cy="88" r="2" fill="#1F2937"/>
+    <circle cx="175" cy="88" r="2" fill="#1F2937"/>
+
+    <!-- 点击热区 -->
+    <rect data-click-target="grid-switch" x="0" y="0" width="240" height="220" fill="transparent" pointer-events="all" style="cursor: pointer;"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">并网开关 · <tspan data-field="gs_capacity">{{gs_capacity}}</tspan></text>
+</svg>

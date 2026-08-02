@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="battery">
+  <style>
+    /* v0.3.2: 电芯间充放电流动线（更明显的绿/橙流动） */
+    .anim-cell-flow {
+      stroke-dasharray: 6 3;
+      opacity: 0;
+      stroke-linecap: round;
+    }
+    /* 充电：粒子从左→右，绿色 */
+    [data-anim-flow-dir="in"] .anim-cell-flow {
+      opacity: 1;
+      stroke: #22C55E;
+      animation: cell-flow-in 1s linear infinite;
+      filter: drop-shadow(0 0 2px #22C55E);
+    }
+    @keyframes cell-flow-in { to { stroke-dashoffset: -18; } }
+    /* 放电：粒子从右→左，橙色 */
+    [data-anim-flow-dir="out"] .anim-cell-flow {
+      opacity: 1;
+      stroke: #F97316;
+      animation: cell-flow-out 1s linear infinite;
+      filter: drop-shadow(0 0 2px #F97316);
+    }
+    @keyframes cell-flow-out { to { stroke-dashoffset: 18; } }
+
+    /* M1.5: 进度条宽度平滑过渡（injectGeometry 写入 width 时不 snap） */
+    [data-field="bat_progress_bar"] { transition: width 0.5s ease-in-out; }
+
+    /* 电流方向大箭头（LCD 下方） */
+    .anim-current-arrow {
+      opacity: 0;
+      transition: opacity 0.3s, transform 0.3s;
+    }
+    [data-anim-flow-dir="in"] .anim-current-arrow-in { opacity: 1; }
+    [data-anim-flow-dir="out"] .anim-current-arrow-out { opacity: 1; }
+
+    /* BMS 散热风扇（4 片叶片，充放电时转动） */
+    .anim-bms-fan {
+      transform-origin: 175px 50px;
+      transform-box: view-box;
+      opacity: 0;
+    }
+    [data-anim-flow-dir="in"] .anim-bms-fan,
+    [data-anim-flow-dir="out"] .anim-bms-fan {
+      opacity: 1;
+      animation: bms-fan-spin 0.4s linear infinite;
+    }
+    @keyframes bms-fan-spin { to { transform: rotate(360deg); } }
+
+    /* 低 SOC 红色脉冲 */
+    [data-anim-soc-low="true"] {
+      animation: soc-low-pulse 1s ease-in-out infinite;
+    }
+    @keyframes soc-low-pulse {
+      0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+      50%      { filter: drop-shadow(0 0 6px #EF4444); }
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="btC" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="50%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#4B5563"/>
+    </linearGradient>
+    <linearGradient id="btS" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <!-- 充满方格：鲜绿渐变 -->
+    <linearGradient id="btCell" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#A7F3D0"/><stop offset="40%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </linearGradient>
+    <!-- 空方格：暗灰 -->
+    <linearGradient id="btCellE" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9CA3AF"/><stop offset="100%" stop-color="#1F2937"/>
+    </linearGradient>
+    <linearGradient id="lcd3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#020617"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <radialGradient id="ledG3" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="ledGl3" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.55"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="ds3"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl3"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+
+  <ellipse cx="120" cy="216" rx="90" ry="9" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds3)" data-component-id="battery" data-clickable="true" data-anim-state="on">
+    <polygon points="40,50 120,32 200,50 120,68" fill="url(#btC)" opacity="0.95"/>
+    <polygon points="40,50 40,200 120,218 120,68" fill="url(#btS)" opacity="0.9"/>
+    <polygon points="200,50 200,200 120,218 120,68" fill="#F3F4F6" opacity="0.9"/>
+
+    <!-- 顶部 BATTERY 标识牌 -->
+    <rect x="60" y="34" width="120" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="48" text-anchor="middle" font-size="12" font-weight="bold" fill="#FCD34D" font-family="sans-serif">BATTERY 蓄电池</text>
+
+    <!-- +/- 极柱 -->
+    <rect x="80" y="14" width="18" height="22" rx="3" fill="#EF4444" stroke="#1F2937" stroke-width="1"/>
+    <rect x="86" y="8" width="6" height="8" rx="1" fill="#FCA5A5"/>
+    <text x="89" y="32" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="sans-serif">+</text>
+
+    <!-- v0.3.2: BMS 散热风扇（位于右上角，充放电时转动） -->
+    <g data-animation-id="bat_anim_flow_dir" class="anim-bms-fan">
+      <circle cx="175" cy="50" r="9" fill="#1F2937" stroke="#374151" stroke-width="0.5"/>
+      <g transform="translate(175,50)">
+        <path d="M 0 0 Q 5 -7 0 -7 Q -5 -7 0 0 Z" fill="#9CA3AF" stroke="#1F2937" stroke-width="0.4"/>
+        <path d="M 0 0 Q 5 -7 0 -7 Q -5 -7 0 0 Z" transform="rotate(90)" fill="#9CA3AF" stroke="#1F2937" stroke-width="0.4"/>
+        <path d="M 0 0 Q 5 -7 0 -7 Q -5 -7 0 0 Z" transform="rotate(180)" fill="#9CA3AF" stroke="#1F2937" stroke-width="0.4"/>
+        <path d="M 0 0 Q 5 -7 0 -7 Q -5 -7 0 0 Z" transform="rotate(270)" fill="#9CA3AF" stroke="#1F2937" stroke-width="0.4"/>
+      </g>
+      <circle cx="175" cy="50" r="2" fill="#374151"/>
+      <text x="175" y="68" text-anchor="middle" font-size="5" fill="#9CA3AF" font-family="monospace">BMS</text>
+    </g>
+    <rect x="142" y="14" width="18" height="22" rx="3" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+    <text x="151" y="32" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="sans-serif">−</text>
+
+    <!-- LCD 大屏 -->
+    <rect x="46" y="68" width="148" height="50" rx="3" fill="url(#lcd3)" stroke="#1F2937" stroke-width="1"/>
+    <rect x="48" y="70" width="144" height="46" fill="#0F172A"/>
+    <text data-field="bat_label" x="54" y="80" font-size="7" fill="#9CA3AF" font-family="monospace">{{bat_label}}</text>
+    <text data-field="bat_soc" x="54" y="105" font-size="22" font-weight="bold" fill="#FCD34D" font-family="monospace">{{bat_soc}}</text>
+    <text x="100" y="105" font-size="10" fill="#FCD34D" font-family="monospace">SOC</text>
+    <text data-field="bat_status_text" x="54" y="114" font-size="7" fill="#22C55E" font-family="monospace">{{bat_status_text}}</text>
+    <!-- v0.5: 电压 / 电流（XLSX BMS 数据） -->
+    <text x="126" y="86" font-size="6" fill="#93C5FD" font-family="monospace">V</text>
+    <text data-field="bat_voltage" x="158" y="86" text-anchor="end" font-size="9" font-weight="bold" fill="#FCD34D" font-family="monospace">—</text>
+    <text x="126" y="103" font-size="6" fill="#93C5FD" font-family="monospace">A</text>
+    <text data-field="bat_current" x="158" y="103" text-anchor="end" font-size="9" font-weight="bold" fill="#22C55E" font-family="monospace">—</text>
+
+    <!-- 10 个方格电池（1×10 横排，对应 SOC 0-100%） -->
+    <!-- 每个方格 13px 宽 × 18px 高，间距 1px -->
+    <g data-field="bat_charge_level" transform="translate(51,128)">
+      <rect data-cell="0" x="0" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="1" x="14" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="2" x="28" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="3" x="42" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="4" x="56" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="5" x="70" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="6" x="84" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="7" x="98" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="8" x="112" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+      <rect data-cell="9" x="126" y="0" width="13" height="18" fill="url(#btCellE)" stroke="#1F2937" stroke-width="0.6" rx="1"/>
+    </g>
+
+    <!-- v0.3.2: 电芯间充放电流动线（每段 14px，dasharray 流动） -->
+    <g data-animation-id="bat_anim_flow_dir">
+      <line class="anim-cell-flow" x1="50" y1="137" x2="64" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="64" y1="137" x2="78" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="78" y1="137" x2="92" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="92" y1="137" x2="106" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="106" y1="137" x2="120" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="120" y1="137" x2="134" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="134" y1="137" x2="148" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="148" y1="137" x2="162" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="162" y1="137" x2="176" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+      <line class="anim-cell-flow" x1="176" y1="137" x2="190" y2="137" stroke="#22C55E" stroke-width="2.5"/>
+    </g>
+
+    <!-- v0.3.2: 充放电大方向箭头（LCD 下方） -->
+    <g data-animation-id="bat_anim_flow_dir">
+      <g class="anim-current-arrow anim-current-arrow-in">
+        <polygon points="100,162 140,162 140,158 150,165 140,172 140,168 100,168" fill="#22C55E"/>
+        <text x="125" y="180" text-anchor="middle" font-size="6" fill="#22C55E" font-family="monospace" font-weight="bold">CHG</text>
+      </g>
+      <g class="anim-current-arrow anim-current-arrow-out">
+        <polygon points="140,162 100,162 100,158 90,165 100,172 100,168 140,168" fill="#F97316"/>
+        <text x="125" y="180" text-anchor="middle" font-size="6" fill="#F97316" font-family="monospace" font-weight="bold">DIS</text>
+      </g>
+    </g>
+    <!-- 方格上方刻度（10%/格） -->
+    <text x="57" y="125" font-size="6" fill="#6B7280" font-family="monospace">0</text>
+    <text x="175" y="125" text-anchor="end" font-size="6" fill="#6B7280" font-family="monospace">100</text>
+
+    <!-- 状态 LED + 文字 -->
+    <circle data-field="bat_status_glow" cx="58" cy="170" r="6" fill="url(#ledGl3)" filter="url(#gl3)"/>
+    <circle data-field="bat_status_led" cx="58" cy="170" r="3.5" fill="url(#ledG3)"/>
+    <text data-field="bat_status_label" x="70" y="173" font-size="8" fill="#22C55E" font-family="monospace">{{bat_status_label}}</text>
+
+    <!-- 进度条 -->
+    <rect x="50" y="180" width="140" height="6" rx="3" fill="#1F2937"/>
+    <rect data-field="bat_progress_bar" x="50" y="180" width="109" height="6" rx="3" fill="#22C55E"/>
+
+    <!-- 提示 -->
+    <text x="120" y="200" text-anchor="middle" font-size="6" fill="#6B7280" font-family="sans-serif">10 个方格 × 10% = SOC 0~100%</text>
+
+    <circle cx="48" cy="60" r="2" fill="#1F2937"/>
+    <circle cx="192" cy="60" r="2" fill="#1F2937"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">蓄电池 · <tspan data-field="bat_capacity">{{bat_capacity}}</tspan></text>
+</svg>

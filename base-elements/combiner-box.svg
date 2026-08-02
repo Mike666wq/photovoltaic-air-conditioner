@@ -1,0 +1,235 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="combiner-box">
+  <defs>
+    <!-- v0.4.4 配电柜外壳 -->
+    <linearGradient id="cbCase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#E5E7EB"/><stop offset="100%" stop-color="#6B7280"/>
+    </linearGradient>
+    <linearGradient id="cbGlass" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0EA5E9" stop-opacity="0.3"/><stop offset="100%" stop-color="#1E40AF" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="cbCopper" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FCD34D"/><stop offset="50%" stop-color="#92400E"/><stop offset="100%" stop-color="#78350F"/>
+    </linearGradient>
+    <linearGradient id="cbBus" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#92400E"/>
+    </linearGradient>
+    <linearGradient id="cbLcd" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A"/><stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+    <linearGradient id="cbMcb" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F3F4F6"/><stop offset="100%" stop-color="#9CA3AF"/>
+    </linearGradient>
+    <linearGradient id="cbFin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4B5563"/><stop offset="100%" stop-color="#1F2937"/>
+    </linearGradient>
+    <radialGradient id="cbLedG" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#BBF7D0"/><stop offset="50%" stop-color="#22C55E"/><stop offset="100%" stop-color="#14532D"/>
+    </radialGradient>
+    <radialGradient id="cbLedY" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FEF08A"/><stop offset="50%" stop-color="#EAB308"/><stop offset="100%" stop-color="#713F12"/>
+    </radialGradient>
+    <radialGradient id="cbLedGl" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22C55E" stop-opacity="0.5"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cbLedR" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FCA5A5"/><stop offset="50%" stop-color="#EF4444"/><stop offset="100%" stop-color="#7F1D1D"/>
+    </radialGradient>
+    <filter id="ds5"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-color="#000" flood-opacity="0.35"/></filter>
+    <filter id="gl5"><feGaussianBlur stdDeviation="1.5"/></filter>
+  </defs>
+
+  <style>
+    /* v0.4.4 母线粒子流动 */
+    .anim-cb-particle { opacity: 0; }
+    [data-anim-state="connected"] .anim-cb-particle {
+      opacity: 1;
+      animation: cb-particle-down 1.5s linear infinite;
+    }
+    [data-anim-state="connected"] .anim-cb-particle.cb-p2 { animation-delay: 0.3s; }
+    [data-anim-state="connected"] .anim-cb-particle.cb-p3 { animation-delay: 0.6s; }
+    [data-anim-state="connected"] .anim-cb-particle.cb-p4 { animation-delay: 0.9s; }
+    [data-anim-state="connected"] .anim-cb-particle.cb-p5 { animation-delay: 1.2s; }
+    @keyframes cb-particle-down {
+      0%   { transform: translateY(-15px); opacity: 0; filter: drop-shadow(0 0 3px #EF4444); }
+      15%  { opacity: 1; }
+      85%  { opacity: 1; }
+      100% { transform: translateY(15px); opacity: 0; }
+    }
+    /* 输入端子金属质感 */
+    .anim-cb-input { transition: opacity 0.4s, filter 0.4s; }
+    [data-anim-state="connected"] .anim-cb-input {
+      filter: drop-shadow(0 0 4px #F59E0B);
+    }
+    /* 输出端子金属质感（IV 蓝 / BAT 橙） */
+    .anim-cb-output-iv { transition: opacity 0.4s, filter 0.4s; }
+    .anim-cb-output-bat { transition: opacity 0.4s, filter 0.4s; }
+    [data-anim-state="connected"] .anim-cb-output-iv { filter: drop-shadow(0 0 4px #0EA5E9); }
+    [data-anim-state="connected"] .anim-cb-output-bat { filter: drop-shadow(0 0 4px #F97316); }
+    /* 电弧闪光 */
+    .anim-cb-arc { opacity: 0; }
+    [data-anim-state="connected"] .anim-cb-arc { animation: cb-arc-flicker 2s ease-in-out infinite; }
+    @keyframes cb-arc-flicker {
+      0%, 100% { opacity: 0; }
+      45%, 55% { opacity: 0.2; }
+      50%      { opacity: 1; filter: drop-shadow(0 0 5px #FCD34D); }
+    }
+    /* 状态 LED */
+    .anim-cb-status-led { animation: cb-status-blink 1.5s ease-in-out infinite; }
+    @keyframes cb-status-blink {
+      0%, 100% { opacity: 0.6; }
+      50%      { opacity: 1; }
+    }
+    /* MCB 跳闸柄状态色 */
+    [data-anim-state="connected"] .anim-cb-mcb-iv { fill: #0EA5E9; }
+    [data-anim-state="connected"] .anim-cb-mcb-bat { fill: #F97316; }
+    [data-anim-state="disconnected"] .anim-cb-mcb-iv,
+    [data-anim-state="disconnected"] .anim-cb-mcb-bat { fill: #9CA3AF; }
+    /* 输入端子状态（依 --anim-pv-inputs） */
+    .anim-cb-input-led { opacity: 0.3; }
+    .anim-cb-input-led[data-input="0"] { opacity: calc(min(var(--anim-pv-inputs, 4), 1) * 0.8 + 0.2); }
+    .anim-cb-input-led[data-input="1"] { opacity: calc(min(max(var(--anim-pv-inputs, 4) - 1, 0), 1) * 0.8 + 0.2); }
+    .anim-cb-input-led[data-input="2"] { opacity: calc(min(max(var(--anim-pv-inputs, 4) - 2, 0), 1) * 0.8 + 0.2); }
+    .anim-cb-input-led[data-input="3"] { opacity: calc(min(max(var(--anim-pv-inputs, 4) - 3, 0), 1) * 0.8 + 0.2); }
+  </style>
+
+  <ellipse cx="120" cy="216" rx="85" ry="9" fill="rgba(0,0,0,0.35)"/>
+
+  <g filter="url(#ds5)" data-component-id="combiner-box" data-clickable="true" data-anim-state="connected">
+    <!-- 顶部 COMBINER 标识牌 -->
+    <rect x="40" y="14" width="160" height="20" rx="2" fill="#0F172A"/>
+    <text x="120" y="28" text-anchor="middle" font-size="11" font-weight="bold" fill="#FCD34D" font-family="sans-serif">COMBINER 汇流箱 · 配电柜</text>
+
+    <!-- v0.4.4 配电柜外壳（垂直矩形，不是等轴盒） -->
+    <rect x="40" y="40" width="160" height="160" rx="6" fill="url(#cbCase)" stroke="#1F2937" stroke-width="1.5"/>
+    <rect x="40" y="40" width="160" height="4" fill="#1F2937"/>
+    <rect x="40" y="196" width="160" height="4" fill="#1F2937"/>
+
+    <!-- 左侧散热栅格（细密散热条） -->
+    <g fill="url(#cbFin)" stroke="#1F2937" stroke-width="0.2">
+      <rect x="46" y="50" width="2" height="140"/>
+      <rect x="49" y="50" width="2" height="140"/>
+      <rect x="52" y="50" width="2" height="140"/>
+      <rect x="55" y="50" width="2" height="140"/>
+      <rect x="58" y="50" width="2" height="140"/>
+    </g>
+
+    <!-- 右侧散热栅格 -->
+    <g fill="url(#cbFin)" stroke="#1F2937" stroke-width="0.2">
+      <rect x="182" y="50" width="2" height="140"/>
+      <rect x="185" y="50" width="2" height="140"/>
+      <rect x="188" y="50" width="2" height="140"/>
+      <rect x="191" y="50" width="2" height="140"/>
+      <rect x="194" y="50" width="2" height="140"/>
+    </g>
+
+    <!-- 顶部透明面板（透过玻璃看内部 4 路输入汇流排，辨识特征） -->
+    <rect x="64" y="48" width="112" height="40" rx="3" fill="url(#cbGlass)" stroke="#0EA5E9" stroke-width="1" opacity="0.7"/>
+    <rect x="64" y="48" width="112" height="40" fill="none" stroke="#FFFFFF" stroke-width="0.3" opacity="0.4"/>
+
+    <!-- 4 路 PV 输入端子（顶部一字排开，铜质大型端子） -->
+    <g data-field="cb_pv_inputs" data-animation-id="cb_anim_pv_inputs">
+      <g transform="translate(72,58)">
+        <circle class="anim-cb-input-led anim-cb-input" data-input="0" cx="10" cy="10" r="8" fill="url(#cbCopper)" stroke="#92400E" stroke-width="1.5"/>
+        <circle data-input="0" cx="10" cy="10" r="4" fill="#451A03"/>
+        <text x="10" y="32" text-anchor="middle" font-size="7" font-weight="bold" fill="#1F2937" font-family="monospace">PV1</text>
+      </g>
+      <g transform="translate(98,58)">
+        <circle class="anim-cb-input-led anim-cb-input" data-input="1" cx="10" cy="10" r="8" fill="url(#cbCopper)" stroke="#92400E" stroke-width="1.5"/>
+        <circle data-input="1" cx="10" cy="10" r="4" fill="#451A03"/>
+        <text x="10" y="32" text-anchor="middle" font-size="7" font-weight="bold" fill="#1F2937" font-family="monospace">PV2</text>
+      </g>
+      <g transform="translate(124,58)">
+        <circle class="anim-cb-input-led anim-cb-input" data-input="2" cx="10" cy="10" r="8" fill="url(#cbCopper)" stroke="#92400E" stroke-width="1.5"/>
+        <circle data-input="2" cx="10" cy="10" r="4" fill="#451A03"/>
+        <text x="10" y="32" text-anchor="middle" font-size="7" font-weight="bold" fill="#1F2937" font-family="monospace">PV3</text>
+      </g>
+      <g transform="translate(150,58)">
+        <circle class="anim-cb-input-led anim-cb-input" data-input="3" cx="10" cy="10" r="8" fill="url(#cbCopper)" stroke="#92400E" stroke-width="1.5"/>
+        <circle data-input="3" cx="10" cy="10" r="4" fill="#451A03"/>
+        <text x="10" y="32" text-anchor="middle" font-size="7" font-weight="bold" fill="#1F2937" font-family="monospace">PV4</text>
+      </g>
+    </g>
+
+    <!-- 汇流铜排（粗红铜条，4 输入 → 1 主母线 → 2 输出，辨识特征） -->
+    <rect x="68" y="98" width="104" height="6" fill="url(#cbBus)" stroke="#78350F" stroke-width="0.5"/>
+    <line x1="68" y1="98" x2="68" y2="118" stroke="url(#cbBus)" stroke-width="4"/>
+    <line x1="82" y1="98" x2="82" y2="118" stroke="url(#cbBus)" stroke-width="4"/>
+    <line x1="108" y1="98" x2="108" y2="118" stroke="url(#cbBus)" stroke-width="4"/>
+    <line x1="132" y1="98" x2="132" y2="118" stroke="url(#cbBus)" stroke-width="4"/>
+    <line x1="158" y1="98" x2="158" y2="118" stroke="url(#cbBus)" stroke-width="4"/>
+    <line x1="80" y1="101" x2="80" y2="158" stroke="url(#cbBus)" stroke-width="3"/>
+    <line x1="148" y1="101" x2="148" y2="158" stroke="url(#cbBus)" stroke-width="3"/>
+    <text x="120" y="93" text-anchor="middle" font-size="6" font-weight="bold" fill="#92400E" font-family="monospace">DC BUS 1000V · 32A</text>
+
+    <!-- v0.4.4 母线电流粒子 -->
+    <g data-animation-id="cb_anim_bus">
+      <circle class="anim-cb-particle" cx="75" cy="103" r="2.6" fill="#EF4444"/>
+      <circle class="anim-cb-particle cb-p2" cx="90" cy="103" r="2.6" fill="#EF4444"/>
+      <circle class="anim-cb-particle cb-p3" cx="105" cy="103" r="2.6" fill="#EF4444"/>
+      <circle class="anim-cb-particle cb-p4" cx="120" cy="103" r="2.6" fill="#EF4444"/>
+      <circle class="anim-cb-particle cb-p5" cx="135" cy="103" r="2.6" fill="#EF4444"/>
+      <circle class="anim-cb-particle" cx="150" cy="103" r="2.6" fill="#EF4444"/>
+      <circle class="anim-cb-particle cb-p2" cx="165" cy="103" r="2.6" fill="#EF4444"/>
+      <circle class="anim-cb-particle cb-p3" cx="80" cy="140" r="2.6" fill="#0EA5E9"/>
+      <circle class="anim-cb-particle cb-p4" cx="148" cy="140" r="2.6" fill="#F97316"/>
+    </g>
+
+    <!-- 电弧闪光 -->
+    <g data-animation-id="cb_anim_bus">
+      <circle class="anim-cb-arc" cx="120" cy="110" r="3" fill="none" stroke="#FCD34D" stroke-width="1.5"/>
+      <circle class="anim-cb-arc cb-p2" cx="80" cy="120" r="2" fill="none" stroke="#FCD34D" stroke-width="1"/>
+      <circle class="anim-cb-arc cb-p3" cx="160" cy="120" r="2" fill="none" stroke="#FCD34D" stroke-width="1"/>
+    </g>
+
+    <!-- M1.5 Step 5: 点击瞬时电火花（cb_connected 切换瞬间显示 800ms，与持续 flicker 并存） -->
+    <g data-animation-id="cb_anim_arc" style="display: none;">
+      <circle cx="120" cy="115" r="8" fill="none" stroke="#FCD34D" stroke-width="2.5" opacity="0.9"/>
+      <circle cx="105" cy="105" r="3" fill="#FBBF24" opacity="0.85"/>
+      <circle cx="135" cy="105" r="3" fill="#FBBF24" opacity="0.85"/>
+      <circle cx="105" cy="125" r="3" fill="#FBBF24" opacity="0.85"/>
+      <circle cx="135" cy="125" r="3" fill="#FBBF24" opacity="0.85"/>
+    </g>
+
+    <!-- LCD 屏幕 -->
+    <rect x="64" y="120" width="112" height="22" rx="2" fill="url(#cbLcd)" stroke="#1E3A8A" stroke-width="0.8"/>
+    <text data-field="cb_label" x="68" y="129" font-size="5" fill="#93C5FD" font-family="monospace">{{cb_label}}</text>
+    <text data-field="cb_spec" x="68" y="139" font-size="10" font-weight="bold" fill="#FCD34D" font-family="monospace">{{cb_spec}}</text>
+    <text data-field="cb_status_text" x="172" y="135" text-anchor="end" font-size="6" fill="#22C55E" font-family="monospace">合闸</text>
+
+    <!-- v0.4.4 底部双路输出（每路 1 个 MCB 微型断路器） -->
+    <!-- IV 路 -->
+    <g class="anim-cb-output-iv">
+      <rect class="anim-cb-mcb-iv" x="62" y="150" width="40" height="32" rx="3" fill="#0EA5E9" stroke="#0F172A" stroke-width="1"/>
+      <text x="82" y="162" text-anchor="middle" font-size="7" font-weight="bold" fill="white" font-family="monospace">→IV</text>
+      <line x1="68" y1="170" x2="96" y2="170" stroke="#FFFFFF" stroke-width="2"/>
+      <rect x="78" y="166" width="8" height="8" rx="1" fill="#FFFFFF" stroke="#0F172A" stroke-width="0.5"/>
+      <text x="82" y="190" text-anchor="middle" font-size="6" fill="#0EA5E9" font-family="monospace">逆变器</text>
+    </g>
+    <!-- BAT 路 -->
+    <g class="anim-cb-output-bat">
+      <rect class="anim-cb-mcb-bat" x="138" y="150" width="40" height="32" rx="3" fill="#F97316" stroke="#0F172A" stroke-width="1"/>
+      <text x="158" y="162" text-anchor="middle" font-size="7" font-weight="bold" fill="white" font-family="monospace">→BAT</text>
+      <line x1="144" y1="170" x2="172" y2="170" stroke="#FFFFFF" stroke-width="2"/>
+      <rect x="154" y="166" width="8" height="8" rx="1" fill="#FFFFFF" stroke="#0F172A" stroke-width="0.5"/>
+      <text x="158" y="190" text-anchor="middle" font-size="6" fill="#F97316" font-family="monospace">蓄电池</text>
+    </g>
+
+    <!-- 状态 LED（左：合闸指示；右：故障） -->
+    <circle class="anim-cb-status-led" data-field="cb_led_glow" cx="68" cy="46" r="4" fill="url(#cbLedGl)" filter="url(#gl5)"/>
+    <circle data-field="cb_led" cx="68" cy="46" r="2.5" fill="url(#cbLedG)"/>
+    <text x="68" y="58" text-anchor="middle" font-size="4" fill="#22C55E" font-family="monospace">合闸</text>
+
+    <circle data-field="cb_alarm_glow" cx="172" cy="46" r="4" fill="#FCD34D" opacity="0.5" filter="url(#gl5)"/>
+    <circle data-field="cb_alarm_led" cx="172" cy="46" r="2.5" fill="url(#cbLedY)"/>
+    <text x="172" y="58" text-anchor="middle" font-size="4" fill="#EAB308" font-family="monospace">ALM</text>
+
+    <!-- 螺丝 -->
+    <circle cx="46" cy="44" r="1.5" fill="#1F2937"/>
+    <circle cx="194" cy="44" r="1.5" fill="#1F2937"/>
+    <circle cx="46" cy="196" r="1.5" fill="#1F2937"/>
+    <circle cx="194" cy="196" r="1.5" fill="#1F2937"/>
+  </g>
+
+  <rect x="55" y="222" width="130" height="14" rx="3" fill="white" stroke="#D1D5DB" stroke-width="0.5"/>
+  <text x="120" y="233" text-anchor="middle" font-size="11" fill="#111827" font-family="sans-serif" font-weight="500">汇流箱 · <tspan data-field="cb_capacity">{{cb_capacity}}</tspan></text>
+</svg>
