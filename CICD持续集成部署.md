@@ -1,10 +1,22 @@
 # 光伏·空调仿真平台：从零到生产的 CI/CD 操作手册
 
-> 版本：v6.0（GitHub Actions → GHCR → Docker Compose）
+> 版本：v7.0（已按 2026-08-02 首次生产部署实测校正）
 >
 > 更新：2026-08-02
 >
 > 目标：按本文完成后，只需推送一个版本 Tag，GitHub 会构建镜像并推送 GHCR，生产服务器自动拉取该镜像、启动容器、检查健康状态；服务器不保存应用源码，也不构建镜像。
+
+## 本次已验收的生产结果
+
+本项目的 CI/CD 已完整跑通，当前验收基线如下：
+
+- 推送 `main` 会运行 CI：安装依赖、TypeScript 检查、Vite 构建、Docker 构建与容器冒烟测试；不会发布生产镜像。
+- 推送合法版本 Tag（如 `v0.2.1`）会运行 Release：校验 Tag 属于 `main`、构建镜像、推送 GHCR、上传部署配置并远程部署。
+- 服务器只接收 `docker-compose.yml` 与 `deploy/deploy.sh`，应用源码不会上传到服务器。
+- 服务器按 `ghcr.io/...@sha256:...` 不可变 digest 拉取镜像，并映射 `服务器:8765 → 容器:8080`。
+- 应用健康检查为 `http://127.0.0.1:8080/health`，带 2 分钟启动宽限；部署脚本最长等待 5 分钟。
+- 发布成功后会保存当前 Tag、digest 与 Compose 快照；新版本失败时自动恢复上一健康版本。
+- 旧镜像默认保留在服务器上，便于回滚；Docker 不会因旧容器被替换而自动删除其镜像。
 
 ## 0. 先理解最终流程
 
@@ -28,6 +40,28 @@ GitHub Actions
 ```
 
 **应用代码只进入 GitHub 和 GHCR 镜像，绝不上传到服务器。** Release 过程中会向服务器传送 `docker-compose.yml` 和 `deploy/deploy.sh` 两个很小的部署配置文件，用来升级部署规则；它们不是应用源码，也不参与镜像构建。
+
+### CI、Release、Tag 与 digest 的关系
+
+| 名称 | 触发方式 | 做什么 | 是否生成 GHCR 镜像 |
+|---|---|---|---|
+| `CI` | PR 或推送 `main` | typecheck、前端构建、临时 Docker 镜像构建和冒烟测试 | 否；临时镜像只存在于 Runner |
+| `Release` | 推送 `vX.Y.Z` 或 `vX.Y.Z-rcN` Tag | 再次验证、构建并推送 GHCR、自动部署 | 是 |
+| 版本 Tag | 例如 `v0.2.1` | 给人阅读和发布管理使用 | GHCR 中可见 |
+| 镜像 digest | 例如 `@sha256:abc...` | 服务器实际部署的不可变镜像身份 | 永远指向同一镜像 |
+
+GHCR 中会看到版本 Tag，但服务器的 `docker images` 或 `docker ps` 可能显示镜像 ID 或 `@sha256:...`，这是正常现象。部署故意使用 digest，而不是可被重新指向的 Tag，保证服务器运行的就是本次 Actions 构建并验收的镜像。
+
+### 哪个配置文件负责什么
+
+| 文件 | 职责 |
+|---|---|
+| `.github/workflows/ci.yml` | PR/main 的代码、前端和临时容器验证 |
+| `.github/workflows/release.yml` | Tag 触发、构建并推送 GHCR、向服务器发起部署 |
+| `Dockerfile` | 定义镜像如何构建以及容器内如何启动 Node 静态服务 |
+| `.dockerignore` | 控制哪些本地文件不进入 GitHub Runner 的 Docker 构建上下文 |
+| `docker-compose.yml` | 定义服务器使用哪个 digest、端口映射、场景卷、安全限制和健康检查 |
+| `deploy/deploy.sh` | pull、启动、健康验收、版本快照、备份与失败回滚 |
 
 ## 必须遵守的首次上线顺序
 
@@ -192,7 +226,7 @@ pnpm typecheck
 
 ## 5. 创建 GitHub 仓库并推送源码
 
-### 4.1 在 GitHub 网页创建空仓库
+### 5.1 在 GitHub 网页创建空仓库
 
 1. 登录 GitHub，右上角 `+` → **New repository**。
 2. Owner 选择个人账号或组织。
@@ -202,7 +236,7 @@ pnpm typecheck
 6. 点击 **Create repository**。
 7. 复制页面给出的 HTTPS 或 SSH 仓库地址。
 
-### 4.2 从本地推送
+### 5.2 从本地推送
 
 将下面 URL 替换为真实地址：
 
@@ -354,7 +388,14 @@ ssh-keyscan -T 10 -p SERVER_PORT SERVER_HOST 2>/dev/null | \
   ssh-keygen -lf - -E sha256
 ```
 
-输出会有一行或多行 `SHA256:...`。从中选择与服务器上实际启用密钥一致的一项，完整填入 `SERVER_FINGERPRINT`（只填 `SHA256:...`，不要填位数、算法名、IP 或公钥正文）。通常会优先协商 ED25519；若工作流仍报 `host key fingerprint mismatch`，说明 Actions 实际握手到的密钥不同，必须以其可见的目标为准，不能跳过校验。
+输出会有一行或多行 `SHA256:...`。从中选择与服务器上实际启用密钥一致的一项，完整填入 `SERVER_FINGERPRINT`（只填 `SHA256:...`，不要填位数、算法名、IP 或公钥正文）。服务器通常同时提供 RSA、ECDSA、ED25519 主机密钥，`drone-scp`/`drone-ssh` 实际协商哪一种取决于客户端版本；本项目首次部署时协商的是 ECDSA，因此不能默认认为一定是 ED25519。
+
+如果 Actions 报 `ssh: host key fingerprint mismatch`：
+
+1. 确认 Secret 添加在 `production` 的 **Environment secrets**，不是 Environment variables。
+2. 确认 `SERVER_HOST`、`SERVER_PORT` 与本地 `ssh-keyscan` 使用的值完全一致。
+3. 只允许改用上面两端核验结果中同时存在的另一个 RSA/ECDSA/ED25519 指纹；不能填未经可信服务器控制台确认的指纹，也不能删除工作流中的 fingerprint 校验。
+4. 指纹修正后可在失败运行中选择 **Re-run failed jobs**，无需重新创建 Tag。
 
 常见原因是 `SERVER_HOST` 填成了另一台机器/旧 IP、域名 DNS 指向不同主机、端口转发到另一台 SSH 服务器，或 sshd 配置使用了非默认的 HostKey 文件。只做 `ssh-keyscan` 而不和可信服务器控制台的结果比对，不足以防止中间人攻击。
 
@@ -455,7 +496,7 @@ Docker 发布端口可能绕过 UFW 的普通规则；如需严格限制公网�
 
 GitHub Container Registry 的服务器 Docker 登录使用 **Personal access token (classic)**：GitHub 右上角头像 → **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)** → **Generate new token (classic)**。
 
-填写 Note `pv-ac-sim-server-pull`，选择合理到期日，只勾选 `read:packages`，生成后立即复制到密码管理器。不要使用 fine-grained PAT，也不要勾选 `repo` 或 `write:packages`。
+填写 Note `pv-ac-sim-server-pull`，选择合理到期日，只勾选 `read:packages`，生成后立即复制到密码管理器。30 天可以使用，90 天可减少轮换频率；无论选多久，都应在到期前创建新 Token、重新登录并验证 pull，再吊销旧 Token。不要使用 fine-grained PAT，也不要勾选 `repo` 或 `write:packages`。
 
 ## 13. 在服务器登录 GHCR
 
@@ -465,6 +506,8 @@ GitHub Container Registry 的服务器 Docker 登录使用 **Personal access tok
 printf '%s' '第12节创建的完整Token' | \
   docker login ghcr.io -u GITHUB_USERNAME --password-stdin
 ```
+
+`GITHUB_USERNAME` 填创建该 Token 的 GitHub 登录名，并确保该账号有权读取这个 Package；例如账号为 `Mike666wq` 时填写 `Mike666wq`，不是邮箱、服务器用户名或仓库名。
 
 期望输出 `Login Succeeded`。这会把凭据保存在 `~/.docker/config.json`（或配置的 Docker credential helper），不要放进 `/opt/pv-ac-sim/.env`。
 
@@ -494,16 +537,16 @@ printf '%s' '第12节创建的完整Token' | \
 
 ## 15. 首次发布前的最终检查
 
-本地：
+本地必须检查 Git 状态：
 
 ```bash
 cd /Users/bbben/Desktop/photovoltaic-air-conditioner
 git status --short
 git log --oneline -1
 git branch --show-current
-pnpm --filter web typecheck
-pnpm --filter web build
 ```
+
+`git status --short` 应无输出，当前分支应为 `main`。本地仍不要求安装 pnpm 或 Docker；如本地已经有 Node/pnpm，可选执行 `pnpm --filter web typecheck` 和 `pnpm --filter web build`，最终以 GitHub CI 绿色为准。
 
 GitHub：
 
@@ -544,6 +587,8 @@ git push origin v0.2.0
 
 首次部署仅上传 Compose 和部署脚本；服务器不会接收 Dockerfile、`apps/`、`base-elements/`、Node 依赖和实验数据。
 
+三个 Job 的含义必须分清：`publish-image` 成功说明镜像已经进入 GHCR；SCP 步骤只上传部署配置，不是上传镜像；最后的 SSH 步骤才让服务器执行 `docker compose pull` 并启动容器。
+
 ## 18. Release 成功后检查自动创建的 GHCR Package
 
 只有第 17 节的 `publish-image` 变绿后，再打开 GitHub 个人主页或组织主页的 **Packages**。此时应出现 `photovoltaic-air-conditioner` 的 **Container** 包，且包含 `v0.2.0` Tag。
@@ -578,6 +623,8 @@ curl --fail http://SERVER_IP:8765/health
 
 浏览器访问 `http://SERVER_IP:8765/`，检查首页、SVG 资源、场景保存/刷新读取/删除。
 
+最终必须同时满足：Release 全部绿色、`current-release` 是本次 Tag、`current-image` 是本次 digest、容器状态为 `healthy`、内网和公网 `/health` 都返回 HTTP 200。页面暂时能打开但容器仍为 `unhealthy`，不能算完整验收成功。
+
 ## 20. 后续正常发布
 
 每次都遵守相同流程：功能分支 → PR → CI 绿 → 合并 main → main CI 绿 → 新 Tag。
@@ -606,6 +653,22 @@ docker logs --tail 200 pv-ac-sim-web
 docker stats --no-stream pv-ac-sim-web
 docker system df
 df -h /opt/pv-ac-sim
+```
+
+### 为什么服务器显示 digest，而不是版本 Tag
+
+Release 同时向 GHCR 写入 `vX.Y.Z`（正式版还写入 `latest`）并取得镜像 digest。部署脚本只使用 digest，例如：
+
+```text
+ghcr.io/mike666wq/photovoltaic-air-conditioner@sha256:4ca0...
+```
+
+因此 `docker images` 中不一定显示 `vX.Y.Z`，但可通过以下文件确认版本与镜像的一一对应关系：
+
+```bash
+cat /opt/pv-ac-sim/current-release
+cat /opt/pv-ac-sim/current-image
+find /opt/pv-ac-sim/deploy/versions -maxdepth 2 -type f -print
 ```
 
 ## 22. 手动回滚应用
@@ -648,18 +711,26 @@ ls -lh "$backup"
 |---|---|
 | GitHub 无法 push GHCR | Actions 权限是否为读写；workflow 是否有 `packages: write`；Package 是否关联仓库 |
 | 服务器无法 pull | `docker login ghcr.io`；classic PAT 的 `read:packages`；账号的 Package 读取权限；服务器能访问 ghcr.io |
-| Actions 无法 SSH | `SERVER_*` Secret；root 公钥；指纹；`PermitRootLogin`；UFW/安全组 |
-| 容器 unhealthy | `docker logs --tail 200 pv-ac-sim-web`；`curl 127.0.0.1:8765/health`；场景目录 UID/GID |
+| Actions 报指纹不匹配 | Secret 必须位于 `production` 的 Environment secrets；核对实际 Host/Port；从服务器与 `ssh-keyscan` 的交集选择动作实际协商的主机密钥指纹 |
+| Actions 无法 SSH | `SERVER_*` Secret；root 公钥；`PermitRootLogin`；UFW/安全组 |
+| 容器 unhealthy | 看健康日志时间与配置；容器内执行 `wget http://127.0.0.1:8080/health`；宿主机执行 `curl 127.0.0.1:8765/health`；检查应用日志与场景目录权限 |
 | 本机正常但公网不可达 | Compose 端口映射、`WEB_BIND_IP=0.0.0.0`、UFW、云安全组 |
 | 场景保存失败 | `ls -ld /opt/pv-ac-sim/scenarios` 与 `.env` 中 APP_UID/APP_GID 是否对应 |
 
-不要在共享服务器执行 `docker system prune -a`，它可能删除回滚所需镜像。
+健康检查必须使用 `127.0.0.1`，不要改回 `localhost`。容器内 `localhost` 可能优先解析到 IPv6 `::1`，而当前 Node 服务监听 IPv4 `0.0.0.0:8080`，会导致页面能打开但 Docker 持续报告 `unhealthy`。
+
+### 旧镜像为什么没有自动删除
+
+这是 Docker 默认行为，也是本项目当前的保守回滚策略：Compose 替换旧容器时不会自动删除旧镜像，部署脚本也不会在发布成功后执行全局清理。旧镜像可加快回滚，并在 GHCR 临时不可用时提供额外保障。
+
+定期用 `docker system df` 观察空间。只有磁盘空间确实紧张、已确认当前 digest 和至少一个回滚版本仍可用、并确认 GHCR 中对应 digest 未删除时，才按**明确的旧 digest**执行 `docker image rm ghcr.io/...@sha256:旧摘要`。不要在共享服务器执行 `docker system prune -a`，它可能删除其他应用镜像和回滚所需镜像。
 
 ## 25. 安全注意事项
 
 - 当前服务是 HTTP，未配置 HTTPS。
 - 场景 API 当前无认证；公网可访问者可能读写/删除场景。
 - `SERVER_SSH_KEY`、GHCR classic PAT、Docker 组权限都需要严格保护。
+- 当前按项目要求使用服务器 root SSH，并且生产 `.env` 为 `APP_UID=0`、`APP_GID=0`，容器也以 root 运行；这是已知的安全取舍，后续可单独迁移到受限部署用户和非 root 容器 UID。
 - Token 到期前应轮换：创建新 Token → 服务器重新 docker login → 验证 pull → 吊销旧 Token。
 - 发布脚本自动回滚应用镜像，但不自动回滚场景数据。
 - 将来应优先增加 HTTPS 反向代理、场景 API 认证、异地备份、监控告警和 E2E 测试。

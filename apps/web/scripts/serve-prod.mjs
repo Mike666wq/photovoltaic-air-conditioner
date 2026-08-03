@@ -59,14 +59,29 @@ function serveStatic(req, res) {
     return;
   }
 
-  if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-    // SPA fallback
-    filePath = path.join(DIST_DIR, 'index.html');
-    if (!fs.existsSync(filePath)) {
-      res.statusCode = 404;
-      res.end('Not Found');
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+    // 目录请求遵循常见 Web 服务器规则：优先读取该目录下的 index.html。
+    if (urlPath !== '/' && !urlPath.endsWith('/')) {
+      res.statusCode = 301;
+      res.setHeader('Location', `${urlPath}/`);
+      res.end();
       return;
     }
+    const directoryIndex = path.join(filePath, 'index.html');
+    if (fs.existsSync(directoryIndex) && fs.statSync(directoryIndex).isFile()) {
+      filePath = directoryIndex;
+    } else {
+      filePath = path.join(DIST_DIR, 'index.html');
+    }
+  } else if (!fs.existsSync(filePath)) {
+    // 不存在的路径才走 SPA fallback。
+    filePath = path.join(DIST_DIR, 'index.html');
+  }
+
+  if (!fs.existsSync(filePath)) {
+    res.statusCode = 404;
+    res.end('Not Found');
+    return;
   }
 
   const ext = path.extname(filePath).toLowerCase();

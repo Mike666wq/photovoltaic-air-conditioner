@@ -63,6 +63,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:18080/health >/dev/null
           curl --fail --silent http://127.0.0.1:18080/ >/dev/null
           curl --fail --silent http://127.0.0.1:18080/base-elements/index.html >/dev/null
+          curl --fail --silent http://127.0.0.1:18080/base-elements/ | grep -F '基础元件 · 数据驱动演示' >/dev/null
           curl --fail --silent -X POST -H 'Content-Type: application/json' \
             --data '{"smoke":true}' http://127.0.0.1:18080/scenarios/ci-smoke.json >/dev/null
           curl --fail --silent http://127.0.0.1:18080/scenarios/ci-smoke.json >/dev/null

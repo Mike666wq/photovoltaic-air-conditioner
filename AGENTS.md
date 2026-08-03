@@ -160,13 +160,13 @@ interface MeterInstance {
 
 ## 部署 / CI-CD
 
-部署走 **GitHub Actions + GHCR + Docker Compose 单机编排**（不上 K8s）。GitHub Actions 构建、验证并推送不可变 GHCR 镜像；服务器只 pull 镜像并运行非 root Node 容器，不接收源码也不在服务器构建。公网入口为 `0.0.0.0:8765`。完整文档：
+部署走 **GitHub Actions + GHCR + Docker Compose 单机编排**（不上 K8s）。GitHub Actions 构建、验证并推送不可变 GHCR 镜像；服务器只 pull 镜像，不接收源码也不在服务器构建。GitHub Actions 以专用 SSH 密钥连接服务器 `root`；当前生产 `.env` 使用 `APP_UID=0`、`APP_GID=0`，因此 Compose 容器也以 root 运行。公网入口为 `0.0.0.0:8765`。完整文档：
 
 - 顶层：[`CICD持续集成部署.md`](./CICD持续集成部署.md)
 - 运维：[`deploy/README.md`](./deploy/README.md)
 - 旧流程归档：[`deploy/LEGACY-MANUAL.md`](./deploy/LEGACY-MANUAL.md)
 
-部署触发：`git tag -a v0.2.0 -m "Release v0.2.0" && git push origin v0.2.0` → 校验 tag 属于 main → verify → GitHub 构建/推送 GHCR 镜像 → 服务器 `docker compose pull` 指定 digest → 公网 `8765` 启动、健康检查、失败自动恢复上一版 digest。
+部署触发：`git tag -a v0.2.0 -m "Release v0.2.0" && git push origin v0.2.0` → 校验 tag 属于 main → verify → GitHub 构建/推送 GHCR 镜像 → 服务器 `docker compose pull` 指定 digest → 公网 `8765` 启动、以 `127.0.0.1:8080/health` 检查健康状态、失败自动恢复上一版 digest。版本 Tag 供人识别，生产部署以不可变 digest 为准；旧镜像默认保留以支持回滚。
 
 部署目录：服务器 `/opt/pv-ac-sim/`，含 `.env` + `docker-compose.yml` + `current-release` + `current-image` + `deploy/versions/<tag>` + `scenarios/`（场景持久化卷）。回滚：`/opt/pv-ac-sim/deploy/deploy.sh v0.2.0`。场景数据需独立备份。
 

@@ -3,6 +3,8 @@
 > 完整流程见 [`../CICD持续集成部署.md`](../CICD持续集成部署.md)。
 >
 > 当前模式：GitHub Actions 构建并推送 GHCR 镜像；服务器只 pull 不可变 digest 并运行容器。
+>
+> GHCR 的 `vX.Y.Z` 供人识别，服务器按 `@sha256:...` 部署以保证镜像不可变；`current-release` 与 `current-image` 保存两者对应关系。
 
 ## 当前运行信息
 
@@ -42,6 +44,8 @@ git push origin v0.2.0
 
 GitHub Actions 会构建、测试、推送 GHCR 镜像，然后让服务器 pull 指定 digest。服务器不会构建镜像。不要执行 `git push --tags`。
 
+成功标准：Release 全绿、`current-release` 为本次 Tag、`current-image` 为本次 digest、`docker inspect --format='{{.State.Health.Status}}' pv-ac-sim-web` 输出 `healthy`。
+
 ## 手动回滚
 
 ```bash
@@ -77,8 +81,12 @@ docker pull "$(cat /opt/pv-ac-sim/current-image)"
 ```bash
 docker ps -a --filter name=pv-ac-sim-web
 docker logs --tail 200 pv-ac-sim-web
+docker inspect --format='{{range .State.Health.Log}}{{printf "开始=%s exit=%d 输出=%q\n" .Start .ExitCode .Output}}{{end}}' pv-ac-sim-web
+docker exec pv-ac-sim-web wget -S -O- http://127.0.0.1:8080/health
 curl -v http://127.0.0.1:8765/health
 ```
+
+健康检查固定使用 IPv4 回环地址 `127.0.0.1`；不要改成可能解析为 IPv6 `::1` 的 `localhost`。
 
 场景无法保存：
 
@@ -88,3 +96,16 @@ grep -E '^(APP_UID|APP_GID)=' /opt/pv-ac-sim/.env
 ```
 
 公网不可访问：检查 `WEB_BIND_IP=0.0.0.0`、Docker 端口映射、服务器防火墙和云安全组的 `8765/tcp`。
+
+## 镜像保留与清理
+
+旧容器被替换后，Docker 默认不会删除旧镜像；当前部署脚本也主动保留旧镜像，方便快速回滚。用下面命令查看空间与版本映射：
+
+```bash
+docker system df
+cat /opt/pv-ac-sim/current-release
+cat /opt/pv-ac-sim/current-image
+find /opt/pv-ac-sim/deploy/versions -maxdepth 2 -type f -print
+```
+
+仅在磁盘空间紧张并确认旧版本不再需要时，按明确 digest 删除单个旧镜像。不要在共享服务器执行 `docker system prune -a`。

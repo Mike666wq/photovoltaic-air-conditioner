@@ -32,6 +32,8 @@
 | [部件动画增强.md](./部件动画增强.md) | 7 部件 v0.3 优化编码规范 |
 | [base-elements/README.md](./base-elements/README.md) | 18 个 SVG 视觉规范 + 动画接入规范 |
 | [base-elements/数据字段映射.md](./base-elements/数据字段映射.md) | 字段定义 + 动画驱动字段 + 转速字段表 |
+| [CICD持续集成部署.md](./CICD持续集成部署.md) | 已验收的 GitHub Actions → GHCR → Debian 12 自动部署完整操作手册 |
+| [deploy/README.md](./deploy/README.md) | 生产服务器状态、发布、回滚、备份与故障排查速查 |
 
 ---
 
@@ -110,6 +112,7 @@ pnpm typecheck
 | **M1 / M1.5** | 阶段 1 | **原理图页面 + 三大流体动画 + 部件内部动画 + 模式切换 + 9 预设场景 + 手动控制** | ✅ 已完成 |
 | M2 | 阶段 2 | 数据读入管道 + 时序回放 + 历史曲线 | 🟡 M2-β 进行中（解析、数据集、仪表绑定、回放已完成） |
 | M3 | 阶段 3 | 数据分析可视化大屏 | ⏳ |
+| CI/CD | 工程化 | main 自动验证、Tag 构建 GHCR、Debian 12 自动拉取 digest、健康检查与失败回滚 | ✅ 已验收（v0.2.2） |
 
 ---
 
