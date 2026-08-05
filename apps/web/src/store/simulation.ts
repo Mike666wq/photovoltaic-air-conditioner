@@ -8,7 +8,7 @@ import type { MeterType } from '../data/palettes';
 export type AtMode = 'cool' | 'heat' | 'off';
 
 export interface SimulationState {
-  // 16 个滑块参数
+  // 20 个滑块参数
   pv_power: number;
   pv_sun: number;
   bat_soc: number;
@@ -26,6 +26,10 @@ export interface SimulationState {
   pcm_temp: number;       // M1.5 Round 9 改：完全独立滑块（不再覆盖自 tank_temp）
   load_power_kw: number;  // Fix B1：负载功率（独立滑块，替代 pv_power 派生）
   battery_power_kw: number;  // Fix B2：电池功率（正=充电，负=放电，M2 引擎接入后由物理模型驱动）
+  sac_water_level: number;   // 太阳能水冷风扇内置水箱水位（%）
+  sac_water_temp: number;    // 太阳能水冷风扇内置水温（℃）
+  sac_fan_speed: number;     // 太阳能水冷风扇风速（0..1）
+  sac_outlet_temp: number;   // 太阳能水冷风扇出风温度（℃）
 
   // 7 个可点击部件状态
   pv_on: boolean;
@@ -36,6 +40,7 @@ export interface SimulationState {
   load_on: boolean;
   at_mode: AtMode;
   grid_online: boolean;  // Fix B3：电网在线状态（独立于 gs_on，M2 引擎可独立驱动）
+  sac_on: boolean;       // 太阳能水冷风扇总开关
 
   // === 画板布局 ===
   positions: Record<string, { x: number; y: number }>;
@@ -115,6 +120,7 @@ interface SimStore extends SimulationState {
   togglePump: () => void;
   cycleAt: () => void;
   toggleLoad: () => void;  // Fix B6：原 cycleLoad 重命名
+  toggleSolarAirCooler: () => void;
   loadPreset: (name: keyof typeof PRESETS) => void;
   randomize: () => void;
   resetAll: () => void;
@@ -130,6 +136,8 @@ interface SimStore extends SimulationState {
   toggleCoords: () => void;
   toggleEditMode: () => void;
   resetLayout: (defaults: Record<string, { x: number; y: number }>) => void;
+  /** 恢复原理图默认拓扑：清理用户线缆/仪表拖拽，仅保留系统预置仪表。 */
+  resetCanvasLayout: () => void;
 
   // 线缆 actions
   /** 从调色板拖出一条新线缆（两端可各带浮动坐标） */
@@ -207,9 +215,14 @@ const DEFAULTS: SimulationState = {
   pcm_temp: 28,
   load_power_kw: 0.62,
   battery_power_kw: 0,
+  sac_water_level: 72,
+  sac_water_temp: 18,
+  sac_fan_speed: 0.75,
+  sac_outlet_temp: 22,
   pv_on: true, cb_connected: true, gs_on: true,
   hp_on: true, pump_on: true, load_on: true, at_mode: 'cool',
   grid_online: true,
+  sac_on: true,
 
   positions: {},
   selectedId: null,
@@ -311,6 +324,7 @@ export const useSimStore = create<SimStore>((set) => ({
     at_mode: s.at_mode === 'cool' ? 'heat' : (s.at_mode === 'heat' ? 'off' : 'cool'),
   })),
   toggleLoad: () => set((s) => ({ load_on: !s.load_on })),  // Fix B6：原 cycleLoad 重命名
+  toggleSolarAirCooler: () => set((s) => ({ sac_on: !s.sac_on })),
 
   loadPreset: (name) => {
     const p = PRESETS[name];
@@ -327,6 +341,10 @@ export const useSimStore = create<SimStore>((set) => ({
       tank_temp: jitter(40, 50), tank_volume: jitter(60, 30),
       tank_flow: jitter(2.5, 2), pump_flow: jitter(2.5, 2),
       at_temp: jitter(24, 3),
+      sac_water_level: Math.max(0, Math.min(100, jitter(72, 36))),
+      sac_water_temp: Math.max(0, Math.min(100, jitter(18, 24))),
+      sac_fan_speed: Math.max(0, Math.min(1, jitter(0.75, 0.4))),
+      sac_outlet_temp: Math.max(16, Math.min(35, jitter(22, 8))),
     });
   },
 
@@ -352,6 +370,22 @@ export const useSimStore = create<SimStore>((set) => ({
   toggleEditMode: () => set((s) => ({ editMode: !s.editMode })),
 
   resetLayout: (defaults) => set({ positions: { ...defaults } }),
+  resetCanvasLayout: () => set({
+    positions: {},
+    cables: DEFAULT_CABLES.map((c) => ({ ...c, segments: c.segments.map((s) => ({ ...s })) })),
+    meters: PRESET_METERS.map((m) => ({
+      ...m,
+      position: { ...m.position },
+      presetVb: m.presetVb ? { ...m.presetVb } : undefined,
+    })),
+    selectedId: null,
+    draggingId: null,
+    hoverId: null,
+    selectedCable: null,
+    selectedMeter: null,
+    cableDrag: null,
+    cardPositions: {},
+  }),
 
   // === 线缆 actions ===
   addCable: (kind, fromAnchorId, toAnchorId, floatingFrom, floatingTo) => {

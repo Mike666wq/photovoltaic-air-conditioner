@@ -14,7 +14,7 @@ html, body, #root {
   isolation: isolate;
   display: grid;
   grid-template-rows: 60px auto 1fr 40px;
-  grid-template-columns: 160px 1fr 320px;
+  grid-template-columns: 0 1fr 0;
   grid-template-areas:
     "topbar   topbar   topbar"
     "timeline timeline timeline"
@@ -23,7 +23,7 @@ html, body, #root {
   width: 100vw;
   height: 100vh;
   background-color: #eaf0f7;
-  transition: grid-template-columns 0.25s ease;
+  overflow: hidden;
 }
 
 .app > * {
@@ -35,13 +35,8 @@ html, body, #root {
 }
 
 /* 左折叠成 40px 图标条 */
-.app.left-collapsed {
-  grid-template-columns: 40px 1fr 320px;
-}
-/* 右折叠成 40px 图标条 */
-.app.right-collapsed {
-  grid-template-columns: 160px 1fr 40px;
-}
+.app.left-collapsed,
+.app.right-collapsed { grid-template-columns: 0 1fr 0; }
 /* 全屏：两侧都 0 + 内容隐藏（彻底最大化画布） */
 .app.fullscreen {
   grid-template-columns: 0 1fr 0;
@@ -183,20 +178,27 @@ html, body, #root {
 
 /* === 调色板 === */
 .palette-panel {
-  grid-area: palette;
+  position: absolute;
+  top: 102px;
+  bottom: 52px;
+  left: 12px;
+  width: 160px;
   background: #ffffff;
-  border-right: 1px solid #e2e8f0;
+  border: 1px solid rgba(203, 213, 225, .85);
+  border-radius: 10px;
+  box-shadow: 6px 8px 24px rgba(15, 23, 42, .12);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  transition: width 0.25s ease, padding 0.25s ease;
+  transition: width .2s ease, box-shadow .2s ease;
+  z-index: 20;
 }
 
 /* 左折叠：只露 40px 图标条 */
 .palette-panel.collapsed {
   width: 40px;
   overflow: hidden;
-  border-right: 1px solid #e2e8f0;
+  border-color: rgba(203, 213, 225, .85);
 }
 .palette-panel.collapsed .palette-section,
 .palette-panel.collapsed .palette-foot {
@@ -206,12 +208,12 @@ html, body, #root {
 /* hover 弹出（被 PalettePanel 组件控制 position: absolute） */
 .palette-panel.collapsed.hover-open {
   position: absolute;
-  top: 60px;
-  bottom: 40px;
-  left: 0;
+  top: 102px;
+  bottom: 52px;
+  left: 12px;
   width: 160px;
   z-index: 50;
-  box-shadow: 4px 0 16px rgba(0,0,0,0.15);
+  box-shadow: 8px 10px 28px rgba(15,23,42,.18);
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -372,6 +374,12 @@ html, body, #root {
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  background-image:
+    linear-gradient(rgba(203, 213, 225, .35) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(203, 213, 225, .35) 1px, transparent 1px),
+    linear-gradient(rgba(226, 232, 240, .55) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(226, 232, 240, .55) 1px, transparent 1px);
+  background-size: 100px 100px, 100px 100px, 20px 20px, 20px 20px;
 }
 
 .canvas-bg svg {
@@ -380,7 +388,38 @@ html, body, #root {
   display: block;
 }
 
-/* === 部件卡片（绝对定位，2×7 坐标由 viewBox 1800×1100 缩放） === */
+/* === 世界坐标层：允许内容向任意方向扩展，由画布视图平移/缩放 === */
+.world-layer {
+  position: absolute;
+  inset: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  transform-origin: 0 0;
+  z-index: 1;
+}
+
+.canvas-nav {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid rgba(203, 213, 225, .9);
+  border-radius: 8px;
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 4px 14px rgba(15,23,42,.14);
+  backdrop-filter: blur(8px);
+}
+.canvas-nav button { width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: #334155; font-size: 18px; cursor: pointer; }
+.canvas-nav button:hover { background: #e0e7ff; color: #1d4ed8; }
+.canvas-nav button.fit { font-size: 16px; margin-left: 3px; border-left: 1px solid #e2e8f0; border-radius: 0; }
+.canvas-nav span { min-width: 46px; text-align: center; color: #475569; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* === 部件卡片（绝对定位，使用持久化世界坐标） === */
 
 .component-card {
   background: white;
@@ -452,9 +491,11 @@ html, body, #root {
 /* === 线缆 / 仪表 SVG 覆盖层 === */
 .cable-overlay {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: 0;
+  top: 0;
+  width: 10000px;
+  height: 10000px;
+  overflow: visible;
   pointer-events: none;
   z-index: 2;
 }
@@ -467,12 +508,19 @@ html, body, #root {
 
 /* === 控制面板 === */
 .control-panel {
-  grid-area: panel;
+  position: absolute;
+  top: 102px;
+  bottom: 52px;
+  right: 12px;
+  width: 320px;
   background: #ffffff;
   overflow-y: auto;
   padding: 16px;
-  border-left: 1px solid #e2e8f0;
-  transition: width 0.25s ease, padding 0.25s ease;
+  border: 1px solid rgba(203, 213, 225, .85);
+  border-radius: 10px;
+  box-shadow: -6px 8px 24px rgba(15, 23, 42, .12);
+  transition: width .2s ease, box-shadow .2s ease;
+  z-index: 20;
 }
 
 /* 右折叠：只露 40px 图标条 */
@@ -488,13 +536,13 @@ html, body, #root {
 /* hover 弹出 */
 .control-panel.collapsed.hover-open {
   position: absolute;
-  top: 60px;
-  bottom: 40px;
-  right: 0;
+  top: 102px;
+  bottom: 52px;
+  right: 12px;
   width: 320px;
   padding: 16px;
   z-index: 50;
-  box-shadow: -4px 0 16px rgba(0,0,0,0.15);
+  box-shadow: -8px 10px 28px rgba(15,23,42,.18);
   overflow-y: auto;
   overflow-x: hidden;
 }

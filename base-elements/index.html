@@ -104,10 +104,10 @@
 </head>
 <body>
   <h1><svg class="icon-lg" style="color:#EAB308"><use href="#i-bolt"/></svg> 基础元件 · 数据驱动演示 V3</h1>
-  <div class="sub">7 个部件动画已优化：太阳扫动、点击切换连接、风扇转动、水位+水温色、点击交互。鼠标悬停字段标签可查看说明，点击部件可直接切换状态。</div>
+  <div class="sub">新增太阳能水冷风扇原型：内置水箱、水泵与风机；点击可启停，低水位时自动告警停泵。鼠标悬停字段标签可查看说明。</div>
 
   <!-- 14 个部件 -->
-  <h2><svg class="icon" style="color:#A855F7"><use href="#i-package"/></svg> 14 个部件 <span style="font-size: 10px; color: #64748b; font-weight: normal; margin-left: 8px;">🔵 蓝色徽标 = 可点击切换状态</span></h2>
+  <h2><svg class="icon" style="color:#A855F7"><use href="#i-package"/></svg> 15 个部件 <span style="font-size: 10px; color: #64748b; font-weight: normal; margin-left: 8px;">🔵 蓝色徽标 = 可点击切换状态</span></h2>
   <div class="grid">
     <div class="card"><h3>光伏阵列 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-pv"></div></div>
     <div class="card"><h3>汇流箱 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-cb"></div></div>
@@ -124,6 +124,7 @@
     <div class="card"><h3>室内末端 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-at"></div></div>
     <div class="card"><h3>功率检测器 </h3><div class="mount" id="m-pm"></div></div>
     <div class="card"><h3>温度检测器 </h3><div class="mount" id="m-ts"></div></div>
+    <div class="card"><h3>太阳能水冷风扇 <span class="clickable">🔵 点击</span></h3><div class="mount" id="m-sac"></div></div>
   </div>
 
   <!-- 3 种线缆 -->
@@ -160,6 +161,10 @@
     <div class="interactive-row">
       <span style="width: 90px;">末端风盘：</span>
       <span class="toggle-pill cool" id="pill-at">❄ 制冷</span>
+    </div>
+    <div class="interactive-row">
+      <span style="width: 90px;">水冷风扇：</span>
+      <span class="toggle-pill on" id="pill-sac">运行</span>
     </div>
   </div>
 
@@ -242,6 +247,26 @@
       <span class="val-display" id="at_temp_v">24</span><span class="unit">℃</span>
     </div>
     <div class="field-row">
+      <span class="field-label">水冷风扇水位<span class="tooltip">低于 10% 时触发低水位告警，内置水泵与冷风停止</span></span>
+      <input type="range" id="sac_water_level" min="0" max="100" step="1" value="72">
+      <span class="val-display" id="sac_water_level_v">72</span><span class="unit">%</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水冷风扇水温<span class="tooltip">独立水箱温度；同步驱动水体颜色：低温蓝色，高温橙红色</span></span>
+      <input type="range" id="sac_water_temp" min="0" max="100" step="1" value="18">
+      <span class="val-display" id="sac_water_temp_v">18</span><span class="unit">℃</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水冷风扇风速<span class="tooltip">驱动内置风机、百叶和冷风粒子</span></span>
+      <input type="range" id="sac_fan_speed" min="0" max="1" step="0.05" value="0.75">
+      <span class="val-display" id="sac_fan_speed_v">0.75</span><span class="unit">系数</span>
+    </div>
+    <div class="field-row">
+      <span class="field-label">水冷风扇出风温度<span class="tooltip">独立控制顶部 OUT 数显，不参与水箱水色或风机转速计算</span></span>
+      <input type="range" id="sac_outlet_temp" min="16" max="35" step="1" value="22">
+      <span class="val-display" id="sac_outlet_temp_v">22</span><span class="unit">℃</span>
+    </div>
+    <div class="field-row">
       <span class="field-label">PCM 温度<span class="tooltip">相变材料温度<br>0-50℃ 独立设定</span></span>
       <input type="range" id="pcm_temp" min="0" max="50" step="0.5" value="28">
       <span class="val-display" id="pcm_temp_v">28</span><span class="unit">℃</span>
@@ -286,6 +311,7 @@ const STATE = {
   hp: { fan: 'on', compressor: 'on', refrigerant: 'cool' },
   pump: { impeller: 'on' },
   at: 'cool',
+  sac: 'on',
 };
 
 // ============== 工具函数 ==============
@@ -428,6 +454,9 @@ function injectAnimations(svg, animations) {
         htmlNode.style.setProperty('--anim-fan-duration', `${dur}s`);
       } else if (key.includes('impeller')) {
         const dur = Math.max(0.3, 2.5 - num * 2);
+        htmlNode.style.setProperty('--anim-impeller-duration', `${dur}s`);
+      } else if (key === 'sac_anim_pump_flow') {
+        const dur = Math.max(0.35, 2.2 - num * 1.7);
         htmlNode.style.setProperty('--anim-impeller-duration', `${dur}s`);
       } else if (key.includes('sun')) {
         const dur = Math.max(2, 12 - num * 10);
@@ -706,6 +735,13 @@ function setupClickHandlers() {
     log(`🌬 末端风盘 → ${labels[STATE.at]}（热泵同步）`);
   });
 
+  attachClick(M.sac, 'solar-air-cooler', (svg) => {
+    if (!svg) { log('⚠ 水冷风扇 SVG 未加载'); return; }
+    STATE.sac = STATE.sac === 'on' ? 'off' : 'on';
+    applyData();
+    log(`💨 太阳能水冷风扇 → ${STATE.sac === 'on' ? '运行（风机与内置水泵启动）' : '停机'}`);
+  });
+
   // v0.4.7: load 点击交互（定义在内部，调用在内部）
   setupLoadClick();
 }
@@ -718,6 +754,7 @@ const M = {
   load: document.getElementById('m-load'), hp: document.getElementById('m-hp'),
   tank: document.getElementById('m-tank'), pump: document.getElementById('m-pump'),
   pcm: document.getElementById('m-pcm'), at: document.getElementById('m-at'),
+  sac: document.getElementById('m-sac'),
   pm: document.getElementById('m-pm'), ts: document.getElementById('m-ts'),
   pl: document.getElementById('m-pl'), rl: document.getElementById('m-rl'),
   wl: document.getElementById('m-wl'),
@@ -736,6 +773,7 @@ await loadAndInject('./tank.svg', M.tank);
 await loadAndInject('./pump.svg', M.pump);
 await loadAndInject('./pcm.svg', M.pcm);
 await loadAndInject('./air-terminal.svg', M.at);
+await loadAndInject('./solar-air-cooler.svg', M.sac);
 await loadAndInject('./power-meter.svg', M.pm);
 await loadAndInject('./temp-sensor.svg', M.ts);
 await loadAndInject('./power-line.svg', M.pl);
@@ -758,6 +796,7 @@ const TOOLTIP_DATA = {
   'pump':          { name: '循环水泵',     type: '离心泵',             spec: '0.75kW',    rating: 'H=3m · 流量可调' },
   'pcm':           { name: '相变材料',     type: '相变蓄能',           spec: 'PCM 50kg',  rating: '融化/凝固 0~50℃' },
   'air-terminal':  { name: '末端风盘',     type: '风机盘管',           spec: '3 台',      rating: '送风温度可调' },
+  'solar-air-cooler': { name: '太阳能水冷风扇', type: '独立蒸发冷却末端', spec: '12V/24V DC', rating: '内置水箱 · 水泵 · 风机' },
   'power-meter':   { name: '功率检测器',   type: '电参数测量',         spec: 'PT100',     rating: '实时功率 · 趋势' },
   'temp-sensor':   { name: '温度检测器',   type: '温度变送器',         spec: 'PT100',     rating: '范围 0~100℃' },
   'power-line':        { name: '电力线',     type: '三相交流传输',       spec: '380V AC',  rating: '3 相 · 50Hz' },
@@ -814,6 +853,7 @@ const MOUNT_TO_COMPONENT = {
   'pump': 'pump',
   'pcm': 'pcm',
   'at': 'air-terminal',
+  'sac': 'solar-air-cooler',
   'pm': 'power-meter',
   'ts': 'temp-sensor',
   'pl': 'power-line',
@@ -846,7 +886,7 @@ function setupTooltips() {
 
 setupTooltips();
 
-log('✓ 18 个 SVG 加载完成 + 6 个点击交互 + 18 个 Tooltip 就绪');
+log('✓ 19 个 SVG 加载完成 + 7 个点击交互 + 19 个 Tooltip 就绪');
 
 // ============== 默认字段（静态值，覆盖所有 SVG 中的 {{xxx}} 占位符）==============
 const DEFAULTS = {
@@ -885,6 +925,11 @@ const DEFAULTS = {
   at_mode_label: 'MODE',
   at_pwr_label: 'PWR',
   at_fan_label: 'AUTO',
+  // Solar air cooler
+  sac_power: '0.18 kW',
+  sac_water_level: '72%',
+  sac_water_temp: '18℃',
+  sac_outlet_temp: '22℃',
   // Power meter
   pm_value: '4.50',
   pm_trend: '▲ +0.20',
@@ -956,7 +1001,17 @@ window.applyData = function() {
   const tankFlow = getVal('tank_flow');
   const pumpFlow = getVal('pump_flow');
   const atTemp = getVal('at_temp');
+  const sacWaterLevel = getVal('sac_water_level');
+  const sacWaterTemp = getVal('sac_water_temp');
+  const sacFanSpeed = getVal('sac_fan_speed');
+  const sacOutletTemp = getVal('sac_outlet_temp');
   const pcmTemp = getVal('pcm_temp');
+  const sacState = STATE.sac === 'on' ? (sacWaterLevel <= 10 ? 'low-water' : 'on') : 'off';
+  const sacPill = document.getElementById('pill-sac');
+  if (sacPill) {
+    sacPill.textContent = sacState === 'on' ? '运行' : (sacState === 'low-water' ? '缺水告警' : '停机');
+    sacPill.className = 'toggle-pill ' + (sacState === 'on' ? 'on' : (sacState === 'low-water' ? 'heat' : 'off'));
+  }
 
   // v0.4 PCM 重构：派生融化比例/相态/过渡时长
   const _pcmMeltInput = { tank_temp: pcmTemp, pump_on: STATE.pump.impeller === 'on', pump_flow: pumpFlow };
@@ -1027,6 +1082,11 @@ window.applyData = function() {
     at_status_text: STATE.at === 'off' ? '停机' : '运行',
     at_count: 3,
     at_fan_speed_label: STATE.at === 'off' ? 'OFF' : 'AUTO',
+    // Solar air cooler
+    sac_water_level: Math.round(sacWaterLevel) + '%',
+    sac_water_temp: Math.round(sacWaterTemp) + '℃',
+    sac_outlet_temp: sacState === 'on' ? Math.round(sacOutletTemp) + '℃' : '--',
+    sac_power: sacState === 'on' ? (0.08 + sacFanSpeed * 0.16).toFixed(2) + ' kW' : '0.00 kW',
   };
 
   const status = {
@@ -1059,6 +1119,12 @@ window.applyData = function() {
     at_anim_fan_speed: STATE.at === 'off' ? 0 : Math.min(3, Math.max(1, Math.round(pumpFlow))),
     // 末端风扇颜色（v0.3.2 新增）
     at_anim_fan_color: STATE.at === 'cool' ? '#0EA5E9' : (STATE.at === 'heat' ? '#F97316' : '#9CA3AF'),
+    // 太阳能水冷风扇：独立的内置水泵、风机、冷风与水位
+    sac_anim_fan_speed: sacState === 'on' ? sacFanSpeed : 0,
+    sac_anim_air_flow: sacState === 'on' ? sacFanSpeed : 0,
+    sac_anim_pump_flow: sacState === 'on' ? sacFanSpeed : 0,
+    sac_anim_water_fill: sacWaterLevel / 100,
+    sac_anim_water_color: tempColor(sacWaterTemp),
     // 水箱水位（0=空, 1=满）
     tank_anim_water_fill: tankVolume / 100,
     // 水箱水温色（5 段 HSL 插值）
@@ -1108,6 +1174,12 @@ window.applyData = function() {
       opts.animStates = { fan: STATE.at };
     }
     updateMounted(el, opts);
+    if (k === 'sac') {
+      const root = el.querySelector('[data-component-id="solar-air-cooler"]');
+      if (root) root.setAttribute('data-anim-state', sacState);
+      opts.status = { ...status, sac_status: sacState === 'on' ? 'running' : (sacState === 'low-water' ? 'warn' : 'off') };
+      updateMounted(el, opts);
+    }
   });
 
   log(`✓ PV=${pvPower}kW(光${pvSun}) | IV=${ivPower}kW | BAT=${batSoc}% | HP=${hpTemp}℃/${hpPower}kW | TANK=${tankTemp}℃/${tankVolume}% | PCM=${pcmTemp}℃`);
@@ -1153,6 +1225,10 @@ window.randomize = function() {
   document.getElementById('tank_flow').value = jitter(2.5, 2);
   document.getElementById('pump_flow').value = jitter(2.5, 2);
   document.getElementById('at_temp').value = jitter(24, 3);
+  document.getElementById('sac_water_level').value = jitter(65, 80);
+  document.getElementById('sac_water_temp').value = jitter(22, 35);
+  document.getElementById('sac_fan_speed').value = jitter(0.7, 0.5);
+  document.getElementById('sac_outlet_temp').value = jitter(22, 8);
   document.getElementById('pcm_temp').value = jitter(25, 15);
   document.querySelectorAll('input[type=range]').forEach(inp => {
     const out = document.getElementById(inp.id + '_v');
@@ -1170,6 +1246,7 @@ window.resetAll = function() {
   STATE.hp = { fan: 'on', compressor: 'on', refrigerant: 'cool' };
   STATE.pump = { impeller: 'on' };
   STATE.at = 'cool';
+  STATE.sac = 'on';
   // 重置所有滑块
   document.getElementById('pv_power').value = 3.24;
   document.getElementById('pv_sun').value = 0.6;
@@ -1182,6 +1259,10 @@ window.resetAll = function() {
   document.getElementById('tank_flow').value = 2.5;
   document.getElementById('pump_flow').value = 2.5;
   document.getElementById('at_temp').value = 24;
+  document.getElementById('sac_water_level').value = 72;
+  document.getElementById('sac_water_temp').value = 18;
+  document.getElementById('sac_fan_speed').value = 0.75;
+  document.getElementById('sac_outlet_temp').value = 22;
   document.getElementById('pcm_temp').value = 28;
   document.querySelectorAll('input[type=range]').forEach(inp => {
     const out = document.getElementById(inp.id + '_v');
@@ -1208,6 +1289,7 @@ window.resetAll = function() {
       root.setAttribute('data-anim-state', 'on');
     }
     if (k === 'at') root.setAttribute('data-anim-state', 'cool');
+    if (k === 'sac') root.setAttribute('data-anim-state', 'on');
   });
   // 重置 pill
   document.getElementById('pill-pv').textContent = 'ON';
@@ -1222,6 +1304,8 @@ window.resetAll = function() {
   document.getElementById('pill-pump').className = 'toggle-pill on';
   document.getElementById('pill-at').textContent = '❄ 制冷';
   document.getElementById('pill-at').className = 'toggle-pill cool';
+  document.getElementById('pill-sac').textContent = '运行';
+  document.getElementById('pill-sac').className = 'toggle-pill on';
   log('⏮ 全部重置完成');
 };
 

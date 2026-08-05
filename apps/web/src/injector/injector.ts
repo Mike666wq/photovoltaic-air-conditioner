@@ -223,6 +223,25 @@ export function injectAnimations(svg: SVGElement, animations: Record<string, any
         const dur = num > 0 ? Math.max(0.5, 2.5 - num * 0.6) : 0;
         node.style.setProperty('--anim-air-speed', `${dur}s`);
       }
+      // 太阳能水冷风扇：内置风机、冷风、水泵与水箱独立动画
+      else if (key === 'sac_anim_fan_speed') {
+        const dur = num > 0 ? Math.max(0.4, 2.6 - num * 2.1) : 0;
+        node.style.setProperty('--anim-fan-duration', `${dur}s`);
+      }
+      else if (key === 'sac_anim_air_flow') {
+        const dur = num > 0 ? Math.max(0.4, 2.1 - num * 1.5) : 0;
+        node.style.setProperty('--anim-air-speed', `${dur}s`);
+      }
+      else if (key === 'sac_anim_pump_flow') {
+        const dur = num > 0 ? Math.max(0.35, 2.2 - num * 1.7) : 0;
+        node.style.setProperty('--anim-impeller-duration', `${dur}s`);
+      }
+      else if (key === 'sac_anim_water_fill') {
+        node.style.setProperty('--anim-water-norm', String(Math.max(0, Math.min(1, num))));
+      }
+      else if (key === 'sac_anim_water_color') {
+        node.style.setProperty('--anim-water-color', String(value));
+      }
       // A3: 汇流箱 PV 输入 LED 亮数（SVG ID cb_anim_pv_inputs）→ --anim-pv-inputs
       // combiner-box.svg 行 89-92 已消费 var(--anim-pv-inputs, 4)，4 路 LED 按 0~1 阶梯点亮
       else if (key === 'cb_anim_pv_inputs') {
@@ -389,6 +408,9 @@ const COMPONENT_ROOT_STATES: Record<string, RootAttrMap> = {
   },
   'air-terminal': {
     'data-anim-state': (s) => s.at_mode,
+  },
+  'solar-air-cooler': {
+    'data-anim-state': (s) => s.sac_on ? (s.sac_water_level <= 10 ? 'low-water' : 'on') : 'off',
   },
 };
 

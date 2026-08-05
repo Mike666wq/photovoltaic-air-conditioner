@@ -1,7 +1,7 @@
-// 12 固定部件坐标 + 元数据
+// 13 固定部件坐标 + 元数据
 // 2×7 布局（1800×1100），仪表 (PM/TS) 由调色板拖出生成，不在固定布局内
 // 行1 (y=200): PV | CB | Grid | GS | IV | Bat | Load
-// 行2 (y=750): HP | Tank | Pump | PCM | AT
+// 行2 (y=750): HP | Tank | Pump | PCM | AT | Solar Air Cooler
 
 export interface ComponentDef {
   id: string;
@@ -35,6 +35,7 @@ export const COMPONENTS: ComponentDef[] = [
   { id: 'pump',         name: '循环水泵',     type: '输送',       x: COL_X[2], y: ROW2_Y, scale: 0.6,  spec: '0.75kW',   rating: 'H=3m · 流量可调' },
   { id: 'pcm',          name: '相变材料',     type: '蓄能',       x: COL_X[3], y: ROW2_Y, scale: 0.7,  spec: 'PCM 50kg', rating: '融化/凝固 0~50℃' },
   { id: 'air-terminal', name: '末端风盘',     type: '末端',       x: COL_X[4], y: ROW2_Y, scale: 0.55, spec: '3 台',     rating: '送风温度可调' },
+  { id: 'solar-air-cooler', name: '太阳能水冷风扇', type: '末端',   x: COL_X[5], y: ROW2_Y, scale: 0.75, spec: '12/24V DC', rating: '内置水箱 · 水泵 · 风机' },
 ];
 
 // SVG 路径映射
@@ -51,6 +52,7 @@ export const SVG_FILES: Record<string, string> = {
   'pump': 'pump.svg',
   'pcm': 'pcm.svg',
   'air-terminal': 'air-terminal.svg',
+  'solar-air-cooler': 'solar-air-cooler.svg',
   'power-meter': 'power-meter.svg',
   'temp-sensor': 'temp-sensor.svg',
 };

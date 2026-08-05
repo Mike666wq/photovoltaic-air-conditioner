@@ -141,6 +141,10 @@ export function injectAnimations(svg: SVGElement, animations: Record<string, Fie
         const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0.5;
         const dur = Math.max(0.3, 2.5 - num * 2);
         (node as HTMLElement).style.setProperty('--anim-impeller-duration', `${dur}s`);
+      } else if (key === 'sac_anim_pump_flow') {
+        const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0.5;
+        const dur = Math.max(0.35, 2.2 - num * 1.7);
+        (node as HTMLElement).style.setProperty('--anim-impeller-duration', `${dur}s`);
       } else if (key.includes('sun')) {
         const num = typeof value === 'number' ? value : parseFloat(String(value)) || 0.5;
         const dur = Math.max(2, 12 - num * 10);

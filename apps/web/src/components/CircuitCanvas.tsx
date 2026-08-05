@@ -14,11 +14,10 @@ import { usePvSunAnimation } from '../hooks/usePvSunAnimation';
 import { useTransientSpark } from '../hooks/useTransientSpark';
 import { TsPointer } from './TsPointer';
 import { ComponentDetail } from './ComponentDetail';
-import { GridPattern } from './GridPattern';
 
 const CLICKABLE = new Set([
   'pv-array', 'combiner-box', 'grid-switch', 'heat-pump',
-  'pump', 'air-terminal', 'load', 'pcm',
+  'pump', 'air-terminal', 'load', 'pcm', 'solar-air-cooler',
 ]);
 
 // 可打开详情页的部件（双击触发）。比 CLICKABLE 范围更广。
@@ -26,7 +25,7 @@ const CLICKABLE = new Set([
 // 双击走 250ms timer 节流避免误触 cycle。
 const DETAILABLE = new Set([
   'pv-array', 'combiner-box', 'grid', 'grid-switch', 'inverter',
-  'battery', 'load', 'heat-pump', 'tank', 'pump', 'pcm', 'air-terminal',
+  'battery', 'load', 'heat-pump', 'tank', 'pump', 'pcm', 'air-terminal', 'solar-air-cooler',
 ]);
 
 const LED_COLORS: Record<string, string> = {
@@ -85,6 +84,9 @@ function buildInjectData(state: SimulationState) {
   const loadBarNorm = Math.max(0, Math.min(100, (state.load_power_kw / 6) * 100));
   // GS 手柄球颜色（绿=合闸/红=分闸）
   const gsHandleBallColor = state.gs_on ? '#22C55E' : '#EF4444';
+  const sacState = state.sac_on
+    ? (state.sac_water_level <= 10 ? 'low-water' : 'on')
+    : 'off';
   // 注意：ts_mercury 不在此处几何注入 — temp-sensor.svg 内 .anim-ts-mercury 的 height/transform
   // 已由 CSS `var(--anim-ts-temp)` 驱动（injectAnimations 的 ts_anim_temp 通道）。
   // 若再通过 geometry 写 width/height/y 会与 CSS 冲突，反而破坏动画。
@@ -163,6 +165,11 @@ function buildInjectData(state: SimulationState) {
     at_set_label: '设定',
     at_fan_speed_label: state.at_mode === 'off' ? '停' : '中',
     at_count: '3 台',
+    // === Solar air cooler（独立水箱/水泵/风机，不接中央水路）===
+    sac_water_level: Math.round(state.sac_water_level) + '%',
+    sac_water_temp: Math.round(state.sac_water_temp) + '℃',
+    sac_outlet_temp: sacState === 'on' ? Math.round(state.sac_outlet_temp) + '℃' : '--',
+    sac_power: sacState === 'on' ? (0.08 + state.sac_fan_speed * 0.16).toFixed(2) + ' kW' : '0.00 kW',
     // === PCM ===（T0/T1 双相变材料：按 pcm_temp_select 取温度 + 数据集当前行）
     ...(() => {
       const pcmData = buildPcmInjectData(state);
@@ -237,6 +244,7 @@ function buildInjectData(state: SimulationState) {
     // === AT 状态 LED（at_status_led 已有；补 at_status_glow）===
     'at_status_glow':     ledColor(state.at_mode),
     'at_status_led':      ledColor(state.at_mode),
+    'sac_status_led':     ledColor(sacState === 'on' ? 'running' : sacState === 'low-water' ? 'warn' : 'off'),
     // === PCM（pcm_status_led/glow 已有）===
     'pcm_status_led':     pcm.color,
     'pcm_status_glow':    pcm.color,
@@ -255,6 +263,7 @@ function buildInjectData(state: SimulationState) {
       : ledColor(state.battery_power_kw > 0 ? 'charging' : state.battery_power_kw < 0 ? 'discharging' : 'idle'),
     'pump_status_text': ledColor(state.pump_on ? 'running' : 'stopped'),
     'at_status_text':   ledColor(state.at_mode),
+    'sac_outlet_temp':  sacState === 'on' ? '#7DD3FC' : '#94A3B8',
     'hp_status_text':   ledColor(state.hp_on ? 'running' : 'standby'),
     'pcm_status_text':  pcm.color,
     // M1.5 Step 5: LCD 文字色（绿=合闸/红=分闸）
@@ -276,6 +285,11 @@ function buildInjectData(state: SimulationState) {
     at_anim_fan_speed:    state.at_fan_speed,
     // A2: 末端风盘出风粒子速度（at_anim_air_flow 走 --anim-air-speed，独立于叶片旋转速度）
     at_anim_air_flow:     state.at_fan_speed,
+    sac_anim_fan_speed:   sacState === 'on' ? state.sac_fan_speed : 0,
+    sac_anim_air_flow:    sacState === 'on' ? state.sac_fan_speed : 0,
+    sac_anim_pump_flow:   sacState === 'on' ? state.sac_fan_speed : 0,
+    sac_anim_water_fill:  state.sac_water_level / 100,
+    sac_anim_water_color: tempColor(state.sac_water_temp),
     // A3: 汇流箱 PV 输入 LED 亮数（cb_anim_pv_inputs 走 --anim-pv-inputs，按 0~1 归一化）
     cb_anim_pv_inputs:    state.pv_power,
     tank_anim_water_fill: state.tank_volume / 100,
@@ -324,6 +338,7 @@ const CLICK_ACTIONS: Record<string, (s: ReturnType<typeof useSimStore.getState>)
   'heat-pump':     (s) => s.toggleHp(),
   'pump':          (s) => s.togglePump(),
   'air-terminal':  (s) => s.cycleAt(),
+  'solar-air-cooler': (s) => s.toggleSolarAirCooler(),
   'load':          (s) => s.toggleLoad(),  // Fix B6：原 cycleLoad 重命名
   'pcm':           (s) => s.setPcmTempSelect(s.pcm_temp_select === 'T0' ? 'T1' : 'T0'),
 };
@@ -563,6 +578,11 @@ export function CircuitCanvas() {
   const cardDownRef = useRef<{ id: string; x: number; y: number } | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ w: 1200, h: 800 });
+  /** 世界坐标 → 屏幕坐标：screen = world × zoom + pan。所有持久化位置均为世界坐标。 */
+  const [view, setView] = useState({ x: 20, y: 20, zoom: 0.65 });
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const fittedRef = useRef(false);
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   // M1.5 Round 13: 部件详情弹窗（双击部件触发）
   const [detailCompId, setDetailCompId] = useState<string | null>(null);
@@ -585,23 +605,14 @@ export function CircuitCanvas() {
     return () => ro.disconnect();
   }, []);
 
-  /**
-   * viewBox 逻辑坐标 → CSS 像素的统一缩放因子。
-   * - 仅 defaultPositions（viewBox 1800×1100）和 presetVb 仪表需要 × scaleX/scaleY
-   * - 用户 positions[id]（CSS px）和 cable.floating*（CSS px）直接使用，不乘 scale
-   * - canvasSize.w/h 为 0 时按 1:1 处理（极端情况兜底）
-   */
-  const scaleX = canvasSize.w > 0 ? canvasSize.w / VIEW_W : 1;
-  const scaleY = canvasSize.h > 0 ? canvasSize.h / VIEW_H : 1;
-
-  /** 部件默认位置（viewBox 坐标 → 屏幕像素缩放） */
+  /** 部件默认位置：稳定世界坐标，不再随浏览器窗口尺寸变化。 */
   const defaultPositions = useMemo<Record<string, { x: number; y: number }>>(() => {
     const map: Record<string, { x: number; y: number }> = {};
     for (const c of COMPONENTS) {
-      map[c.id] = { x: c.x * scaleX, y: c.y * scaleY };
+      map[c.id] = { x: c.x, y: c.y };
     }
     return map;
-  }, [scaleX, scaleY]);
+  }, []);
 
   /**
    * 初次挂载 + 画布尺寸变化时同步 cardPositions 到 store。
@@ -665,7 +676,7 @@ export function CircuitCanvas() {
       const dy = ev.clientY - startY;
       if (!moved && Math.hypot(dx, dy) < 4) return;
       moved = true;
-      moveTo({ x: currentPos.x + dx, y: currentPos.y + dy });
+      moveTo({ x: currentPos.x + dx / viewRef.current.zoom, y: currentPos.y + dy / viewRef.current.zoom });
     };
     const onUp = () => {
       if (cancelled) {
@@ -770,8 +781,40 @@ export function CircuitCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
-    return { x: sx - rect.left, y: sy - rect.top };
+    const current = viewRef.current;
+    return { x: (sx - rect.left - current.x) / current.zoom, y: (sy - rect.top - current.y) / current.zoom };
   };
+
+  /** 将全部内容置于可视范围中央；旧像素坐标场景加载后也能立即恢复可见。 */
+  const fitView = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const pts = COMPONENTS.map((c) => positions[c.id] ?? { x: c.x, y: c.y });
+    meters.forEach((m) => pts.push(m.presetVb ?? m.position));
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const minX = Math.min(0, ...xs) - 80;
+    const minY = Math.min(0, ...ys) - 60;
+    const maxX = Math.max(VIEW_W, ...xs.map((x) => x + 210)) + 80;
+    const maxY = Math.max(VIEW_H, ...ys.map((y) => y + 280)) + 60;
+    const zoom = Math.max(0.25, Math.min(1.25, Math.min((rect.width - 48) / (maxX - minX), (rect.height - 48) / (maxY - minY))));
+    setView({ x: (rect.width - (minX + maxX) * zoom) / 2, y: (rect.height - (minY + maxY) * zoom) / 2, zoom });
+  }, [positions, meters]);
+
+  useEffect(() => {
+    if (!fittedRef.current && canvasSize.w > 0 && canvasSize.h > 0) {
+      fittedRef.current = true;
+      fitView();
+    }
+  }, [canvasSize, fitView]);
+
+  useEffect(() => {
+    const onFit = () => fitView();
+    window.addEventListener('canvas-fit', onFit);
+    return () => window.removeEventListener('canvas-fit', onFit);
+  }, [fitView]);
 
   /** 同步所有部件卡片 + 仪表卡片的画布像素 rect 到 store（供 updateCableEnd 兑底用） */
   const syncCardPositionsToStore = useCallback(() => {
@@ -782,11 +825,12 @@ export function CircuitCanvas() {
     for (const [id, card] of Object.entries(cardRefs.current)) {
       if (!card) continue;
       const rect = card.getBoundingClientRect();
+      const current = viewRef.current;
       positions[id] = {
-        x: rect.left - canvasRect.left,
-        y: rect.top - canvasRect.top,
-        w: rect.width,
-        h: rect.height,
+        x: (rect.left - canvasRect.left - current.x) / current.zoom,
+        y: (rect.top - canvasRect.top - current.y) / current.zoom,
+        w: rect.width / current.zoom,
+        h: rect.height / current.zoom,
       };
     }
     setCardPositions(positions);
@@ -837,10 +881,11 @@ export function CircuitCanvas() {
     const cardRect = card.getBoundingClientRect();
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     if (!canvasRect) return null;
-    const cx = cardRect.left - canvasRect.left;
-    const cy = cardRect.top - canvasRect.top;
-    const cw = cardRect.width;
-    const ch = cardRect.height;
+    const current = viewRef.current;
+    const cx = (cardRect.left - canvasRect.left - current.x) / current.zoom;
+    const cy = (cardRect.top - canvasRect.top - current.y) / current.zoom;
+    const cw = cardRect.width / current.zoom;
+    const ch = cardRect.height / current.zoom;
     switch (side) {
       case 'top':    return { x: cx + cw / 2, y: cy };
       case 'bottom': return { x: cx + cw / 2, y: cy + ch };
@@ -961,6 +1006,53 @@ export function CircuitCanvas() {
     }
   };
 
+  const startPan = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (!target.classList.contains('canvas-area') && !target.classList.contains('canvas-bg')) return;
+    const start = { x: e.clientX, y: e.clientY, view: viewRef.current };
+    let moved = false;
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - start.x;
+      const dy = ev.clientY - start.y;
+      if (Math.hypot(dx, dy) > 3) moved = true;
+      setView({ ...start.view, x: start.view.x + dx, y: start.view.y + dy });
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (moved) cardDownRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const old = viewRef.current;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const zoom = Math.max(0.2, Math.min(2.5, old.zoom * factor));
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const wx = (sx - old.x) / old.zoom;
+    const wy = (sy - old.y) / old.zoom;
+    setView({ zoom, x: sx - wx * zoom, y: sy - wy * zoom });
+  };
+
+  const zoomAtCenter = (factor: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const old = viewRef.current;
+    const zoom = Math.max(0.2, Math.min(2.5, old.zoom * factor));
+    const sx = rect.width / 2;
+    const sy = rect.height / 2;
+    setView({ zoom, x: sx - ((sx - old.x) / old.zoom) * zoom, y: sy - ((sy - old.y) / old.zoom) * zoom });
+  };
+
   const isDraggingCable = cableDrag != null;
 
   return (
@@ -971,14 +1063,12 @@ export function CircuitCanvas() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onClick={handleCanvasClick}
+      onMouseDown={startPan}
+      onDoubleClick={(e) => { if ((e.target as HTMLElement).classList.contains('canvas-area') || (e.target as HTMLElement).classList.contains('canvas-bg')) fitView(); }}
+      onWheel={handleWheel}
     >
-      <div className="canvas-bg">
-        {state.showGrid && (
-          <svg viewBox={`0 0 ${canvasSize.w} ${canvasSize.h}`} preserveAspectRatio="none">
-            <GridPattern size={20} width={canvasSize.w} height={canvasSize.h} />
-          </svg>
-        )}
-      </div>
+      <div className="canvas-bg" style={state.showGrid ? { backgroundSize: `${20 * view.zoom}px ${20 * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : undefined} />
+      <div className="world-layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
 
       {/* 12 固定部件卡片（绝对定位，任何时候可拖） */}
       {COMPONENTS.map((comp) => {
@@ -1021,9 +1111,7 @@ export function CircuitCanvas() {
         const isSelected = selectedMeter === m.id;
         // - 预置仪表：m.presetVb 有值（viewBox 1800×1100）→ × scaleX/scaleY
         // - 用户拖出：m.presetVb 为 undefined（moveMeter 已清），m.position 是 CSS px
-        const pos = m.presetVb
-          ? { x: m.presetVb.x * scaleX, y: m.presetVb.y * scaleY }
-          : m.position;
+        const pos = m.presetVb ?? m.position;
         return (
           <div
             key={m.id}
@@ -1073,8 +1161,7 @@ export function CircuitCanvas() {
           cableOverlayRef={cableOverlayRef}
           syncCardPositionsToStore={syncCardPositionsToStore}
           cancelDragRef={cancelDragRef}
-          scaleX={scaleX}
-          scaleY={scaleY}
+          toWorld={screenToCanvas}
         />
       </svg>
 
@@ -1083,7 +1170,13 @@ export function CircuitCanvas() {
         <TsPointer key={`tsptr-${m.id}`} meter={m} />
       ))}
 
-      {/* M1.5 Round 13: 部件详情弹窗（双击部件触发） */}
+      </div>
+      <div className="canvas-nav" style={{ right: state.rightPanelOpen ? 350 : 18 }} onMouseDown={(e) => e.stopPropagation()}>
+        <button type="button" onClick={() => zoomAtCenter(1 / 1.2)} title="缩小">−</button>
+        <span>{Math.round(view.zoom * 100)}%</span>
+        <button type="button" onClick={() => zoomAtCenter(1.2)} title="放大">+</button>
+        <button type="button" className="fit" onClick={fitView} title="居中并适配全部内容">⌖</button>
+      </div>
       <ComponentDetail compId={detailCompId} onClose={() => setDetailCompId(null)} />
     </div>
   );
@@ -1096,17 +1189,14 @@ function CableOverlay({
   cableOverlayRef,
   syncCardPositionsToStore,
   cancelDragRef,
-  scaleX,
-  scaleY,
+  toWorld,
 }: {
   getAnchorPos: (anchorId: string) => { x: number; y: number } | null;
   canvasRef: React.MutableRefObject<HTMLDivElement | null>;
   cableOverlayRef: React.MutableRefObject<SVGSVGElement | null>;
   syncCardPositionsToStore: () => void;
   cancelDragRef: React.MutableRefObject<(() => void) | null>;
-  /** Plan A：viewBox 逻辑 → CSS 像素缩放因子（来自 CircuitCanvas） */
-  scaleX: number;
-  scaleY: number;
+  toWorld: (screenX: number, screenY: number) => { x: number; y: number } | null;
 }) {
   const cables = useSimStore((s) => s.cables);
   const selectedCable = useSimStore((s) => s.selectedCable);
@@ -1135,24 +1225,7 @@ function CableOverlay({
 
   useParticleAnimation(particleLayerRef, particleState, getAnchorPos);
 
-  // 同步 overlay svg 尺寸到 canvas
-  useEffect(() => {
-    const updateSize = () => {
-      const svg = cableOverlayRef.current;
-      const canvas = canvasRef.current;
-      if (!svg || !canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      svg.setAttribute('width', String(rect.width));
-      svg.setAttribute('height', String(rect.height));
-      svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
-    };
-    updateSize();
-    const ro = new ResizeObserver(updateSize);
-    if (canvasRef.current) ro.observe(canvasRef.current);
-    return () => ro.disconnect();
-  }, [canvasRef, cableOverlayRef]);
-
-  const findNearestPx = (pt: { x: number; y: number }, excludeCableId?: string) => {
+  const findNearestWorld = (pt: { x: number; y: number }, excludeCableId?: string) => {
     let best: { id: string; pos: { x: number; y: number } } | null = null;
     let bestDist = 8;
     // 组件锚点
@@ -1205,10 +1278,8 @@ function CableOverlay({
 
     const onMove = (ev: MouseEvent) => {
       if (cancelled) return;
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const pt = { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+      const pt = toWorld(ev.clientX, ev.clientY);
+      if (!pt) return;
       setCableFloating(cableId, end, pt);
       // ★ 联动 owner：owner 不同于当前端点时才显式 setCableFloating
       // （owner 即当前端点时不做重复调用）
@@ -1216,7 +1287,7 @@ function CableOverlay({
         setCableFloating(owner.cableId, owner.end, pt);
       }
       // 排除自身另一端，避免 A.to 误吸附 A.from
-      const snap = findNearestPx(pt, cableId);
+      const snap = findNearestWorld(pt, cableId);
       setCableDrag({ cableId, end, pos: pt, snapAnchorId: snap?.id ?? null });
     };
     const onUp = () => {

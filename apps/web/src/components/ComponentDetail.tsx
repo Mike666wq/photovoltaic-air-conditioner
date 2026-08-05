@@ -77,6 +77,7 @@ const COMPONENT_LABELS: Record<string, { name: string; type: string }> = {
   'pump':         { name: '循环水泵',   type: 'PUMP' },
   'pcm':          { name: '相变材料',   type: 'PCM' },
   'air-terminal': { name: '末端风盘',   type: 'AT' },
+  'solar-air-cooler': { name: '太阳能水冷风扇', type: 'SAC' },
   'power-meter':  { name: '功率检测器', type: 'PM' },
   'temp-sensor':  { name: '温度检测器', type: 'TS' },
 };
@@ -250,6 +251,14 @@ function ComponentStats({ compId }: { compId: string }) {
       stats.push({ label: '模式', value: s.at_mode });
       stats.push({ label: '温度', value: s.at_temp.toFixed(0) + '℃' });
       stats.push({ label: '风档', value: s.at_fan_speed + '/4' });
+      break;
+    case 'solar-air-cooler':
+      stats.push({ label: '运行', value: s.sac_on ? '✓' : '✗' });
+      stats.push({ label: '水位', value: s.sac_water_level.toFixed(0) + '%' });
+      stats.push({ label: '水温', value: s.sac_water_temp.toFixed(0) + '℃' });
+      stats.push({ label: '风速', value: s.sac_fan_speed.toFixed(2) });
+      stats.push({ label: '出风温度', value: s.sac_on && s.sac_water_level > 10 ? s.sac_outlet_temp.toFixed(0) + '℃' : '—' });
+      stats.push({ label: '供电', value: '逆变器输出侧并联' });
       break;
     case 'power-meter':
       stats.push({ label: 'PM 值', value: s.pv_power.toFixed(2) + ' kW' });

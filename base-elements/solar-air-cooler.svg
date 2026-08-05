@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" id="solar-air-cooler">
+  <defs>
+    <linearGradient id="sac-top" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F9FAFB"/><stop offset=".55" stop-color="#D1D5DB"/><stop offset="1" stop-color="#6B7280"/></linearGradient>
+    <linearGradient id="sac-front" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#F3F4F6"/><stop offset="1" stop-color="#9CA3AF"/></linearGradient>
+    <linearGradient id="sac-water" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#7DD3FC" stop-opacity=".88"/><stop offset="1" stop-color="#0369A1" stop-opacity=".9"/></linearGradient>
+    <radialGradient id="sac-fan" cx="50%" cy="45%" r="55%"><stop stop-color="#F8FAFC"/><stop offset=".58" stop-color="#94A3B8"/><stop offset="1" stop-color="#1F2937"/></radialGradient>
+    <filter id="sac-shadow"><feDropShadow dx="2" dy="4" stdDeviation="2.5" flood-opacity=".34"/></filter>
+    <clipPath id="sac-tank-clip"><path d="M43 170 L120 181 L197 170 L197 204 Q120 220 43 204 Z"/></clipPath>
+  </defs>
+  <style>
+    .sac-fan, .sac-air, .sac-water-flow, .sac-louver { opacity: 0; }
+    .sac-fan { transform-origin: 121px 103px; transform-box: view-box; }
+    [data-anim-state="on"] .sac-fan { opacity: 1; animation: sac-spin var(--anim-fan-duration, .8s) linear infinite; }
+    [data-anim-state="on"] .sac-louver { opacity: 1; animation: sac-louver 1.8s ease-in-out infinite; }
+    [data-anim-state="on"] .sac-air { opacity: .9; animation: sac-air var(--anim-air-speed, .8s) linear infinite; }
+    [data-anim-state="on"] .sac-water-flow { opacity: 1; animation: sac-water-flow var(--anim-impeller-duration, .7s) linear infinite; }
+    [data-anim-state="low-water"] .sac-warning { opacity: 1; animation: sac-alarm .8s ease-in-out infinite; }
+    [data-anim-state="low-water"] .sac-status-led { fill: #F59E0B; }
+    [data-anim-state="off"] .sac-status-led { fill: #64748B; }
+    .sac-water-fill { transform: translateY(calc((1 - var(--anim-water-norm, .72)) * 42px)); transition: transform .45s ease; }
+    .sac-water-body { fill: var(--anim-water-color, url(#sac-water)); transition: fill .45s ease; }
+    .sac-water-surface, .sac-water-bubble, .sac-water-stream { opacity: 0; }
+    [data-anim-state="on"] .sac-water-surface { opacity: 1; animation: sac-water-ripple 1.5s ease-in-out infinite; }
+    [data-anim-state="on"] .sac-water-stream { opacity: .95; animation: sac-water-stream 1.35s linear infinite; }
+    [data-anim-state="on"] .sac-water-bubble { opacity: .92; animation: sac-water-bubble 2.1s ease-in infinite; }
+    [data-anim-state="on"] .sac-water-bubble.b2 { animation-delay: .55s; }
+    [data-anim-state="on"] .sac-water-bubble.b3 { animation-delay: 1.1s; }
+    [data-anim-state="on"] .sac-water-bubble.b4 { animation-delay: 1.55s; }
+    @keyframes sac-spin { to { transform: rotate(360deg); } }
+    @keyframes sac-louver { 50% { transform: translateY(2px); opacity: .55; } }
+    @keyframes sac-air { 0% { transform: translate(0,0); opacity: 0; } 18% { opacity: .9; } 100% { transform: translate(35px,5px); opacity: 0; } }
+    @keyframes sac-water-flow { to { stroke-dashoffset: -18; } }
+    @keyframes sac-alarm { 50% { opacity: .25; } }
+    @keyframes sac-water-ripple { 50% { transform: translateX(8px) scaleX(.9); opacity: .5; } }
+    @keyframes sac-water-stream { to { stroke-dashoffset: -26; } }
+    @keyframes sac-water-bubble { 0% { transform: translateY(17px) scale(.65); opacity: 0; } 20% { opacity: .95; } 100% { transform: translateY(-21px) scale(1.1); opacity: 0; } }
+  </style>
+  <ellipse cx="120" cy="217" rx="86" ry="8" fill="rgba(0,0,0,.28)"/>
+  <g data-component-id="solar-air-cooler" data-anim-state="on" data-clickable="true" filter="url(#sac-shadow)">
+    <!-- 顶盖与控制面板 -->
+    <path d="M40 73 L119 57 L202 73 L181 91 L59 91 Z" fill="url(#sac-top)" stroke="#4B5563"/>
+    <path d="M59 91 L181 91 L191 105 L49 105 Z" fill="#6B7280"/>
+    <rect x="50" y="35" width="140" height="20" rx="3" fill="#0F172A"/>
+    <text x="120" y="49" text-anchor="middle" font-size="10" font-weight="bold" fill="#FCD34D" font-family="sans-serif">SOLAR AIR COOLER 水冷风扇</text>
+    <rect x="83" y="71" width="74" height="15" rx="2" fill="#111827"/>
+    <text x="88" y="81" font-size="7" fill="#94A3B8" font-family="monospace">OUT</text>
+    <text data-field="sac_outlet_temp" x="151" y="82" text-anchor="end" font-size="10" font-weight="bold" fill="#7DD3FC" font-family="monospace">22℃</text>
+    <circle class="sac-status-led" data-field="sac_status_led" cx="170" cy="78" r="4" fill="#22C55E"/>
+    <!-- 主机外壳：侧滤网 + 前出风面 -->
+    <path d="M40 92 L61 105 L61 169 L40 157 Z" fill="#6B7280" stroke="#374151"/>
+    <g stroke="#CBD5E1" stroke-width="1"><line x1="45" y1="105" x2="45" y2="151"/><line x1="50" y1="108" x2="50" y2="154"/><line x1="55" y1="110" x2="55" y2="158"/></g>
+    <path d="M61 105 L181 105 L201 93 L201 165 L181 178 L61 165 Z" fill="url(#sac-front)" stroke="#64748B"/>
+    <path d="M65 111 L178 111 L193 102 L193 151 L178 163 L65 153 Z" fill="#1F2937" stroke="#475569"/>
+    <!-- 风机与百叶 -->
+    <g class="sac-fan" data-animation-id="sac_anim_fan_speed" fill="url(#sac-fan)" stroke="#1F2937" stroke-width=".6">
+      <path d="M121 103 Q104 89 84 98 Q102 111 121 103 Z"/><path d="M121 103 Q104 89 84 98 Q102 111 121 103 Z" transform="rotate(90 121 103)"/><path d="M121 103 Q104 89 84 98 Q102 111 121 103 Z" transform="rotate(180 121 103)"/><path d="M121 103 Q104 89 84 98 Q102 111 121 103 Z" transform="rotate(270 121 103)"/><circle cx="121" cy="103" r="5" fill="#FCD34D"/>
+    </g>
+    <g class="sac-louver" fill="none" stroke="#E2E8F0" stroke-width="3"><path d="M76 119 L174 113"/><path d="M76 127 L174 121"/><path d="M76 135 L174 129"/><path d="M76 143 L174 137"/></g>
+    <g data-animation-id="sac_anim_air_flow" class="sac-air" fill="#38BDF8"><circle cx="174" cy="120" r="2"/><circle cx="181" cy="129" r="1.6" style="animation-delay:.18s"/><circle cx="171" cy="139" r="1.8" style="animation-delay:.36s"/></g>
+    <!-- 内置小水泵、送水管 -->
+    <rect x="68" y="150" width="30" height="17" rx="4" fill="#475569" stroke="#1F2937"/><circle cx="83" cy="158" r="6" fill="#0EA5E9" stroke="#E0F2FE"/><path data-animation-id="sac_anim_pump_flow" class="sac-water-flow" d="M84 151 V128 H162" fill="none" stroke="#38BDF8" stroke-width="3" stroke-dasharray="5 4"/>
+    <!-- 底部水箱 -->
+    <path d="M43 165 L120 176 L197 165 L197 204 Q120 220 43 204 Z" fill="#64748B" stroke="#374151"/>
+    <g data-animation-id="sac_anim_water_color"><g clip-path="url(#sac-tank-clip)" data-animation-id="sac_anim_water_fill"><g class="sac-water-fill"><rect class="sac-water-body" x="40" y="167" width="160" height="43" fill="url(#sac-water)"/><path class="sac-water-stream" d="M53 194 C82 184 103 204 132 193 S171 185 193 194" fill="none" stroke="#E0F2FE" stroke-width="3" stroke-linecap="round" stroke-dasharray="10 5"/><path class="sac-water-surface" d="M43 177 Q63 170 83 177 T123 177 T163 177 T197 177" fill="none" stroke="#FFFFFF" stroke-width="2.6"/><path class="sac-water-surface" d="M48 182 Q70 176 92 182 T136 182 T181 182" fill="none" stroke="#7DD3FC" stroke-width="1.8" style="animation-delay:.35s"/><circle class="sac-water-bubble" cx="78" cy="197" r="3.4" fill="#FFFFFF"/><circle class="sac-water-bubble b2" cx="103" cy="201" r="2.8" fill="#E0F2FE"/><circle class="sac-water-bubble b3" cx="139" cy="198" r="3.7" fill="#FFFFFF"/><circle class="sac-water-bubble b4" cx="166" cy="202" r="2.6" fill="#E0F2FE"/></g></g></g>
+    <path d="M43 165 L120 176 L197 165" fill="none" stroke="#E5E7EB" stroke-width="2"/>
+    <rect x="109" y="184" width="34" height="16" rx="2" fill="#0F172A"/>
+    <text x="126" y="191" text-anchor="middle" font-size="6" fill="#94A3B8" font-family="monospace">WATER</text>
+    <text data-field="sac_water_temp" x="126" y="198" text-anchor="middle" font-size="8" fill="#7DD3FC" font-family="monospace">18℃</text>
+    <text data-field="sac_water_level" x="126" y="207" text-anchor="middle" font-size="6" fill="#E0F2FE" font-family="monospace">72%</text>
+    <text class="sac-warning" x="121" y="173" text-anchor="middle" font-size="8" font-weight="bold" fill="#F59E0B" opacity="0" font-family="sans-serif">低水位 · 停泵</text>
+    <circle cx="56" cy="207" r="8" fill="#1F2937"/><circle cx="56" cy="207" r="3" fill="#94A3B8"/><circle cx="184" cy="207" r="8" fill="#1F2937"/><circle cx="184" cy="207" r="3" fill="#94A3B8"/>
+    <rect data-click-target="solar-air-cooler" x="0" y="0" width="240" height="220" fill="transparent" pointer-events="all" style="cursor:pointer"/>
+  </g>
+  <rect x="44" y="223" width="152" height="14" rx="3" fill="#FFF" stroke="#D1D5DB"/>
+  <text x="120" y="233" text-anchor="middle" font-size="10" fill="#111827" font-family="sans-serif">太阳能水冷风扇 · <tspan data-field="sac_power">0.18 kW</tspan></text>
+</svg>

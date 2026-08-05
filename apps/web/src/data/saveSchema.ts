@@ -1,11 +1,12 @@
 import type { SimulationState } from '../store/simulation';
+import type { MeterBind } from './meters';
 
 export const PERSIST_SCHEMA_VERSION = 1;
 export const PERSIST_APP_ID = 'photovoltaic-air-conditioner';
 export const PERSIST_FILE_TYPE = 'simulation-state';
 
 export interface PersistedSimulation {
-  // 17 numeric fields (M1.5 Round 9+: 含 load_power_kw / battery_power_kw)
+  // 21 numeric fields（含太阳能水冷风扇 4 个独立控制字段）
   pv_power: number;
   pv_sun: number;
   bat_soc: number;
@@ -23,6 +24,10 @@ export interface PersistedSimulation {
   pcm_temp: number;
   load_power_kw: number;
   battery_power_kw: number;
+  sac_water_level: number;
+  sac_water_temp: number;
+  sac_fan_speed: number;
+  sac_outlet_temp: number;
   // 7 flags + at_mode + grid_online (Fix B3)
   pv_on: boolean;
   cb_connected: boolean;
@@ -32,6 +37,7 @@ export interface PersistedSimulation {
   load_on: boolean;
   at_mode: 'cool' | 'heat' | 'off';
   grid_online: boolean;
+  sac_on: boolean;
 }
 
 export interface PersistedCableSegment {
@@ -60,10 +66,14 @@ export interface PersistedMeter {
   cableId?: string;
   offsetOnCable?: number;
   anchorId?: string;
+  /** 仪表采集数据源绑定。缺失时按预置仪表 id 兼容旧场景。 */
+  bind?: MeterBind;
   /**
    * 仪表 free 时的位置。v2：viewBox 坐标系（1800×1100）。
    */
   position: { x: number; y: number };
+  /** 预置仪表的世界坐标，避免载入后退回 (0, 0)。 */
+  presetVb?: { x: number; y: number };
 }
 
 export interface PersistedLayout {
@@ -114,9 +124,11 @@ export function createEmptyDocument(): PersistedDocument {
       pl_flow: 3.0, rl_flow: 2.5, wl_flow: 2.5,
       at_fan_speed: 3, pcm_temp: 28,
       load_power_kw: 0.62, battery_power_kw: 0,
+      sac_water_level: 72, sac_water_temp: 18, sac_fan_speed: 0.75, sac_outlet_temp: 22,
       pv_on: true, cb_connected: true, gs_on: true,
       hp_on: true, pump_on: true, load_on: true,
       at_mode: 'cool', grid_online: true,
+      sac_on: true,
     },
     layout: {
        positions: {},

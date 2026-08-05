@@ -137,6 +137,10 @@ export function ControlPanel() {
             </div>
             <Slider label="末端温度"  field="at_temp"   min={18} max={28} step={1}   unit="℃" digits={0} />
             <Slider label="末端风档位" field="at_fan_speed" min={0} max={4} step={1} unit="档" digits={0} />
+            <Slider label="水冷风扇水位" field="sac_water_level" min={0} max={100} step={1} unit="%" digits={0} />
+            <Slider label="水冷风扇水温" field="sac_water_temp" min={0} max={100} step={1} unit="℃" digits={0} />
+            <Slider label="水冷风扇风速" field="sac_fan_speed" min={0} max={1} step={0.05} unit="" digits={2} />
+            <Slider label="水冷风扇出风温度" field="sac_outlet_temp" min={16} max={35} step={1} unit="℃" digits={0} />
             <Slider label="负载功率" field="load_power_kw" min={0} max={3} step={0.1} unit="kW" digits={2} />
             <Slider label="电池功率" field="battery_power_kw" min={-3} max={3} step={0.1} unit="kW" digits={2} />
           </div>
@@ -195,7 +199,7 @@ export function ControlPanel() {
 
           <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '10px', padding: '8px', background: '#f8fafc', borderRadius: '4px' }}>
             💡 提示：<br />
-            · 点击部件 SVG 切换运行状态（PV/CB/GS/HP/Pump/AT/Load）<br />
+            · 点击部件 SVG 切换运行状态（PV/CB/GS/HP/Pump/AT/水冷风扇/Load）<br />
             · 调节滑块实时刷新动画；预设场景一键加载<br />
             · 流体粒子滑块覆盖物理状态（pl/rl/wl = 电力/制冷剂/水）
           </div>

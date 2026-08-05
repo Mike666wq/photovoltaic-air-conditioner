@@ -12,7 +12,7 @@ export function TopBar() {
   const editMode = useSimStore((s) => s.editMode);
   const showGrid = useSimStore((s) => s.showGrid);
   const toggleGrid = useSimStore((s) => s.toggleGrid);
-  const resetLayout = useSimStore((s) => s.resetLayout);
+  const resetCanvasLayout = useSimStore((s) => s.resetCanvasLayout);
   const leftPanelOpen = useSimStore((s) => s.leftPanelOpen);
   const rightPanelOpen = useSimStore((s) => s.rightPanelOpen);
   const fullscreen = useSimStore((s) => s.fullscreen);
@@ -29,21 +29,7 @@ export function TopBar() {
   const mm = String(time.getMinutes()).padStart(2, '0');
   const ss = String(time.getSeconds()).padStart(2, '0');
 
-  // 编辑模式默认布局（12 部件 2×6：行1 PV/CB/Grid/GS/IV/Bat；行2 HP/Tank/Pump/PCM/AT/PM）
-  const defaultPositions: Record<string, { x: number; y: number }> = {
-    'pv-array':     { x: 100, y: 200 },
-    'combiner-box': { x: 340, y: 200 },
-    'grid':         { x: 580, y: 200 },
-    'grid-switch':  { x: 820, y: 200 },
-    'inverter':     { x: 1060, y: 200 },
-    'battery':      { x: 1300, y: 200 },
-    'heat-pump':    { x: 100, y: 750 },
-    'tank':         { x: 340, y: 750 },
-    'pump':         { x: 580, y: 750 },
-    'pcm':          { x: 820, y: 750 },
-    'air-terminal': { x: 1060, y: 750 },
-    'power-meter':  { x: 1300, y: 750 },
-  };
+  const fitCanvas = () => window.dispatchEvent(new Event('canvas-fit'));
 
   return (
     <div className="topbar">
@@ -106,10 +92,17 @@ export function TopBar() {
         </button>
         <button
           className="topbar-btn"
-          onClick={() => resetLayout(defaultPositions)}
-          title="重置为默认 2×7 布局"
+          onClick={fitCanvas}
+          title="居中并缩放到全部部件、仪表与线缆"
         >
-          ↺ 重置
+          ⌖ 回正
+        </button>
+        <button
+          className="topbar-btn"
+          onClick={() => { resetCanvasLayout(); window.requestAnimationFrame(fitCanvas); }}
+          title="恢复默认部件和预置仪表，并清除用户线缆后回正视图"
+        >
+          ↺ 重置布局
         </button>
       </div>
 

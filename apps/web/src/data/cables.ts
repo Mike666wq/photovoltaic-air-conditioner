@@ -1,4 +1,4 @@
-// 7 条逻辑线缆（每条 1+ 直线段 CableSegment，端点吸附到锚点）
+// 默认与用户拖出的逻辑线缆（每条 1+ 直线段 CableSegment，端点吸附到锚点）
 // 重构后无折线点数组，只有直线段 + 锚点引用
 
 export type CableKind = 'power' | 'refrigerant' | 'water';
@@ -45,7 +45,7 @@ export interface Cable {
 //   pcm.left (820, 834)  pcm.right (988, 834)
 //   air-terminal.left (1060, 816)
 
-// 默认线缆列表（空：用户自行从调色板拖出连接）
+// 默认不预连线缆：避免新部件干扰用户已保存的场景拓扑。
 export const CABLES: Cable[] = [];
 
 // 线缆颜色（视觉规范）
