@@ -34,6 +34,7 @@ scenarios/
 !CICD持续集成部署.md
 !CICD持续集成概念.md
 !README.md
+!图表展示.md
 !deploy/*.md
 !deploy/README.md
 !deploy/LEGACY-MANUAL.md

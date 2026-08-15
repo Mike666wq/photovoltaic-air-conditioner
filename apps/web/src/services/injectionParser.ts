@@ -4,6 +4,7 @@
 import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import PdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
+import { FORCE_CONTROL_PDF_HEADERS, isForceControlPdfExport } from '../data/pdfExportSchema';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorkerUrl;
 
@@ -303,7 +304,12 @@ async function parsePDF(file: File): Promise<ParsedData> {
     if (/^ZVW66822/i.test(s)) s = s.replace(/^ZVW66822/i, 'ZW66822');
     return s;
   };
-  const headers = splitMergedHeaders(headers0).map(normalizeHeader);
+  const parsedHeaders = splitMergedHeaders(headers0).map(normalizeHeader);
+  const firstDataCells = tableRows.find((row) => row.id !== headerRow.id && row.items.length >= expectedColumnCount)
+    ? mapRow(tableRows.find((row) => row.id !== headerRow.id && row.items.length >= expectedColumnCount)!.items)
+    : [];
+  const forceControlSchema = isForceControlPdfExport(headerCells, firstDataCells);
+  const headers = forceControlSchema ? [...FORCE_CONTROL_PDF_HEADERS] : parsedHeaders;
 
   const rows: Array<Record<string, string>> = [];
   for (const tableRow of tableRows) {

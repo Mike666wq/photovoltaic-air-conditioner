@@ -4,8 +4,36 @@ import { CABLES as DEFAULT_CABLES, type Cable } from '../data/cables';
 import type { CableKind } from '../data/palettes';
 import { PRESET_METERS, type MeterInstance, type MeterBind } from '../data/meters';
 import type { MeterType } from '../data/palettes';
+import { matchColumnToField, type NumericFieldKey } from '../services/dataMapper';
+import { detectSourceProfile, type SourceProfileKind } from '../data/sourceProfile';
+import { detectTimeColumn, parseDatasetTime } from '../services/dataset';
+import {
+  prepareDataSource,
+  type PreparedDataSource,
+  type SourceQualityReport,
+} from '../services/dataSourcePipeline';
 
 export type AtMode = 'cool' | 'heat' | 'off';
+
+export type InjectionSourceRole = SourceProfileKind;
+export type TimelineMode = 'combined' | 'thermal-electrical' | 'battery-bms' | 'mixed' | 'generic';
+
+export interface InjectionDataset {
+  sourceId: string;
+  sourceFile: string;
+  format: 'csv' | 'xlsx' | 'pdf';
+  headers: string[];
+  rows: Array<Record<string, string>>;
+  /** 质量隔离前的完整原始行；回放只消费 rows 中的有效行。 */
+  rawRows: Array<Record<string, string>>;
+  quality: SourceQualityReport;
+  prepared: PreparedDataSource;
+  timeColumn?: string;
+  /** 用户在导入向导确认过的映射；回放阶段不得再次模糊猜测。 */
+  mapping: Record<string, NumericFieldKey>;
+  role: InjectionSourceRole;
+  injectedAt: string;
+}
 
 export interface SimulationState {
   // 20 个滑块参数
@@ -91,14 +119,16 @@ export interface SimulationState {
    * M2-β：完整采集数据集（导入后保留原始行，供仪表实例按 bind 显示 + 大屏图表分析）。
    * 时序回放时按 timelineIndex 取当前行。
    */
-  injectionDataset: {
-    sourceFile: string;
-    format: 'csv' | 'xlsx' | 'pdf';
-    headers: string[];
-    rows: Array<Record<string, string>>;
-    timeColumn?: string;
-    injectedAt: string;
-  } | null;
+  injectionDataset: InjectionDataset | null;
+
+  /** 多源原始数据。不同角色追加保存，不再由后导入文件覆盖。 */
+  injectionSources: InjectionDataset[];
+  /** combined 默认以热工/电表源为主时间轴；BMS 模式保留 2 秒原始时间轴。 */
+  timelineMode: TimelineMode;
+  /** 统一真实时间游标（Unix ms）；各源按它解析当前行。 */
+  timelineCursorMs: number | null;
+  /** 本帧由采集数据明确提供/缺失的 store 字段，用于 UI 区分“不可用”和仿真默认值。 */
+  injectionFieldAvailability: Partial<Record<NumericFieldKey, boolean>>;
 
   /** 时序回放当前帧索引（-1 = 未导入/静态模式，显示最后一行或默认值） */
   timelineIndex: number;
@@ -192,15 +222,23 @@ interface SimStore extends SimulationState {
     headers: string[];
     rows: Array<Record<string, string>>;
     timeColumn?: string;
+    mapping?: Record<string, NumericFieldKey>;
+    role?: InjectionSourceRole;
+    sourceId?: string;
   }) => void;
 
   /** 清除数据集（恢复静态模式） */
   clearInjectionDataset: () => void;
+  /** 仅移除指定来源；其它已导入来源继续保留。 */
+  removeInjectionSource: (sourceId: string) => void;
 
   // M2-β 时序回放
   setTimelineIndex: (idx: number) => void;
   setTimelinePlaying: (playing: boolean) => void;
   setTimelineSpeed: (speed: number) => void;
+  setTimelineMode: (mode: TimelineMode) => void;
+  setTimelineCursorMs: (timestamp: number | null) => void;
+  setInjectionFieldAvailability: (availability: Partial<Record<NumericFieldKey, boolean>>) => void;
 
   /** PCM 相变材料温度源切换（T0 / T1） */
   setPcmTempSelect: (sel: 'T0' | 'T1') => void;
@@ -249,6 +287,10 @@ const DEFAULTS: SimulationState = {
   cardPositions: {},
   lastInjection: null,
   injectionDataset: null,
+  injectionSources: [],
+  timelineMode: 'combined',
+  timelineCursorMs: null,
+  injectionFieldAvailability: {},
   timelineIndex: -1,
   timelinePlaying: false,
   timelineSpeed: 1,
@@ -558,28 +600,144 @@ export const useSimStore = create<SimStore>((set) => ({
     }),
 
   setInjectionDataset: (data) =>
-    set({
-      injectionDataset: {
+    set((state) => {
+      const timeColumn = data.timeColumn ?? detectTimeColumn(data.headers, data.rows);
+      const provisionalRole = data.role ?? detectSourceProfile(data.headers).kind;
+      const provisionalId = data.sourceId ?? `${provisionalRole}:${data.sourceFile}`;
+      const prepared = prepareDataSource({
+        id: provisionalId,
+        filename: data.sourceFile,
+        format: data.format,
+        headers: data.headers,
+        rows: data.rows,
+        timeColumn,
+      });
+      const role = data.role ?? prepared.profile.kind;
+      const sourceId = data.sourceId ?? `${role}:${data.sourceFile}`;
+      const mapping = data.mapping ?? Object.fromEntries(
+        data.headers.flatMap((header) => {
+          const field = matchColumnToField(header);
+          return field ? [[header, field]] : [];
+        }),
+      );
+      const dataset: InjectionDataset = {
         ...data,
-        rows: data.rows.map((r) => ({ ...r })),
+        sourceId,
+        role,
+        timeColumn,
+        mapping: { ...mapping },
+        headers: [...data.headers],
+        rawRows: prepared.rows.map((row) => ({ ...row })),
+        rows: prepared.processedRows.filter((row) => row.valid).map((row) => ({ ...row.raw })),
+        quality: prepared.quality,
+        prepared: { ...prepared, id: sourceId },
         injectedAt: new Date().toISOString(),
-      },
-      timelineIndex: Math.max(0, data.rows.length - 1),
-      timelinePlaying: false,
+      };
+      const withoutSameSource = state.injectionSources.filter((source) => source.sourceId !== sourceId);
+      const injectionSources = [...withoutSameSource, dataset];
+      const preferred = role === 'thermal-electrical' || role === 'mixed'
+        ? dataset
+        : injectionSources.find((source) => source.role === 'thermal-electrical' || source.role === 'mixed') ?? dataset;
+      const lastIndex = Math.max(0, preferred.rows.length - 1);
+      const rawTime = preferred.timeColumn ? preferred.rows[lastIndex]?.[preferred.timeColumn] : undefined;
+      return {
+        injectionSources,
+        injectionDataset: preferred,
+        timelineIndex: lastIndex,
+        timelineCursorMs: parseDatasetTime(rawTime),
+        timelinePlaying: false,
+        injectionFieldAvailability: {},
+      };
     }),
 
   clearInjectionDataset: () =>
-    set({ injectionDataset: null, timelineIndex: -1, timelinePlaying: false }),
+    set({
+      injectionDataset: null,
+      injectionSources: [],
+      timelineIndex: -1,
+      timelineCursorMs: null,
+      timelinePlaying: false,
+      injectionFieldAvailability: {},
+    }),
+
+  removeInjectionSource: (sourceId) => set((state) => {
+    const injectionSources = state.injectionSources.filter((source) => source.sourceId !== sourceId);
+    if (!injectionSources.length) {
+      return {
+        injectionSources: [],
+        injectionDataset: null,
+        timelineIndex: -1,
+        timelineCursorMs: null,
+        timelinePlaying: false,
+        injectionFieldAvailability: {},
+      };
+    }
+    const removedActive = state.injectionDataset?.sourceId === sourceId;
+    const preferred = removedActive
+      ? injectionSources.find((source) => source.role === 'thermal-electrical' || source.role === 'mixed') ?? injectionSources[0]
+      : state.injectionDataset;
+    const timelineIndex = preferred?.rows.length ? 0 : -1;
+    const rawTime = preferred?.timeColumn && timelineIndex >= 0
+      ? preferred.rows[timelineIndex]?.[preferred.timeColumn]
+      : undefined;
+    const hasThermal = injectionSources.some((source) => source.role === 'thermal-electrical' || source.role === 'mixed');
+    const hasBms = injectionSources.some((source) => source.role === 'battery-bms');
+    return {
+      injectionSources,
+      injectionDataset: preferred,
+      timelineMode: state.timelineMode === 'combined' && !(hasThermal && hasBms)
+        ? preferred?.role ?? 'generic'
+        : state.timelineMode,
+      timelineIndex,
+      timelineCursorMs: parseDatasetTime(rawTime),
+      timelinePlaying: false,
+      injectionFieldAvailability: {},
+    };
+  }),
 
   setTimelineIndex: (idx) => set((s) => {
     const rows = s.injectionDataset?.rows;
     const maxIdx = rows ? rows.length - 1 : -1;
-    return { timelineIndex: Math.max(-1, Math.min(maxIdx, idx)) };
+    const timelineIndex = Math.max(-1, Math.min(maxIdx, idx));
+    const row = rows && timelineIndex >= 0 ? rows[timelineIndex] : undefined;
+    const rawTime = s.injectionDataset?.timeColumn && row
+      ? row[s.injectionDataset.timeColumn]
+      : undefined;
+    return {
+      timelineIndex,
+      timelineCursorMs: parseDatasetTime(rawTime) ?? s.timelineCursorMs,
+    };
   }),
 
   setTimelinePlaying: (playing) => set({ timelinePlaying: playing }),
 
   setTimelineSpeed: (speed) => set({ timelineSpeed: speed }),
+
+  setTimelineMode: (mode) => set((state) => {
+    const role = mode === 'combined' ? 'thermal-electrical' : mode;
+    const preferred = state.injectionSources.find((source) => source.role === role)
+      ?? (mode === 'combined' ? state.injectionSources.find((source) => source.role === 'mixed') : undefined)
+      ?? state.injectionDataset
+      ?? state.injectionSources[0]
+      ?? null;
+    const timelineIndex = preferred?.rows.length ? 0 : -1;
+    const rawTime = preferred?.timeColumn && timelineIndex >= 0
+      ? preferred.rows[timelineIndex]?.[preferred.timeColumn]
+      : undefined;
+    return {
+      timelineMode: mode,
+      injectionDataset: preferred,
+      timelineIndex,
+      timelineCursorMs: parseDatasetTime(rawTime),
+      timelinePlaying: false,
+      injectionFieldAvailability: {},
+    };
+  }),
+
+  setTimelineCursorMs: (timelineCursorMs) => set({ timelineCursorMs }),
+
+  setInjectionFieldAvailability: (injectionFieldAvailability) =>
+    set({ injectionFieldAvailability }),
 
   setPcmTempSelect: (sel) => set({ pcm_temp_select: sel }),
 

@@ -6,12 +6,12 @@ export type MeterMount = 'free' | 'component' | 'cable';
 
 /**
  * 仪表数据源绑定：决定该实例显示哪个采集字段
- * - PM 类：绑定电表（D 系列）或市电（DU 系列），圆盘显示 电压/电流/功率
+ * - PM 类：绑定电表（D 系列）或市电（DU 系列），圆盘显示 电压/电流/有功功率，底栏显示功率因数
  * - TS 类：绑定一个温度采集点
  */
 export type MeterBind =
-  | 'meter-d'        // 电表（DS666H）：D1 电压 / D2 电流 / D3 功率 / D6 总功
-  | 'meter-du'       // 市电表（DDSU66）：DU1 电压 / DU2 电流 / DU3 功率 / DU6 总功
+  | 'meter-d'        // 电表（DS666H）：D1 电压 / D2 电流 / D3 有功功率 / D6 功率因数
+  | 'meter-du'       // 市电表（DDSU66）：DU1 电压 / DU2 电流 / DU3 有功功率 / DU6 功率因数
   | 'env-temp'       // 环境温度 T3
   | 'supply-temp'    // 送水温度 T4
   | 'return-temp'    // 回水温度 T5

@@ -34,4 +34,19 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // M3 大屏按路由懒加载；将重型数据/图表库拆出，避免首次打开原理图加载 ECharts。
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('/echarts/')) return 'vendor-echarts';
+          if (id.includes('/pdfjs-dist/')) return 'vendor-pdf';
+          if (id.includes('/xlsx/')) return 'vendor-xlsx';
+          if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/react-router-dom/')) return 'vendor-react';
+          return undefined;
+        },
+      },
+    },
+  },
 });

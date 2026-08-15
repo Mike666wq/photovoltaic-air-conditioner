@@ -14,6 +14,7 @@ import { usePvSunAnimation } from '../hooks/usePvSunAnimation';
 import { useTransientSpark } from '../hooks/useTransientSpark';
 import { TsPointer } from './TsPointer';
 import { ComponentDetail } from './ComponentDetail';
+import { useAnalysisStore } from '../store/analysis';
 
 const CLICKABLE = new Set([
   'pv-array', 'combiner-box', 'grid-switch', 'heat-pump',
@@ -67,7 +68,28 @@ function tempColor(t: number): string {
   return 'hsl(220, 85%, 50%)';
 }
 
-function buildInjectData(state: SimulationState) {
+function buildInjectData(rawState: SimulationState) {
+  const hasDataSession = rawState.injectionSources.length > 0;
+  const sampledNumber = <K extends keyof Pick<SimulationState,
+    'pv_power' | 'pv_sun' | 'bat_soc' | 'hp_temp' | 'hp_power' | 'tank_temp' |
+    'tank_volume' | 'tank_flow' | 'pump_flow' | 'at_temp' | 'at_fan_speed' |
+    'pcm_temp' | 'load_power_kw' | 'battery_power_kw' | 'pl_flow' | 'rl_flow' | 'wl_flow'
+  >>(key: K): SimulationState[K] => (
+    !hasDataSession || rawState.injectionFieldAvailability[key] === true ? rawState[key] : 0
+  );
+  // 数据会话中，当前时间轴未提供的数值统一归零用于视觉派生；文字通道再显示“—”。
+  // 不修改 store 原值，只防止其它来源上一帧的数值泄漏到当前模式。
+  const state: SimulationState = hasDataSession ? {
+    ...rawState,
+    pv_power: sampledNumber('pv_power'), pv_sun: sampledNumber('pv_sun'),
+    bat_soc: sampledNumber('bat_soc'), hp_temp: sampledNumber('hp_temp'), hp_power: sampledNumber('hp_power'),
+    tank_temp: sampledNumber('tank_temp'), tank_volume: sampledNumber('tank_volume'), tank_flow: sampledNumber('tank_flow'),
+    pump_flow: sampledNumber('pump_flow'), at_temp: sampledNumber('at_temp'), at_fan_speed: sampledNumber('at_fan_speed'),
+    pcm_temp: sampledNumber('pcm_temp'), load_power_kw: sampledNumber('load_power_kw'), battery_power_kw: sampledNumber('battery_power_kw'),
+    pl_flow: sampledNumber('pl_flow'), rl_flow: sampledNumber('rl_flow'), wl_flow: sampledNumber('wl_flow'),
+  } : rawState;
+  const isUnavailable = (key: keyof typeof rawState.injectionFieldAvailability) =>
+    hasDataSession && rawState.injectionFieldAvailability[key] !== true;
   // 部件容量标签（从 data/components.ts 取 spec）
   const capOf = (id: string) => COMPONENTS.find((c) => c.id === id)?.spec ?? '';
   // PCM 视觉派生（融化比例驱动，纯函数）
@@ -75,9 +97,19 @@ function buildInjectData(state: SimulationState) {
   const ratingOf = (id: string) => COMPONENTS.find((c) => c.id === id)?.rating ?? '';
 
   // XLSX 电池字段读取（电压/电流/SOC；剩余容量无 UI 消费，不做直读）
-  const batV = readCell(state, '电压(V)');
-  const batA = readCell(state, '电流(A)');
-  const batSocX = readCell(state, 'SOC(%)');
+  const batV = readCell(rawState, '电压(V)');
+  const batA = readCell(rawState, '电流(A)');
+  const batSocX = readCell(rawState, 'SOC(%)');
+  const hasBmsSession = state.injectionSources.some((source) => source.role === 'battery-bms');
+  const currentConvention = useAnalysisStore.getState().batteryCurrentConvention;
+  const batSoc = batSocX ?? (hasDataSession ? null : state.bat_soc);
+  const batteryDirection = batA == null || currentConvention === 'unknown'
+    ? 'unknown'
+    : batA === 0
+      ? 'idle'
+      : currentConvention === 'positive-charge'
+        ? (batA > 0 ? 'charging' : 'discharging')
+        : (batA > 0 ? 'discharging' : 'charging');
 
   // 负载功率进度条归一化（0..100，对应 SVG bg 宽度 100px）
   // Fix B1：改用独立滑块 load_power_kw（替代旧 pv_power 派生）
@@ -93,30 +125,29 @@ function buildInjectData(state: SimulationState) {
 
   const fields: Record<string, string> = {
     // === PV ===
-    pv_power: state.pv_power.toFixed(2) + ' kW',
-    pv_progress: Math.round(state.pv_power / 5 * 100) + '%',
+    pv_power: isUnavailable('pv_power') ? '—' : state.pv_power.toFixed(2) + ' kW',
+    pv_progress: isUnavailable('pv_power') ? '—' : Math.round(state.pv_power / 5 * 100) + '%',
     pv_capacity: capOf('pv-array'),
     sun_intensity: Math.round(state.pv_sun * 100) + '%',
     // === IV ===
     iv_capacity: capOf('inverter'),
     iv_dc_voltage: '380 V',
-    iv_dc_current: (state.pv_power / 0.38).toFixed(1) + ' A',
+    iv_dc_current: isUnavailable('pv_power') ? '—' : (state.pv_power / 0.38).toFixed(1) + ' A',
     iv_ac_voltage: '220 V',
     iv_ac_freq: '50 Hz',
     // === Bat ===
-    bat_soc: batSocX != null ? Math.round(batSocX) + '%' : Math.round(state.bat_soc) + '%',
-    // Fix B2：电池状态由 battery_power_kw 驱动（正=充电/负=放电/0=待机）
-    // XLSX 有电流时：电流 >0 = 放电，<0 = 充电
+    bat_soc: batSoc == null ? '—' : Math.round(batSoc) + '%',
+    // BMS 电流方向必须由数据源配置确认；未知时不根据正负号猜测充放电。
     bat_status_text: batA != null
-      ? (batA > 0 ? '放电' : batA < 0 ? '充电' : '待机')
-      : (state.battery_power_kw > 0 ? '充电' : state.battery_power_kw < 0 ? '放电' : '待机'),
+      ? (batteryDirection === 'charging' ? '充电' : batteryDirection === 'discharging' ? '放电' : batteryDirection === 'idle' ? '待机' : '方向待确认')
+      : hasDataSession ? '数据不可用' : (state.battery_power_kw > 0 ? '充电' : state.battery_power_kw < 0 ? '放电' : '待机'),
     bat_status_label: batA != null
-      ? (batA > 0 ? 'DCH' : batA < 0 ? 'CHG' : 'IDLE')
-      : (state.battery_power_kw > 0 ? 'CHG' : state.battery_power_kw < 0 ? 'DCH' : 'IDLE'),
+      ? (batteryDirection === 'charging' ? 'CHG' : batteryDirection === 'discharging' ? 'DCH' : batteryDirection === 'idle' ? 'IDLE' : 'UNSET')
+      : hasDataSession ? 'N/A' : (state.battery_power_kw > 0 ? 'CHG' : state.battery_power_kw < 0 ? 'DCH' : 'IDLE'),
     bat_capacity: capOf('battery'),
     bat_label: ratingOf('battery'),
-    bat_voltage: batV != null ? batV.toFixed(1) : (state.battery_power_kw > 0 ? '53.0' : '—'),
-    bat_current: batA != null ? batA.toFixed(1) : (state.battery_power_kw > 0 ? (Math.abs(state.battery_power_kw) / 0.053).toFixed(1) : '—'),
+    bat_voltage: batV != null ? batV.toFixed(1) : (hasBmsSession ? '—' : state.battery_power_kw > 0 ? '53.0' : '—'),
+    bat_current: batA != null ? batA.toFixed(1) : (hasBmsSession ? '—' : state.battery_power_kw > 0 ? (Math.abs(state.battery_power_kw) / 0.053).toFixed(1) : '—'),
     // === CB ===
     cb_status_text: state.cb_connected ? '合闸' : '分闸',
     cb_capacity: capOf('combiner-box'),
@@ -134,34 +165,34 @@ function buildInjectData(state: SimulationState) {
     gs_label_off: 'OFF',
     gs_handle: state.gs_on ? 'ON' : 'OFF',
     // === HP ===
-    hp_status_text: state.hp_on ? '运行' : '待机',
-    hp_temp: Math.round(state.hp_temp) + '℃',
-    hp_power: state.hp_power.toFixed(1) + ' kW',
+    hp_status_text: isUnavailable('hp_temp') && isUnavailable('hp_power') ? '数据不可用' : state.hp_on ? '运行' : '待机',
+    hp_temp: isUnavailable('hp_temp') ? '—' : Math.round(state.hp_temp) + '℃',
+    hp_power: isUnavailable('hp_power') ? '—' : state.hp_power.toFixed(1) + ' kW',
     hp_capacity: capOf('heat-pump'),
     hp_cop: 'COP 3.8',
     hp_code: 'R32',
     hp_mode: state.at_mode === 'cool' ? 'COOL' : state.at_mode === 'heat' ? 'HEAT' : 'OFF',
     hp_mode_icon: state.at_mode === 'cool' ? '❄' : state.at_mode === 'heat' ? '♨' : '—',
     // === Tank ===
-    tank_temp: Math.round(state.tank_temp) + '℃',
-    tank_volume: Math.round(state.tank_volume) + '%',
-    tank_flow: state.tank_flow.toFixed(1) + ' m³/h',
+    tank_temp: isUnavailable('tank_temp') ? '—' : Math.round(state.tank_temp) + '℃',
+    tank_volume: isUnavailable('tank_volume') ? '—' : Math.round(state.tank_volume) + '%',
+    tank_flow: isUnavailable('tank_flow') ? '—' : state.tank_flow.toFixed(1) + ' m³/h',
     tank_capacity: capOf('tank'),
-    tank_threshold: state.tank_temp > 85 ? '>85℃' : (state.tank_temp === 85 ? '=85℃' : '≤85℃'),
+    tank_threshold: isUnavailable('tank_temp') ? '—' : state.tank_temp > 85 ? '>85℃' : (state.tank_temp === 85 ? '=85℃' : '≤85℃'),
     // === Pump ===
-    pump_flow: state.pump_flow.toFixed(1) + ' m³/h',
-    pump_status_text: state.pump_on ? '运行' : '停机',
+    pump_flow: isUnavailable('pump_flow') ? '—' : state.pump_flow.toFixed(1) + ' m³/h',
+    pump_status_text: isUnavailable('pump_flow') ? '数据不可用' : state.pump_on ? '运行' : '停机',
     pump_capacity: capOf('pump'),
-    pump_power: state.pump_flow.toFixed(2),
+    pump_power: isUnavailable('pump_flow') ? '—' : state.pump_flow.toFixed(2),
     pump_head: 'H=3m',
-    pump_flow_label: state.pump_flow.toFixed(1),
+    pump_flow_label: isUnavailable('pump_flow') ? '—' : state.pump_flow.toFixed(1),
     // === AT ===
-    at_temp: Math.round(state.at_temp) + '℃',
+    at_temp: isUnavailable('at_temp') ? '—' : Math.round(state.at_temp) + '℃',
     at_status_text: state.at_mode === 'cool' ? '制冷' : state.at_mode === 'heat' ? '制热' : '关机',
     at_capacity: capOf('air-terminal'),
     at_mode_label: state.at_mode === 'cool' ? '❄ 制冷' : state.at_mode === 'heat' ? '♨ 制热' : '⏻ 关机',
     at_mode: state.at_mode === 'cool' ? '❄ COOL' : state.at_mode === 'heat' ? '♨ HEAT' : 'OFF',
-    at_set_temp: Math.round(state.at_temp) + '℃',
+    at_set_temp: isUnavailable('at_temp') ? '—' : Math.round(state.at_temp) + '℃',
     at_set_label: '设定',
     at_fan_speed_label: state.at_mode === 'off' ? '停' : '中',
     at_count: '3 台',
@@ -172,8 +203,10 @@ function buildInjectData(state: SimulationState) {
     sac_power: sacState === 'on' ? (0.08 + state.sac_fan_speed * 0.16).toFixed(2) + ' kW' : '0.00 kW',
     // === PCM ===（T0/T1 双相变材料：按 pcm_temp_select 取温度 + 数据集当前行）
     ...(() => {
-      const pcmData = buildPcmInjectData(state);
-      const liveTxt = pcmData.liveTemp == null
+      const pcmData = buildPcmInjectData(rawState);
+      const liveTxt = isUnavailable('pcm_temp')
+        ? '—'
+        : pcmData.liveTemp == null
         ? pcm.tempText
         : pcmData.liveTemp.toFixed(1) + '℃';
       return {
@@ -185,7 +218,7 @@ function buildInjectData(state: SimulationState) {
       };
     })(),
     // === Load ===
-    load_summary: state.at_mode === 'off' ? '待机 0.0 kW' : `${state.load_power_kw.toFixed(2)} kW · 客厅`,
+    load_summary: isUnavailable('load_power_kw') ? '数据不可用' : state.at_mode === 'off' ? '待机 0.0 kW' : `${state.load_power_kw.toFixed(2)} kW · 客厅`,
     load_room: '客厅 · 14㎡',
     load_weather: '晴 26℃',
     // 实时时钟字段：在 buildInjectData 中**不**写入 fields — 由 ComponentSlot 的
@@ -224,11 +257,11 @@ function buildInjectData(state: SimulationState) {
     'iv_load_led':        ledColor(state.load_on ? 'on' : 'off'),
     // === Battery 状态 LED（bat_status_led 已有；补 bat_status_glow）===
     'bat_status_glow':    batA != null
-      ? ledColor(batA > 0 ? 'discharging' : batA < 0 ? 'charging' : 'idle')
-      : ledColor(state.bat_soc > 50 ? 'charging' : 'discharging'),
+      ? ledColor(batteryDirection === 'unknown' ? 'idle' : batteryDirection)
+      : ledColor(hasDataSession ? 'idle' : state.bat_soc > 50 ? 'charging' : 'discharging'),
     'bat_status_led':     batA != null
-      ? ledColor(batA > 0 ? 'discharging' : batA < 0 ? 'charging' : 'idle')
-      : ledColor(state.bat_soc > 50 ? 'charging' : 'discharging'),
+      ? ledColor(batteryDirection === 'unknown' ? 'idle' : batteryDirection)
+      : ledColor(hasDataSession ? 'idle' : state.bat_soc > 50 ? 'charging' : 'discharging'),
     // === HP 状态 LED ===
     'hp_status_glow':     ledColor(state.hp_on ? 'running' : 'standby'),
     'hp_status_led':      ledColor(state.hp_on ? 'running' : 'standby'),
@@ -256,11 +289,10 @@ function buildInjectData(state: SimulationState) {
   };
 
   const statusText: Record<string, string> = {
-    // Fix B2：电池文字色由实际放电/充电方向决定（统一约定：XLSX 电流 >0=放电 / battery_power_kw >0=充电）
-    // XLSX 有真实电流时：>0=放电（蓝）/ <0=充电（绿）/ =0=待机（灰）
+    // BMS 方向未知时使用中性色，避免把正负号误标为充/放电。
     'bat_status_text':  batA != null
-      ? ledColor(batA > 0 ? 'discharging' : batA < 0 ? 'charging' : 'idle')
-      : ledColor(state.battery_power_kw > 0 ? 'charging' : state.battery_power_kw < 0 ? 'discharging' : 'idle'),
+      ? ledColor(batteryDirection === 'unknown' ? 'idle' : batteryDirection)
+      : ledColor(hasDataSession ? 'idle' : state.battery_power_kw > 0 ? 'charging' : state.battery_power_kw < 0 ? 'discharging' : 'idle'),
     'pump_status_text': ledColor(state.pump_on ? 'running' : 'stopped'),
     'at_status_text':   ledColor(state.at_mode),
     'sac_outlet_temp':  sacState === 'on' ? '#7DD3FC' : '#94A3B8',
@@ -273,7 +305,7 @@ function buildInjectData(state: SimulationState) {
   };
 
   const levels: Record<string, number> = {
-    bat_charge_level: Math.round((batSocX != null ? batSocX : state.bat_soc) / 10),
+    bat_charge_level: batSoc == null ? 0 : Math.round(batSoc / 10),
   };
 
   const animations: Record<string, any> = {
@@ -299,17 +331,16 @@ function buildInjectData(state: SimulationState) {
     pcm_anim_melt:        pcm.melt,
     pcm_anim_transition:  pcm.transitionSec,
     ts_anim_temp:         Math.max(0, Math.min(1, (state.tank_temp - 10) / 90)),  // 0..1 映射 10~100℃
-    // Fix B2：电池流向由 battery_power_kw 决定（<0 充电=flow in, >0 放电=flow out, =0 待机=idle）
-    // XLSX 有电流时：电流 >0 = 放电（out），<0 = 充电（in）
+    // 只有确认 BMS 电流方向后才驱动流向动画。
     bat_anim_flow_dir: batA != null
-      ? (batA < 0 ? 'in' : batA > 0 ? 'out' : 'idle')
-      : (state.battery_power_kw < 0 ? 'in' : state.battery_power_kw > 0 ? 'out' : 'idle'),
-    soc_low: (batSocX != null ? batSocX : state.bat_soc) < 20,
+      ? (batteryDirection === 'charging' ? 'in' : batteryDirection === 'discharging' ? 'out' : 'idle')
+      : hasDataSession ? 'idle' : (state.battery_power_kw < 0 ? 'in' : state.battery_power_kw > 0 ? 'out' : 'idle'),
+    soc_low: batSoc != null && batSoc < 20,
   };
 
   const geometry: Record<string, { width?: number; height?: number; x?: number; y?: number; cx?: number; cy?: number; fill?: string }> = {
     // 蓄电池 SOC 进度条（bg=140，filled=bat_soc/100*140）
-    bat_progress_bar: { width: Math.max(0, Math.min(140, ((batSocX != null ? batSocX : state.bat_soc) / 100) * 140)) },
+    bat_progress_bar: { width: batSoc == null ? 0 : Math.max(0, Math.min(140, (batSoc / 100) * 140)) },
     // 室内用电功率进度条（bg=100，filled=pv_power/6*100；CSS .anim-load-bar 过渡 0.5s；M1.5 Round 9 替代原 iv_power）
     load_power_bar:   { width: loadBarNorm },
     // PCM 融化比例进度条（bg=140，filled=pcm.melt*140；CSS .anim-pcm-bar 过渡 0.5s）

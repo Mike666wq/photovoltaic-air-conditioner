@@ -2,9 +2,9 @@ import type { NumericFieldKey } from './dataMapper';
 import type { MeterBind } from '../data/meters';
 
 /**
- * PDF 字段对照表（来自 数据读入.md §4.1 + 字段对照表.jpg）
- * 完整 19 列：T0~T5（PLC 温度，6 列）+ D1~D6（DS666H/PLC，4 列）+ DU1~DU6（DDSU66，4 列）+ ZU6682/ZI6682/ZW66822（DJSF668，3 列）= 17 个数据列。
- * 注：序号列、采样时刻列不参与映射（导入时直接丢弃）。
+ * PDF 字段对照表。权威字段来源为 data/字段对照表.jpg。
+ * 当前 PDF 通常导出 17 个业务数据列（另有序号、采样时刻元数据），但 IO 点表
+ * 还定义 D4/D5/D7/D8、DU7/DU8 以及控制状态点；这里完整保留其识别能力。
  *
  * 命名规则：
  *   - PDF 原始列名 `xxx.PV` 在解析后会规范化为 `xxx_PV`（详见 injectionParser.ts）
@@ -31,26 +31,49 @@ export const PDF_COLUMN_MAP: PdfColumnMapping[] = [
   { pdfHeader: 'T3.PV',       chineseLabel: '环境温度',              targetField: null,        meterBind: 'env-temp', device: 'PLC' },
   { pdfHeader: 'T4.PV',       chineseLabel: '送水温度',              targetField: 'tank_temp', meterBind: 'supply-temp', device: 'PLC' },
   { pdfHeader: 'T5.PV',       chineseLabel: '回水温度',              targetField: 'tank_temp', meterBind: 'return-temp', device: 'PLC' },
-  // === DS666H（4 列）===
+  // === DS666H / PLC 电表（完整 IO 点）===
   { pdfHeader: 'D1.PV',       chineseLabel: '电表电压',              targetField: null,        meterBind: 'meter-d',   device: 'DS666H' },
   { pdfHeader: 'D2.PV',       chineseLabel: '电表电流',              targetField: null,        meterBind: 'meter-d',   device: 'DS666H' },
   { pdfHeader: 'D3.PV',       chineseLabel: '瞬时有功功率',          targetField: 'load_power_kw', meterBind: 'meter-d', device: 'DS666H' },
-  { pdfHeader: 'D6.PV',       chineseLabel: '瞬时总功',              targetField: null,        meterBind: 'meter-d',   device: 'DS666H' },
-  // === DDSU66（4 列）===
+  { pdfHeader: 'D4.PV',       chineseLabel: '瞬时无功功率',          targetField: null,        meterBind: null,        device: 'PLC' },
+  { pdfHeader: 'D5.PV',       chineseLabel: '瞬时视在功率',          targetField: null,        meterBind: null,        device: 'PLC' },
+  { pdfHeader: 'D6.PV',       chineseLabel: '瞬时总功率因数',        targetField: null,        meterBind: 'meter-d',   device: 'DS666H' },
+  { pdfHeader: 'D7.PV',       chineseLabel: '电网频率',              targetField: null,        meterBind: null,        device: 'PLC' },
+  { pdfHeader: 'D8.PV',       chineseLabel: '有功总电能',            targetField: null,        meterBind: null,        device: 'PLC' },
+  // === DDSU66 市电表（完整 IO 点）===
   { pdfHeader: 'DU1.PV',      chineseLabel: '市电电压',              targetField: null,        meterBind: 'meter-du',  device: 'DDSU66' },
   { pdfHeader: 'DU2.PV',      chineseLabel: '市电电流',              targetField: null,        meterBind: 'meter-du',  device: 'DDSU66' },
   { pdfHeader: 'DU3.PV',      chineseLabel: '市电瞬时有功功率',      targetField: null,        meterBind: 'meter-du',  device: 'DDSU66' },
-  { pdfHeader: 'DU6.PV',      chineseLabel: '市电总功',              targetField: null,        meterBind: 'meter-du',  device: 'DDSU66' },
+  { pdfHeader: 'DU6.PV',      chineseLabel: '市电总功率因数',        targetField: null,        meterBind: 'meter-du',  device: 'DDSU66' },
+  { pdfHeader: 'DU7.PV',      chineseLabel: '市电电网频率',          targetField: null,        meterBind: null,        device: 'DDSU66' },
+  { pdfHeader: 'DU8.PV',      chineseLabel: '市电总电能',            targetField: null,        meterBind: null,        device: 'DDSU66' },
   // === DJSF668 直流（3 列，传感器离线，仅保留映射）===
   { pdfHeader: 'ZU6682.PV',   chineseLabel: '直流电压',              targetField: null,        meterBind: null,        device: 'DJSF668' },
   { pdfHeader: 'ZI6682.PV',   chineseLabel: '直流电流',              targetField: null,        meterBind: null,        device: 'DJSF668' },
-  { pdfHeader: 'ZW66822.PV',  chineseLabel: '直流功率',              targetField: null,        meterBind: null,        device: 'DJSF668' },
+  { pdfHeader: 'ZW66822.PV',  chineseLabel: '直流功率',              targetField: 'pv_power',  meterBind: null,        device: 'DJSF668' },
 ];
 
-/** 电表绑定 → 三圆盘（电压/电流/功率）+ 总功 对应的 PDF 列 */
-export const METER_BIND_COLUMNS: Record<'meter-d' | 'meter-du', { voltage: string; current: string; power: string; total: string }> = {
-  'meter-d':  { voltage: 'D1.PV',  current: 'D2.PV',  power: 'D3.PV',  total: 'D6.PV'  },
-  'meter-du': { voltage: 'DU1.PV', current: 'DU2.PV', power: 'DU3.PV', total: 'DU6.PV' },
+/** 电表绑定 → 仪表显示与图表扩展字段。D6/DU6 是功率因数，D8/DU8 是总电能。 */
+export interface MeterBindColumns {
+  voltage: string;
+  current: string;
+  power: string;
+  powerFactor: string;
+  reactivePower?: string;
+  apparentPower?: string;
+  frequency?: string;
+  energy?: string;
+}
+
+export const METER_BIND_COLUMNS: Record<'meter-d' | 'meter-du', MeterBindColumns> = {
+  'meter-d': {
+    voltage: 'D1.PV', current: 'D2.PV', power: 'D3.PV', powerFactor: 'D6.PV',
+    reactivePower: 'D4.PV', apparentPower: 'D5.PV', frequency: 'D7.PV', energy: 'D8.PV',
+  },
+  'meter-du': {
+    voltage: 'DU1.PV', current: 'DU2.PV', power: 'DU3.PV', powerFactor: 'DU6.PV',
+    frequency: 'DU7.PV', energy: 'DU8.PV',
+  },
 };
 
 /** PCM 双温度 → PDF 列 */

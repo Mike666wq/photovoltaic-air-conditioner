@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSimStore } from '../store/simulation';
 import {
   FIELD_OPTIONS,
@@ -10,32 +10,15 @@ import {
 import { findPdfColumnMapping } from '../services/pdfFieldMap';
 import { PDF_BIND_LABELS } from '../data/meters';
 import { parseFile, type ParsedData } from '../services/injectionParser';
+import { detectTimeColumn } from '../services/dataset';
+import { detectSourceProfile } from '../data/sourceProfile';
+import { applyTimelineFrame } from './TimelineControls';
+import { prepareDataSource } from '../services/dataSourcePipeline';
 
 interface Props {
   compId: string | null;
   open: boolean;
   onClose: () => void;
-}
-
-/**
- * 自动检测时间列：表头含"时间/时刻/采样/date/time" 且首行可解析为日期 → 返回列名
- */
-function detectTimeColumn(
-  headers: string[],
-  rows: Array<Record<string, string>>,
-): string | undefined {
-  const isDate = (v: string | undefined): boolean => {
-    if (!v || v.trim() === '') return false;
-    const t = Date.parse(v.trim());
-    return !isNaN(t);
-  };
-  for (const h of headers) {
-    const key = h.toLowerCase();
-    if (/(时间|时刻|采样|date|time)/.test(key) && rows.some((r) => isDate(r[h]))) {
-      return h;
-    }
-  }
-  return undefined;
 }
 
 type Step = 'select' | 'preview' | 'map' | 'confirm';
@@ -47,6 +30,13 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
   const [mapping, setMapping] = useState<Record<string, NumericFieldKey | ''>>({});
   const [strategy, setStrategy] = useState<'first' | 'last' | 'avg'>('last');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const qualityPreview = useMemo(() => parsed ? prepareDataSource({
+    id: `preview:${parsed.filename}`,
+    filename: parsed.filename,
+    format: parsed.format,
+    headers: parsed.headers,
+    rows: parsed.rows,
+  }) : null, [parsed]);
 
   if (!open) return null;
 
@@ -57,12 +47,13 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
     try {
       const data = await parseFile(file);
       setParsed(data);
+      const profile = detectSourceProfile(data.headers);
       const autoMapping: Record<string, NumericFieldKey | ''> = {};
       let matchedCount = 0;
       // PDF 是全局采集数据（电表/温度/热泵），不受当前部件白名单限制；
       // CSV/XLSX 按当前部件白名单过滤（避免 '环境温度'→at_temp 等跨部件误配）。
-      const isGlobalPdf = data.format === 'pdf';
-      const allowedKeys = isGlobalPdf
+      const isGlobalSource = data.format === 'pdf' || profile.kind !== 'generic';
+      const allowedKeys = isGlobalSource
         ? null
         : (compId ? getFieldOptionsForComponent(compId) : null);
       for (const header of data.headers) {
@@ -76,7 +67,7 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
       if (data.headers.length > 0) {
         // PDF：统计"已识别列数"（含仪表绑定列），而非仅 store 滑块映射列——
         // 电压/电流/温度等列由 PM/TS/PCM 仪表绑定承载，数据并未丢失。
-        if (isGlobalPdf) {
+        if (data.format === 'pdf') {
           const recognized = data.headers.filter(
             (h) => findPdfColumnMapping(h) != null,
           ).length;
@@ -85,6 +76,8 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
               ? `已识别 ${recognized}/${data.headers.length} 列（序号/采样时刻为元数据）。`
               : '未能识别 PDF 列结构。',
           );
+        } else if (profile.kind !== 'generic') {
+          setError(`已识别为${profile.label}；导入后将与已有其他类型数据源并存。`);
         } else if (matchedCount === 0) {
           setError(`未能自动匹配任何字段（${data.headers.length} 列）。请在下一步手动选择每列对应的部件字段。`);
         } else if (matchedCount < data.headers.length / 2) {
@@ -110,22 +103,21 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
       for (const [k, v] of Object.entries(mapping)) {
         if (v) validMapping[k] = v as NumericFieldKey;
       }
-      const updates = applyMapping(
-        validMapping,
-        parsed?.rows ?? [],
-        strategy,
-      );
-      useSimStore.setState(updates);
       // M2-β：保存完整数据集（含原始行 + 时间列检测），供仪表实例按 bind 显示 + 时序回放
       if (parsed) {
         const timeColumn = detectTimeColumn(parsed.headers, parsed.rows);
+        const profile = detectSourceProfile(parsed.headers);
         useSimStore.getState().setInjectionDataset({
           sourceFile: parsed.filename,
           format: parsed.format,
           headers: parsed.headers,
           rows: parsed.rows,
           timeColumn,
+          mapping: validMapping,
+          role: profile.kind,
         });
+        // setInjectionDataset 同步完成后，按当前主时间轴统一应用全部有效数据源。
+        applyTimelineFrame(useSimStore.getState().timelineIndex);
       }
       useSimStore.getState().applyInjection({
         sourceFile: parsed?.filename ?? 'unknown',
@@ -206,6 +198,17 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
               <p className="import-data-summary">
                 文件：<code>{parsed.filename}</code> · {parsed.rowCount} 行 × {parsed.headers.length} 列
               </p>
+              {qualityPreview && (
+                <div className="import-data-hint" role="status">
+                  识别为：{qualityPreview.profile.label}；时间：
+                  {qualityPreview.timeStats.start == null ? '未识别' : new Date(qualityPreview.timeStats.start).toLocaleString('zh-CN')}
+                  {' ～ '}
+                  {qualityPreview.timeStats.end == null ? '未识别' : new Date(qualityPreview.timeStats.end).toLocaleString('zh-CN')}。
+                  {qualityPreview.quality.invalidRows > 0
+                    ? ` 检测到 ${qualityPreview.quality.invalidRows} 行结构异常，确认导入后将保留原始行，但从注入、同步和统计中隔离。`
+                    : ' 未检测到需要隔离的结构异常行。'}
+                </div>
+              )}
               <div className="import-data-table-wrap">
                 <table className="import-data-table">
                   <thead>
@@ -239,8 +242,9 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
               <p>为每列选择要写入的部件字段（自动匹配已预填）：</p>
               {(() => {
                 // PDF 数据是全局采集（电表/温度/热泵/水箱），不受当前部件白名单限制
-                const isGlobalPdf = parsed.format === 'pdf';
-                const allowedKeys = isGlobalPdf ? null : (compId ? getFieldOptionsForComponent(compId) : null);
+                const profile = detectSourceProfile(parsed.headers);
+                const isGlobalSource = parsed.format === 'pdf' || profile.kind !== 'generic';
+                const allowedKeys = isGlobalSource ? null : (compId ? getFieldOptionsForComponent(compId) : null);
                 const hasWhitelist = allowedKeys != null;
                 const options = hasWhitelist
                   ? FIELD_OPTIONS.filter((o) => allowedKeys!.includes(o.value))

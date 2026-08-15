@@ -95,10 +95,10 @@
       <text class="anim-pm-value" data-field="pm_l3_value" x="188" y="156" text-anchor="end" font-size="26" font-weight="bold" fill="#1E3A8A" font-family="monospace">1.23</text>
     </g>
 
-    <!-- 底部条：瞬时总功率 P total -->
+    <!-- 底部条：总功率因数（D6 / DU6） -->
     <rect x="44" y="166" width="152" height="18" rx="2" fill="url(#pmLcd)" stroke="#1E3A8A" stroke-width="0.5"/>
-    <text x="48" y="179" font-size="8" font-weight="bold" fill="#1E40AF" font-family="sans-serif">P total</text>
-    <text x="82" y="179" font-size="8" fill="#93C5FD" font-family="sans-serif">kW</text>
+    <text x="48" y="179" font-size="8" font-weight="bold" fill="#1E40AF" font-family="sans-serif">PF</text>
+    <text x="82" y="179" font-size="8" fill="#93C5FD" font-family="sans-serif">—</text>
     <text data-field="pm_total" x="188" y="180" text-anchor="end" font-size="13" font-weight="bold" fill="#065F46" font-family="monospace">0.72</text>
 
     <!-- 底部 4 颗大型接线螺钉（L1/L2/L3/N） -->

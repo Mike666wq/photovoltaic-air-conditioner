@@ -1,2 +1,4 @@
 packages:
-  - 'apps/*'
+  # apps/site 是独立的 Vinext/Cloudflare 工作目录，不属于光伏空调前端依赖图。
+  # 仅保留正式交付的 React/Vite Web 应用，避免无关工具链污染安装与构建。
+  - 'apps/web'

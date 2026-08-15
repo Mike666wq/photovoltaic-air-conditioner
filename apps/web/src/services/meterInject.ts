@@ -8,6 +8,43 @@ import {
   METER_BIND_COLUMNS,
   PCM_COLUMNS,
 } from './pdfFieldMap';
+import { parseDatasetTime } from './dataset';
+
+const BMS_TOLERANCE_MS = 2_000;
+
+function nearestRow(
+  rows: Array<Record<string, string>>,
+  timeColumn: string,
+  cursorMs: number,
+): Record<string, string> | null {
+  let best: Record<string, string> | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const row of rows) {
+    const timestamp = parseDatasetTime(row[timeColumn]);
+    if (timestamp == null) continue;
+    const distance = Math.abs(timestamp - cursorMs);
+    // 与 timeSession 的等距规则一致：稳定选择后一采样点。
+    if (distance <= bestDistance) {
+      best = row;
+      bestDistance = distance;
+    }
+  }
+  return bestDistance <= BMS_TOLERANCE_MS ? best : null;
+}
+
+/** 当前统一时间游标下所有有效源行；不做跨边界前向填充。 */
+export function getCurrentRows(state: SimulationState): Array<Record<string, string>> {
+  const master = getCurrentRow(state);
+  if (!master) return [];
+  const result = [master];
+  if (state.timelineMode !== 'combined' || state.timelineCursorMs == null) return result;
+  for (const source of state.injectionSources) {
+    if (source.sourceId === state.injectionDataset?.sourceId || source.role !== 'battery-bms' || !source.timeColumn) continue;
+    const row = nearestRow(source.rows, source.timeColumn, state.timelineCursorMs);
+    if (row) result.push(row);
+  }
+  return result;
+}
 
 /** 当前回放行（无数据集 / index 越界 → null） */
 export function getCurrentRow(state: SimulationState): Record<string, string> | null {
@@ -20,12 +57,13 @@ export function getCurrentRow(state: SimulationState): Record<string, string> | 
 
 /** 某 PDF 列在当前行的值（无数据 → null） */
 export function readCell(state: SimulationState, pdfHeader: string): number | null {
-  const row = getCurrentRow(state);
-  if (!row) return null;
-  const v = row[pdfHeader] ?? row[pdfHeader.replace('.', '_')];
-  if (v == null || String(v).trim() === '') return null;
-  const n = parseFloat(String(v));
-  return isNaN(n) ? null : n;
+  for (const row of getCurrentRows(state)) {
+    const v = row[pdfHeader] ?? row[pdfHeader.replace('.', '_')];
+    if (v == null || String(v).trim() === '') continue;
+    const n = parseFloat(String(v));
+    if (!isNaN(n)) return n;
+  }
+  return null;
 }
 
 /** 从候选列中取第一个非空数值（支持 PDF 列名 + XLSX 中文列名） */
@@ -70,7 +108,7 @@ function buildTempInject(
   const live = bind === 'env-temp'
     ? readCellCandidates(state, ENV_TEMP_COLUMNS)
     : (isTempBind ? readCell(state, TEMP_BIND_PDF_COLUMN[bind]) : null);
-  // 无数据 → 回退默认（env 用 at_temp，supply/return 用 tank_temp，outlet 用 hp_temp）
+  // 仅静态仿真模式允许回退；采集会话中缺失必须显示“不可用”，不能沿用旧值。
   let fallback: number;
   switch (bind) {
     case 'env-temp': fallback = state.at_temp; break;
@@ -79,7 +117,8 @@ function buildTempInject(
     case 'outlet-temp': fallback = state.hp_temp; break;
     default: fallback = state.tank_temp;
   }
-  const t = live ?? fallback;
+  const hasDataSession = state.injectionSources.length > 0;
+  const t = live ?? (hasDataSession ? null : fallback);
   const label = bind === 'env-temp' ? '环境温度'
     : bind === 'supply-temp' ? '送水温度'
     : bind === 'return-temp' ? '回水温度'
@@ -94,12 +133,12 @@ function buildTempInject(
       ts_id: bind ?? 'TS',
     },
     animations: {
-      ts_anim_temp: normTemp(t),
+      ts_anim_temp: t == null ? 0 : normTemp(t),
     },
   };
 }
 
-/** 功率类绑定（PM）：三圆盘 V/A/kW + 总功 */
+/** 功率类绑定（PM）：三圆盘 V/A/kW + 总功率因数。D6/DU6 不是累计电能。 */
 function buildMeterInject(
   state: SimulationState,
   meter: MeterInstance,
@@ -109,16 +148,17 @@ function buildMeterInject(
   const v = readCell(state, cols.voltage);
   const a = readCell(state, cols.current);
   const p = readCell(state, cols.power);
-  const t = readCell(state, cols.total);
+  const pf = readCell(state, cols.powerFactor);
 
-  // 无数据集 → 回退滑块值（对齐 TS fallback，避免显示裸 '—'）
+  // 只有完全未导入数据时才使用仿真值；已导入但当前时刻无值必须显示“—”。
   const fallbackV = 220;
   const fallbackA = state.pv_power / 0.38 / 3;
   const fallbackP = state.load_power_kw;
-  const fallbackT = state.load_power_kw;
+  const fallbackPf = 1;
 
+  const hasDataSession = state.injectionSources.length > 0;
   const fmt = (n: number | null, fallback: number, digits = 1): string =>
-    n != null ? n.toFixed(digits) : fallback.toFixed(digits);
+    n != null ? n.toFixed(digits) : (hasDataSession ? '—' : fallback.toFixed(digits));
 
   return {
     fields: {
@@ -126,11 +166,11 @@ function buildMeterInject(
       pm_l1_value: fmt(v, fallbackV, 1),   // 行 1：电压 V
       pm_l2_value: fmt(a, fallbackA, 1),   // 行 2：电流 A
       pm_l3_value: fmt(p, fallbackP, 2),   // 行 3：功率 kW
-      pm_total: fmt(t, fallbackT, 2),      // P total kW
+      pm_total: fmt(pf, fallbackPf, 2),    // 总功率因数 PF
     },
     animations: {
       // 红色脉冲 LED 按功率比例闪烁
-      pm_pulse_speed: p ?? fallbackP,
+      pm_pulse_speed: p ?? (hasDataSession ? 0 : fallbackP),
     },
   };
 }

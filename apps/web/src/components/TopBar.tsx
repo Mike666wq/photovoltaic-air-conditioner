@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useSimStore } from '../store/simulation';
 import { SaveManager } from './SaveManager';
+import { useNavigate } from 'react-router-dom';
 
 export function TopBar() {
+  const navigate = useNavigate();
   const [time, setTime] = useState(new Date());
   const [saveManagerOpen, setSaveManagerOpen] = useState(false);
   const state = useSimStore();
@@ -30,6 +32,9 @@ export function TopBar() {
   const ss = String(time.getSeconds()).padStart(2, '0');
 
   const fitCanvas = () => window.dispatchEvent(new Event('canvas-fit'));
+  const hasDataSession = state.injectionSources.length > 0;
+  const showInjected = (field: 'pv_power' | 'bat_soc' | 'tank_temp') =>
+    !hasDataSession || state.injectionFieldAvailability[field] === true;
 
   return (
     <div className="topbar">
@@ -85,6 +90,13 @@ export function TopBar() {
         <span className="topbar-divider" />
         <button
           className="topbar-btn"
+          onClick={() => navigate('/analysis')}
+          title="进入数据分析大屏"
+        >
+          📊 数据分析
+        </button>
+        <button
+          className="topbar-btn"
           onClick={() => setSaveManagerOpen(true)}
           title="管理保存的状态文件"
         >
@@ -107,9 +119,9 @@ export function TopBar() {
       </div>
 
       <div className="topbar-stats">
-        <span>PV: <span className="stat-value">{state.pv_power.toFixed(2)} kW</span></span>
-        <span>SOC: <span className="stat-value">{Math.round(state.bat_soc)}%</span></span>
-        <span>Tank: <span className="stat-value">{Math.round(state.tank_temp)}℃</span></span>
+        <span>PV: <span className="stat-value">{showInjected('pv_power') ? `${state.pv_power.toFixed(2)} kW` : '—'}</span></span>
+        <span>SOC: <span className="stat-value">{showInjected('bat_soc') ? `${Math.round(state.bat_soc)}%` : '—'}</span></span>
+        <span>Tank: <span className="stat-value">{showInjected('tank_temp') ? `${Math.round(state.tank_temp)}℃` : '—'}</span></span>
         <span>时钟: <span className="stat-value">{hh}:{mm}:{ss}</span></span>
       </div>
       <SaveManager open={saveManagerOpen} onClose={() => setSaveManagerOpen(false)} />

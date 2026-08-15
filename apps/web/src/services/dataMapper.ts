@@ -151,7 +151,6 @@ const ALIASES: Record<string, NumericFieldKey> = {
   'consumption': 'load_power_kw',
   'batterypower': 'battery_power_kw',
   '电池功率': 'battery_power_kw',
-  '电池电流': 'battery_power_kw',
   'cellpower': 'battery_power_kw',
   'tanktemp': 'tank_temp',
   'temptanktemp': 'tank_temp',
