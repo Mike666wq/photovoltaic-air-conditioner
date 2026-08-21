@@ -1,5 +1,6 @@
 import { LINE_COLORS, type Cable } from '../data/cables';
 import { useSimStore } from '../store/simulation';
+import { deriveCableSegmentFlow } from '../engine/schematicControl';
 
 interface Props {
   cable: Cable;
@@ -29,6 +30,14 @@ const sideMap: Record<string, string> = {
   right: '右',
 };
 
+const flowReasonLabel = {
+  flowing: '正在流动',
+  disabled: '动画已关闭',
+  'status-off': '支路设备停机',
+  'data-unavailable': '当前帧无状态数据',
+  'zero-flow': '当前流量为 0',
+} as const;
+
 function humanizeAnchor(anchorId: string): string {
   if (!anchorId) return '浮动端点';
   if (anchorId.startsWith('cable:')) {
@@ -43,7 +52,7 @@ function humanizeAnchor(anchorId: string): string {
 
 export function CableControlDetail({ cable }: Props) {
   const animEnabled = cable.animationEnabled ?? true;
-  const dir = cable.direction ?? 'forward';
+  const directionMode = cable.directionMode === 'reverse' ? 'reverse' : 'forward';
   const kindLabel = cable.kind === 'power'
     ? '电力线'
     : cable.kind === 'refrigerant'
@@ -52,9 +61,14 @@ export function CableControlDetail({ cable }: Props) {
   const dotColor = LINE_COLORS[cable.kind];
 
   const setCableAnimation = useSimStore((s) => s.setCableAnimation);
-  const toggleCableDirection = useSimStore((s) => s.toggleCableDirection);
+  const setCableDirectionMode = useSimStore((s) => s.setCableDirectionMode);
   const meters = useSimStore((s) => s.meters);
+  const state = useSimStore();
   const attachedMeters = meters.filter((m) => m.cableId === cable.id);
+  const segmentFlows = cable.segments.map((_, index) => deriveCableSegmentFlow(cable, index, state));
+  const flowSummary = segmentFlows.every((flow) => flow.reason === 'flowing')
+    ? '正在流动'
+    : [...new Set(segmentFlows.filter((flow) => flow.reason !== 'flowing').map((flow) => flowReasonLabel[flow.reason]))].join('、');
 
   const firstSeg = cable.segments[0];
   const lastSeg = cable.segments[cable.segments.length - 1];
@@ -80,13 +94,17 @@ export function CableControlDetail({ cable }: Props) {
         >
           动画 {animEnabled ? '开' : '关'}
         </button>
-        <button
-          type="button"
-          className="cable-action-btn direction"
-          onClick={() => toggleCableDirection(cable.id)}
-        >
-          方向 {dir === 'forward' ? '→' : '←'}
-        </button>
+        {(['forward', 'reverse'] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            className={`cable-action-btn direction ${directionMode === mode ? 'on' : ''}`}
+            onClick={() => setCableDirectionMode(cable.id, mode)}
+            title="人工强制粒子方向"
+          >
+            {mode === 'forward' ? '正向 →' : '反向 ←'}
+          </button>
+        ))}
       </div>
       <div className="cable-detail-info">
         <div className="cable-info-row">
@@ -96,6 +114,10 @@ export function CableControlDetail({ cable }: Props) {
         <div className="cable-info-row">
           <span className="cable-info-label">终点</span>
           <span className="cable-info-value">{toLabel}</span>
+        </div>
+        <div className="cable-info-row">
+          <span className="cable-info-label">流动状态</span>
+          <span className="cable-info-value">{flowSummary}</span>
         </div>
       </div>
       {attachedMeters.length > 0 && (

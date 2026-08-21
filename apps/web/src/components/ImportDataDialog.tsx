@@ -1,19 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
+import { findChartField } from '../data/chartFields';
 import { useSimStore } from '../store/simulation';
 import {
-  FIELD_OPTIONS,
-  applyMapping,
-  matchColumnToField,
-  type NumericFieldKey,
-  getFieldOptionsForComponent,
-} from '../services/dataMapper';
-import { findPdfColumnMapping } from '../services/pdfFieldMap';
-import { PDF_BIND_LABELS } from '../data/meters';
-import { parseFile, type ParsedData } from '../services/injectionParser';
-import { detectTimeColumn } from '../services/dataset';
-import { detectSourceProfile } from '../data/sourceProfile';
+  prepareFileForImport,
+  type ImportPreparationStage,
+} from '../services/preparedImport';
+import type { PreparedDataSource } from '../services/dataSourcePipeline';
+import { buildPlaybackSession } from '../services/playbackSession';
 import { applyTimelineFrame } from './TimelineControls';
-import { prepareDataSource } from '../services/dataSourcePipeline';
 
 interface Props {
   compId: string | null;
@@ -21,355 +15,304 @@ interface Props {
   onClose: () => void;
 }
 
-type Step = 'select' | 'preview' | 'map' | 'confirm';
+type Step = 'select' | 'preview';
+
+interface ImportProgress {
+  fileName: string;
+  current: number;
+  total: number;
+  stage: ImportPreparationStage;
+}
+
+const STAGE_LABELS: Record<ImportPreparationStage, string> = {
+  reading: '读取文件',
+  parsing: '解析数据',
+  quality: '检查时间与数据质量',
+};
+
+function sourceId(file: File): string {
+  // 与大屏使用同一稳定标识。同一文件从两个入口导入时更新同一数据源，
+  // 文件内容变化后 size / lastModified 会形成新版本。
+  return `analysis:${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function formatTime(value: number | null): string {
+  return value == null
+    ? '未识别'
+    : new Date(value).toLocaleString('zh-CN', { hour12: false });
+}
+
+function formatInterval(value: number | null): string {
+  if (value == null) return '未识别';
+  if (value < 1_000) return `${Math.round(value)} ms`;
+  if (value < 60_000) return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)} 秒`;
+  if (value < 3_600_000) return `${(value / 60_000).toFixed(value % 60_000 === 0 ? 0 : 1)} 分钟`;
+  return `${(value / 3_600_000).toFixed(value % 3_600_000 === 0 ? 0 : 1)} 小时`;
+}
+
+function canonicalFields(source: PreparedDataSource) {
+  return source.fieldMappings.map((mapping) => {
+    const field = findChartField(mapping.fieldKey);
+    return {
+      key: mapping.fieldKey,
+      label: field?.label ?? mapping.fieldKey,
+      unit: field?.unit ?? '',
+      sourceColumn: mapping.sourceColumn,
+    };
+  });
+}
 
 export function ImportDataDialog({ compId, open, onClose }: Props) {
   const [step, setStep] = useState<Step>('select');
-  const [parsed, setParsed] = useState<ParsedData | null>(null);
+  const [preparedSources, setPreparedSources] = useState<PreparedDataSource[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [mapping, setMapping] = useState<Record<string, NumericFieldKey | ''>>({});
-  const [strategy, setStrategy] = useState<'first' | 'last' | 'avg'>('last');
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const qualityPreview = useMemo(() => parsed ? prepareDataSource({
-    id: `preview:${parsed.filename}`,
-    filename: parsed.filename,
-    format: parsed.format,
-    headers: parsed.headers,
-    rows: parsed.rows,
-  }) : null, [parsed]);
+  const strictSession = useMemo(() => {
+    if (!preparedSources.length) return null;
+    const anchor = preparedSources.find((source) =>
+      source.profile.kind === 'thermal-electrical' || source.profile.kind === 'mixed',
+    ) ?? preparedSources[0];
+    return buildPlaybackSession({ sources: preparedSources, anchorSourceId: anchor.id, toleranceMs: 2_000 });
+  }, [preparedSources]);
+  const timedSourceCount = preparedSources.filter((source) =>
+    source.timeStats.start != null && source.timeStats.end != null,
+  ).length;
 
   if (!open) return null;
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const resetState = () => {
+    setStep('select');
+    setPreparedSources([]);
     setError(null);
-    try {
-      const data = await parseFile(file);
-      setParsed(data);
-      const profile = detectSourceProfile(data.headers);
-      const autoMapping: Record<string, NumericFieldKey | ''> = {};
-      let matchedCount = 0;
-      // PDF 是全局采集数据（电表/温度/热泵），不受当前部件白名单限制；
-      // CSV/XLSX 按当前部件白名单过滤（避免 '环境温度'→at_temp 等跨部件误配）。
-      const isGlobalSource = data.format === 'pdf' || profile.kind !== 'generic';
-      const allowedKeys = isGlobalSource
-        ? null
-        : (compId ? getFieldOptionsForComponent(compId) : null);
-      for (const header of data.headers) {
-        const mapped = matchColumnToField(header);
-        // 白名单存在时仅保留白名单内字段；否则保留自动匹配结果
-        const keep = allowedKeys ? (mapped && allowedKeys.includes(mapped) ? mapped : null) : mapped;
-        if (keep) matchedCount++;
-        autoMapping[header] = keep ?? '';
-      }
-      setMapping(autoMapping);
-      if (data.headers.length > 0) {
-        // PDF：统计"已识别列数"（含仪表绑定列），而非仅 store 滑块映射列——
-        // 电压/电流/温度等列由 PM/TS/PCM 仪表绑定承载，数据并未丢失。
-        if (data.format === 'pdf') {
-          const recognized = data.headers.filter(
-            (h) => findPdfColumnMapping(h) != null,
-          ).length;
-          setError(
-            recognized > 0
-              ? `已识别 ${recognized}/${data.headers.length} 列（序号/采样时刻为元数据）。`
-              : '未能识别 PDF 列结构。',
-          );
-        } else if (profile.kind !== 'generic') {
-          setError(`已识别为${profile.label}；导入后将与已有其他类型数据源并存。`);
-        } else if (matchedCount === 0) {
-          setError(`未能自动匹配任何字段（${data.headers.length} 列）。请在下一步手动选择每列对应的部件字段。`);
-        } else if (matchedCount < data.headers.length / 2) {
-          setError(`自动匹配了 ${matchedCount}/${data.headers.length} 列。剩余列请在下一步手动选择。`);
-        }
-      }
-      setStep('preview');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '解析失败');
-    } finally {
-      // 清空 input value 以便再次选择同名文件
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleNext = () => {
-    if (step === 'preview') {
-      setStep('map');
-    } else if (step === 'map') {
-      setStep('confirm');
-    } else if (step === 'confirm') {
-      const validMapping: Record<string, NumericFieldKey> = {};
-      for (const [k, v] of Object.entries(mapping)) {
-        if (v) validMapping[k] = v as NumericFieldKey;
-      }
-      // M2-β：保存完整数据集（含原始行 + 时间列检测），供仪表实例按 bind 显示 + 时序回放
-      if (parsed) {
-        const timeColumn = detectTimeColumn(parsed.headers, parsed.rows);
-        const profile = detectSourceProfile(parsed.headers);
-        useSimStore.getState().setInjectionDataset({
-          sourceFile: parsed.filename,
-          format: parsed.format,
-          headers: parsed.headers,
-          rows: parsed.rows,
-          timeColumn,
-          mapping: validMapping,
-          role: profile.kind,
-        });
-        // setInjectionDataset 同步完成后，按当前主时间轴统一应用全部有效数据源。
-        applyTimelineFrame(useSimStore.getState().timelineIndex);
-      }
-      useSimStore.getState().applyInjection({
-        sourceFile: parsed?.filename ?? 'unknown',
-        rowsCount: parsed?.rowCount ?? 0,
-      });
-      resetState();
-      onClose();
-    }
-  };
-
-  const handleBack = () => {
-    if (step === 'preview') setStep('select');
-    else if (step === 'map') setStep('preview');
-    else if (step === 'confirm') setStep('map');
+    setProgress(null);
   };
 
   const handleCancel = () => {
+    if (progress) return;
     resetState();
     onClose();
   };
 
-  const resetState = () => {
-    setStep('select');
-    setParsed(null);
-    setMapping({});
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const files = [...(input.files ?? [])];
+    if (!files.length || progress) return;
+
     setError(null);
+    setPreparedSources([]);
+    const prepared: PreparedDataSource[] = [];
+    const errors: string[] = [];
+
+    try {
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        try {
+          const result = await prepareFileForImport(
+            file,
+            sourceId(file),
+            (stage) => setProgress({
+              fileName: file.name,
+              current: index + 1,
+              total: files.length,
+              stage,
+            }),
+          );
+          prepared.push(result);
+        } catch (cause) {
+          errors.push(`${file.name}：${cause instanceof Error ? cause.message : '文件无法解析'}`);
+        }
+      }
+
+      setPreparedSources(prepared);
+      setError(errors.length ? `部分文件未能导入：${errors.join('；')}` : null);
+      if (prepared.length) setStep('preview');
+      else setError(errors.length ? `没有可用的数据文件。${errors.join('；')}` : '没有可用的数据文件。');
+    } finally {
+      setProgress(null);
+      input.value = '';
+    }
   };
 
-  const validMappingForPreview: Record<string, NumericFieldKey> = {};
-  for (const [k, v] of Object.entries(mapping)) {
-    if (v) validMappingForPreview[k] = v as NumericFieldKey;
-  }
-  const previewUpdates = parsed
-    ? applyMapping(validMappingForPreview, parsed.rows, strategy)
-    : {};
-  const currentState = useSimStore.getState();
+  const handleCommit = () => {
+    if (!preparedSources.length || progress) return;
+
+    const sim = useSimStore.getState();
+    for (const prepared of preparedSources) {
+      sim.setInjectionDataset({
+        sourceId: prepared.id,
+        sourceFile: prepared.filename,
+        format: prepared.format,
+        headers: prepared.headers,
+        rows: prepared.rows,
+        timeColumn: prepared.timeStats.timeColumn,
+        role: prepared.profile.kind,
+        prepared,
+      });
+    }
+    useSimStore.getState().setActivePlaybackSourceIds(preparedSources.map((source) => source.id));
+
+    const next = useSimStore.getState();
+    const hasThermal = preparedSources.some((source) =>
+      source.profile.kind === 'thermal-electrical' || source.profile.kind === 'mixed',
+    );
+    const hasBms = preparedSources.some((source) =>
+      source.profile.kind === 'battery-bms' || source.profile.kind === 'mixed',
+    );
+    if (hasThermal && hasBms) next.setTimelineMode('combined');
+    applyTimelineFrame(0);
+    useSimStore.getState().applyInjection({
+      sourceFile: preparedSources.length === 1
+        ? preparedSources[0].filename
+        : `${preparedSources.length} 个文件`,
+      rowsCount: preparedSources.reduce((sum, source) => sum + source.rows.length, 0),
+    });
+
+    resetState();
+    onClose();
+  };
 
   return (
     <div
       className="import-data-overlay"
-      onClick={(e) => {
-        e.stopPropagation();
+      onClick={(event) => {
+        event.stopPropagation();
         handleCancel();
       }}
     >
-      <div className="import-data-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="import-data-modal"
+        aria-busy={Boolean(progress)}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="import-data-header">
-          <h3>导入数据 — {compId ?? '当前部件'}</h3>
-          <button onClick={handleCancel} aria-label="关闭">×</button>
+          <h3>导入时序数据 — {compId ?? '原理图'}</h3>
+          <button onClick={handleCancel} disabled={Boolean(progress)} aria-label="关闭">×</button>
         </div>
+
         <div className="import-data-body">
-          {error && <div className="import-data-error">{error}</div>}
+          {error && <div className="import-data-error" role="alert">{error}</div>}
 
           {step === 'select' && (
-            <div className="import-data-step">
-              <p>选择 CSV / Excel / PDF 文件导入实验数据。</p>
+            <div className="import-data-step import-data-select">
+              <p>选择一个或多个 CSV / Excel / PDF 文件，建立同一段时间的数据会话。</p>
               <p className="import-data-sub">
-                首行为字段名，其余为数据；解析后会按列名自动匹配部件字段。
+                文件将使用与数据大屏相同的解析、字段识别和质量检查流程；Excel 在后台线程处理。
               </p>
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 accept=".csv,.xlsx,.xls,.pdf"
                 onChange={handleFileSelect}
                 hidden
+                disabled={Boolean(progress)}
               />
               <button
                 className="import-data-btn primary"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={Boolean(progress)}
               >
-                选择文件…
+                {progress ? '正在分析文件…' : '选择文件…'}
               </button>
+              <p className="import-data-selection-note">可同时选择热工/电表数据与电池 BMS 数据；确认后会自动建立综合同步时间轴。</p>
+
+              {progress && (
+                <div className="import-data-progress" role="status">
+                  <span className="import-data-progress-spinner" aria-hidden="true" />
+                  <span>
+                    {STAGE_LABELS[progress.stage]}：<strong>{progress.fileName}</strong>
+                    {' '}（{progress.current}/{progress.total}）
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
-          {step === 'preview' && parsed && (
+          {step === 'preview' && preparedSources.length > 0 && (
             <div className="import-data-step">
-              <p className="import-data-summary">
-                文件：<code>{parsed.filename}</code> · {parsed.rowCount} 行 × {parsed.headers.length} 列
-              </p>
-              {qualityPreview && (
-                <div className="import-data-hint" role="status">
-                  识别为：{qualityPreview.profile.label}；时间：
-                  {qualityPreview.timeStats.start == null ? '未识别' : new Date(qualityPreview.timeStats.start).toLocaleString('zh-CN')}
-                  {' ～ '}
-                  {qualityPreview.timeStats.end == null ? '未识别' : new Date(qualityPreview.timeStats.end).toLocaleString('zh-CN')}。
-                  {qualityPreview.quality.invalidRows > 0
-                    ? ` 检测到 ${qualityPreview.quality.invalidRows} 行结构异常，确认导入后将保留原始行，但从注入、同步和统计中隔离。`
-                    : ' 未检测到需要隔离的结构异常行。'}
-                </div>
-              )}
-              <div className="import-data-table-wrap">
-                <table className="import-data-table">
-                  <thead>
-                    <tr>
-                      {parsed.headers.map((h) => (
-                        <th key={h}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {parsed.rows.slice(0, 5).map((row, i) => (
-                      <tr key={i}>
-                        {parsed.headers.map((h) => (
-                          <td key={h}>{row[h]}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="import-data-session-summary">
+                <strong>{preparedSources.length} 个数据源</strong>
+                <span>{preparedSources.reduce((sum, source) => sum + source.rows.length, 0)} 行原始数据</span>
+                {timedSourceCount > 1 && (
+                  <span className={strictSession?.range ? 'ok' : 'warn'}>
+                    严格交集：{strictSession?.range
+                      ? `${formatTime(strictSession.range.start)} ～ ${formatTime(strictSession.range.end)} · ${strictSession.frames.length} 帧`
+                      : '无可同步帧'}
+                  </span>
+                )}
               </div>
-              {parsed.rows.length > 5 && (
-                <div className="import-data-hint">
-                  仅显示前 5 行（共 {parsed.rows.length} 行）
-                </div>
-              )}
-            </div>
-          )}
 
-          {step === 'map' && parsed && (
-            <div className="import-data-step">
-              <p>为每列选择要写入的部件字段（自动匹配已预填）：</p>
-              {(() => {
-                // PDF 数据是全局采集（电表/温度/热泵/水箱），不受当前部件白名单限制
-                const profile = detectSourceProfile(parsed.headers);
-                const isGlobalSource = parsed.format === 'pdf' || profile.kind !== 'generic';
-                const allowedKeys = isGlobalSource ? null : (compId ? getFieldOptionsForComponent(compId) : null);
-                const hasWhitelist = allowedKeys != null;
-                const options = hasWhitelist
-                  ? FIELD_OPTIONS.filter((o) => allowedKeys!.includes(o.value))
-                  : FIELD_OPTIONS;
-                if (hasWhitelist && options.length === 0) {
+              <div className="import-data-source-list">
+                {preparedSources.map((source) => {
+                  const fields = canonicalFields(source);
+                  const issueEntries = Object.entries(source.quality.issueCounts)
+                    .filter(([, count]) => Boolean(count));
                   return (
-                    <div className="import-data-hint">
-                      当前部件（{compId}）无任何可导入字段。请先在部件详情页选择有数据源的部件。
-                    </div>
-                  );
-                }
-                return (
-                  <div className="import-data-mapping">
-                    {parsed.headers.map((h) => {
-                      const pdfMap = parsed.format === 'pdf'
-                        ? findPdfColumnMapping(h)
-                        : null;
-                      // PDF 载体去向标签：PM / TS / PCM（电压电流等由仪表绑定承载，不依赖 store 滑块映射）
-                      const bindLabel = pdfMap?.meterBind
-                        ? (PDF_BIND_LABELS[pdfMap.meterBind] ?? null)
-                        : null;
-                      return (
-                      <div key={h} className="import-data-mapping-row">
-                        <span className="col-name" title={h}>
-                          {h}
-                          {pdfMap && (
-                            <span className="import-data-pdf-label">
-                              {' '}[{pdfMap.chineseLabel}]
-                            </span>
-                          )}
-                          {bindLabel && (
-                            <span className="import-data-bind-label">
-                              {' '}→ {bindLabel}
-                            </span>
-                          )}
-                        </span>
-                        <select
-                          value={mapping[h] ?? ''}
-                          onChange={(e) =>
-                            setMapping((prev) => ({
-                              ...prev,
-                              [h]: e.target.value as NumericFieldKey | '',
-                            }))
-                          }
-                        >
-                          <option value="">（忽略此列）</option>
-                          {options.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-              <div className="import-data-strategy">
-                <label>多行数据策略：</label>
-                <select
-                  value={strategy}
-                  onChange={(e) => setStrategy(e.target.value as 'first' | 'last' | 'avg')}
-                >
-                  <option value="first">取首行</option>
-                  <option value="last">取末行</option>
-                  <option value="avg">取平均</option>
-                </select>
-              </div>
-            </div>
-          )}
+                    <article className="import-data-source-card" key={source.id}>
+                      <header>
+                        <div>
+                          <strong title={source.filename}>{source.filename}</strong>
+                          <span className={`import-data-profile import-data-profile--${source.profile.kind}`}>
+                            {source.profile.label}
+                          </span>
+                        </div>
+                        <small>{source.format.toUpperCase()} · {source.rows.length} 行 × {source.headers.length} 列</small>
+                      </header>
 
-          {step === 'confirm' && parsed && (
-            <div className="import-data-step">
-              <p>预览注入后的字段值（与当前值对比）：</p>
-              {Object.keys(previewUpdates).length === 0 ? (
-                <div className="import-data-hint">
-                  未映射任何字段，请返回上一步选择。
-                </div>
-              ) : (
-                <div className="import-data-preview">
-                  {Object.entries(previewUpdates).map(([field, value]) => {
-                    const oldVal = (currentState as unknown as Record<string, unknown>)[field];
-                    const oldStr =
-                      typeof oldVal === 'number' ? oldVal.toFixed(2) : '-';
-                    const newStr = typeof value === 'number' ? value.toFixed(2) : '-';
-                    return (
-                      <div key={field} className="import-data-preview-row">
-                        <span className="field-name">{field}</span>
-                        <span className="old-value">{oldStr}</span>
-                        <span className="arrow">→</span>
-                        <span className="new-value">{newStr}</span>
+                      <dl className="import-data-source-metrics">
+                        <div><dt>时间列</dt><dd>{source.timeStats.timeColumn ?? '未识别'}</dd></div>
+                        <div><dt>有效时间</dt><dd>{formatTime(source.timeStats.start)} ～ {formatTime(source.timeStats.end)}</dd></div>
+                        <div><dt>中位采样间隔</dt><dd>{formatInterval(source.timeStats.medianIntervalMs)}</dd></div>
+                        <div>
+                          <dt>数据质量</dt>
+                          <dd className={source.quality.invalidRows ? 'warn' : 'ok'}>
+                            有效 {source.quality.validRows}/{source.quality.totalRows}
+                            {source.quality.invalidRows ? ` · 隔离 ${source.quality.invalidRows} 行` : ' · 无异常行'}
+                          </dd>
+                        </div>
+                      </dl>
+
+                      <div className="import-data-canonical-fields">
+                        <span className="import-data-card-label">规范字段</span>
+                        {fields.length ? fields.map((field) => (
+                          <span
+                            className="import-data-field-chip"
+                            key={`${field.key}:${field.sourceColumn}`}
+                            title={`${field.sourceColumn} → ${field.key}`}
+                          >
+                            {field.label}{field.unit ? ` (${field.unit})` : ''}
+                          </span>
+                        )) : <span className="import-data-empty-fields">未识别到规范业务字段</span>}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+
+                      {issueEntries.length > 0 && (
+                        <div className="import-data-quality-issues">
+                          质量提示：{issueEntries.map(([code, count]) => `${code} ${count}`).join('；')}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
+
         <div className="import-data-footer">
-          {step !== 'select' && (
-            <button onClick={handleBack}>上一步</button>
-          )}
-          {step === 'select' && (
-            <button onClick={handleCancel}>取消</button>
-          )}
-          {step === 'preview' && (
-            <button onClick={handleNext} className="primary">
-              下一步：列映射
-            </button>
-          )}
-          {step === 'map' && (
-            <button onClick={handleNext} className="primary">
-              下一步：预览
-            </button>
-          )}
-          {step === 'confirm' && (
-            <button
-              onClick={handleNext}
-              className="primary"
-              disabled={Object.keys(previewUpdates).length === 0}
-            >
-              确认导入
-            </button>
+          {step === 'select' ? (
+            <button onClick={handleCancel} disabled={Boolean(progress)}>取消</button>
+          ) : (
+            <>
+              <button onClick={() => {
+                setStep('select');
+                setPreparedSources([]);
+                setError(null);
+              }}>重新选择</button>
+              <button onClick={handleCommit} className="primary" disabled={!preparedSources.length}>
+                确认导入并定位首帧
+              </button>
+            </>
           )}
         </div>
       </div>

@@ -5,6 +5,8 @@ export type CableKind = 'power' | 'refrigerant' | 'water';
 
 /** 粒子流动方向（M1.5 Round 9 新增） */
 export type CableDirection = 'forward' | 'reverse';
+export type CableDirectionMode = 'auto' | CableDirection;
+export type CableRoutingMode = 'straight' | 'orthogonal-auto' | 'orthogonal-manual';
 
 /** 直线段（端点必须是锚点 id：组件锚点 "comp.side"） */
 export interface CableSegment {
@@ -26,6 +28,12 @@ export interface Cable {
   animationEnabled: boolean;
   /** M1.5 Round 9 新增：粒子流动方向 */
   direction: CableDirection;
+  /** 缺失时按 auto 兼容旧场景；forward/reverse 表示人工强制覆盖。 */
+  directionMode?: CableDirectionMode;
+  /** 缺失时按 orthogonal-auto 处理，兼容旧场景。 */
+  routeMode?: CableRoutingMode;
+  /** 仅人工正交模式持久化；自动路由点由画布几何实时派生。 */
+  manualWaypoints?: Array<{ x: number; y: number }>;
 }
 
 // 2×7 部件坐标（components.ts）

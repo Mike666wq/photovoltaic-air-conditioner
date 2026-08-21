@@ -1,45 +1,17 @@
 import { useEffect, useRef, RefObject } from 'react';
 import { SimulationState } from '../store/simulation';
+import { deriveCableSegmentFlow } from '../engine/schematicControl';
+import type { ResolvedCablePath } from '../engine/orthogonalRouter';
+import { advanceParticleDistance, polylineLength } from '../engine/particleMotion';
 
 interface ParticleState {
   cableId: string;
-  offset: number;
-  speed: number;
+  segmentIndex: number;
+  distance: number;
   particles: Array<{ el: SVGCircleElement; phase: number }>;
 }
 
 interface SegmentPoint { x: number; y: number; }
-
-/** 计算线缆所有段拼接后的总路径点序列（按段累加） */
-function getCablePath(
-  cable: {
-    segments: Array<{ fromAnchorId: string; toAnchorId: string }>;
-    floatingFrom?: { x: number; y: number } | null;
-    floatingTo?: { x: number; y: number } | null;
-  },
-  getAnchorPos: (anchorId: string) => SegmentPoint | null,
-): SegmentPoint[] {
-  const pts: SegmentPoint[] = [];
-  const DEDUP_EPS = 0.5;
-  const segs = cable.segments;
-  for (let i = 0; i < segs.length; i++) {
-    const seg = segs[i];
-
-    let f = seg.fromAnchorId ? getAnchorPos(seg.fromAnchorId) : null;
-    if (i === 0 && !f) f = cable.floatingFrom ?? null;
-
-    let t = seg.toAnchorId ? getAnchorPos(seg.toAnchorId) : null;
-    if (i === segs.length - 1 && !t) t = cable.floatingTo ?? null;
-
-    if (f && (pts.length === 0 || Math.hypot(pts[pts.length - 1].x - f.x, pts[pts.length - 1].y - f.y) > DEDUP_EPS)) {
-      pts.push(f);
-    }
-    if (t && (pts.length === 0 || Math.hypot(pts[pts.length - 1].x - t.x, pts[pts.length - 1].y - t.y) > DEDUP_EPS)) {
-      pts.push(t);
-    }
-  }
-  return pts;
-}
 
 /** 路径 t∈[0,1] 处的点 */
 function pointAtPath(pts: SegmentPoint[], t: number): SegmentPoint {
@@ -77,7 +49,7 @@ function pointAtPath(pts: SegmentPoint[], t: number): SegmentPoint {
 }
 
 // 粒子颜色
-const PARTICLE_STYLE: Record<string, { main: string; edge: string }> = {
+export const PARTICLE_STYLE: Record<string, { main: string; edge: string }> = {
   power:       { main: '#FCD34D', edge: '#FEF3C7' },
   refrigerant: { main: '#5EEAD4', edge: '#FFFFFF' },
   water:       { main: '#93C5FD', edge: '#FFFFFF' },
@@ -86,63 +58,72 @@ const PARTICLE_STYLE: Record<string, { main: string; edge: string }> = {
 export function useParticleAnimation(
   particleLayerRef: RefObject<SVGGElement>,
   state: SimulationState,
-  getAnchorPos: (anchorId: string) => { x: number; y: number } | null,
+  resolveRoutes: (cable: SimulationState['cables'][number]) => ResolvedCablePath[],
+  zoom: number,
 ) {
   const stateRef = useRef(state);
   stateRef.current = state;
+  const resolveRoutesRef = useRef(resolveRoutes);
+  resolveRoutesRef.current = resolveRoutes;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   const cableStatesRef = useRef<Map<string, ParticleState>>(new Map());
+
+  const syncParticleRefs = () => {
+    const layer = particleLayerRef.current;
+    if (!layer) return;
+    const grouped = new Map<string, Array<{ el: SVGCircleElement; index: number }>>();
+    layer.querySelectorAll<SVGCircleElement>('circle[data-particle-key]').forEach((circle) => {
+      const cableId = circle.dataset.cableId;
+      const segmentIndex = Number(circle.dataset.segmentIndex);
+      const particleIndex = Number(circle.dataset.particleIndex);
+      if (!cableId || !Number.isInteger(segmentIndex) || !Number.isInteger(particleIndex)) return;
+      const key = `${cableId}:${segmentIndex}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push({ el: circle, index: particleIndex });
+    });
+    cableStatesRef.current.clear();
+    stateRef.current.cables.forEach((cable) => cable.segments.forEach((_, segmentIndex) => {
+      const key = `${cable.id}:${segmentIndex}`;
+      const registered = (grouped.get(key) ?? []).sort((a, b) => a.index - b.index);
+      cableStatesRef.current.set(key, {
+        cableId: cable.id,
+        segmentIndex,
+        distance: 0,
+        particles: registered.map(({ el, index }) => ({ el, phase: index / 8 })),
+      });
+    }));
+  };
 
   // 同步线缆列表与粒子
   useEffect(() => {
     const layer = particleLayerRef.current;
     if (!layer) return;
 
-    // 移除旧粒子
-    cableStatesRef.current.forEach((cs) => cs.particles.forEach((p) => p.el.remove()));
-    cableStatesRef.current.clear();
+    syncParticleRefs();
 
-    state.cables.forEach((cable) => {
-      const PARTICLE_COUNT = 10;
-      const particles: Array<{ el: SVGCircleElement; phase: number }> = [];
-      const style = PARTICLE_STYLE[cable.kind];
-
-      for (let i = 0; i < PARTICLE_COUNT; i++) {
-        const ns = 'http://www.w3.org/2000/svg';
-        const circle = document.createElementNS(ns, 'circle');
-        circle.setAttribute('r', String(cable.kind === 'power' ? 3 : 2.5));
-        circle.setAttribute('fill', i % 2 === 0 ? style.main : style.edge);
-        circle.setAttribute('stroke', style.edge);
-        circle.setAttribute('stroke-width', '0.5');
-        circle.setAttribute('opacity', '0');
-        layer.appendChild(circle);
-        particles.push({ el: circle, phase: i / PARTICLE_COUNT });
-      }
-
-      cableStatesRef.current.set(cable.id, {
-        cableId: cable.id,
-        offset: 0,
-        speed: 0,
-        particles,
-      });
-    });
-
-    return () => {
-      cableStatesRef.current.forEach((cs) => cs.particles.forEach((p) => p.el.remove()));
-      cableStatesRef.current.clear();
-    };
+    return () => cableStatesRef.current.clear();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     particleLayerRef,
     state.cables.map((c) =>
-      `${c.id}|${c.kind}|${c.floatingFrom?.x ?? ''},${c.floatingFrom?.y ?? ''}|${c.floatingTo?.x ?? ''},${c.floatingTo?.y ?? ''}|${c.segments.map((s) => `${s.fromAnchorId}>${s.toAnchorId}`).join(',')}`
+      `${c.id}|${c.kind}|${c.floatingFrom?.x ?? ''},${c.floatingFrom?.y ?? ''}|${c.floatingTo?.x ?? ''},${c.floatingTo?.y ?? ''}|${c.segments.map((s) => `${s.fromAnchorId}>${s.toAnchorId}`).join(',')}|${c.routeMode ?? ''}|${c.manualWaypoints?.map((p) => `${p.x},${p.y}`).join(';') ?? ''}`
     ).join('\0'),
   ]);
 
-  // RAF 循环
+  // RAF 循环：使用真实 deltaTime，避免 Safari 60/120Hz 速度不同。
   useEffect(() => {
     let rafId: number;
-    const tick = () => {
+    let previousTime: number | null = null;
+    const tick = (now: number) => {
       const s = stateRef.current;
+      const expectedSegments = s.cables.reduce((sum, cable) => sum + cable.segments.length, 0);
+      const registeredParticles = [...cableStatesRef.current.values()].reduce((sum, item) => sum + item.particles.length, 0);
+      if (cableStatesRef.current.size !== expectedSegments || registeredParticles !== expectedSegments * 8) {
+        syncParticleRefs();
+      }
+      const deltaSeconds = previousTime == null ? 0 : Math.min(0.1, Math.max(0, (now - previousTime) / 1000));
+      previousTime = now;
 
       // 动画关闭：粒子隐藏 + 不推进
       if (!s.animationOn) {
@@ -152,82 +133,44 @@ export function useParticleAnimation(
       }
 
       s.cables.forEach((cable) => {
-        const cs = cableStatesRef.current.get(cable.id);
-        if (!cs) return;
-        const path = getCablePath(cable, getAnchorPos);
-        if (path.length < 2) {
-          console.debug('[particles] cable', cable.id, 'has path.length=', path.length, 'segments=', cable.segments.length);
-        }
-        if (path.length === 0) {
-          const mid = {
-            x: ((cable.floatingFrom?.x ?? 0) + (cable.floatingTo?.x ?? 0)) / 2,
-            y: ((cable.floatingFrom?.y ?? 0) + (cable.floatingTo?.y ?? 0)) / 2,
-          };
-          cs.particles.forEach((p, i) => {
-            const angle = (i / cs.particles.length) * Math.PI * 2;
-            const radius = 6;
-            p.el.setAttribute('cx', String(mid.x + Math.cos(angle) * radius));
-            p.el.setAttribute('cy', String(mid.y + Math.sin(angle) * radius));
-            p.el.style.opacity = '0.3';
+        const paths = resolveRoutesRef.current(cable);
+        paths.forEach(({ segmentIndex, points: path }) => {
+          const cs = cableStatesRef.current.get(`${cable.id}:${segmentIndex}`);
+          if (!cs) return;
+          const flow = deriveCableSegmentFlow(cable, segmentIndex, s);
+          if (path.length < 2 || !flow.active) {
+            cs.particles.forEach((p) => {
+              p.el.style.opacity = '0';
+              p.el.dataset.flowReason = path.length < 2 ? 'data-unavailable' : flow.reason;
+            });
+            return;
+          }
+          const pathLength = polylineLength(path);
+          if (pathLength <= 0.001) {
+            cs.particles.forEach((particle) => {
+              particle.el.style.opacity = '0';
+              particle.el.dataset.flowReason = 'data-unavailable';
+            });
+            return;
+          }
+          const safeZoom = Math.max(0.2, zoomRef.current);
+          cs.distance = advanceParticleDistance(cs.distance, flow.pixelsPerSecond, deltaSeconds * 1000, safeZoom, pathLength);
+          cs.particles.forEach((particle) => {
+            const forwardDistance = (cs.distance + particle.phase * pathLength) % pathLength;
+            const distance = flow.direction === 'reverse' ? pathLength - forwardDistance : forwardDistance;
+            const t = distance / pathLength;
+            const point = pointAtPath(path, t);
+            particle.el.setAttribute('cx', String(point.x));
+            particle.el.setAttribute('cy', String(point.y));
+            particle.el.setAttribute('r', String((cable.kind === 'power' ? 3 : 2.5) / safeZoom));
+            particle.el.setAttribute('stroke-width', String(0.5 / safeZoom));
+            particle.el.dataset.flowDirection = flow.direction;
+            particle.el.dataset.flowReason = flow.reason;
+            let opacity = 1;
+            if (t < 0.08) opacity = t / 0.08;
+            else if (t > 0.92) opacity = (1 - t) / 0.08;
+            particle.el.style.opacity = String(opacity);
           });
-          return;
-        }
-        if (path.length === 1) {
-          const anchor = path[0];
-          cs.particles.forEach((p, i) => {
-            const angle = (i / cs.particles.length) * Math.PI * 2;
-            const radius = 6;
-            p.el.setAttribute('cx', String(anchor.x + Math.cos(angle) * radius));
-            p.el.setAttribute('cy', String(anchor.y + Math.sin(angle) * radius));
-            p.el.style.opacity = '0.4';
-          });
-          return;
-        }
-
-        // M1.5 Round 9：单线缆动画开关（默认 true 向后兼容）
-        const animationEnabled = cable.animationEnabled ?? true;
-        if (!animationEnabled) {
-          cs.particles.forEach((p) => { p.el.style.opacity = '0'; });
-          return;
-        }
-
-        let base = 0;
-        let multiplier = 1;
-        if (cable.kind === 'power') {
-          base = s.pv_power / 6;
-          multiplier = s.pl_flow / 3;
-        } else if (cable.kind === 'refrigerant') {
-          base = s.hp_on ? s.hp_power / 8 : 0;
-          multiplier = s.rl_flow / 3;
-        } else if (cable.kind === 'water') {
-          // Fix B7：水泵关停时（pump_on=false）粒子速度归零，与 tank_anim_flow_speed 行为一致
-          const effectivePumpFlow = s.pump_on ? s.pump_flow : 0;
-          base = effectivePumpFlow / 5;
-          multiplier = s.wl_flow / 3;
-        }
-        const speed = base * multiplier;
-        cs.speed = speed;
-
-        if (speed <= 0) {
-          cs.particles.forEach((p) => (p.el.style.opacity = '0.35'));
-          return;
-        }
-
-        cs.offset += speed * 0.005;
-
-        // M1.5 Round 9：方向反转（默认 forward）
-        const direction = cable.direction ?? 'forward';
-
-        cs.particles.forEach((p) => {
-          const forwardT = ((cs.offset + p.phase) % 1 + 1) % 1;
-          const t = direction === 'reverse' ? 1 - forwardT : forwardT;
-          const { x, y } = pointAtPath(path, t);
-          p.el.setAttribute('cx', String(x));
-          p.el.setAttribute('cy', String(y));
-          let opacity = 1;
-          if (t < 0.1) opacity = t / 0.1;
-          else if (t > 0.9) opacity = (1 - t) / 0.1;
-          p.el.style.opacity = String(opacity);
         });
       });
       rafId = requestAnimationFrame(tick);

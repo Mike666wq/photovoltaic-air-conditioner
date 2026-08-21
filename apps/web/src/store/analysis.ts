@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import type { SourceProfile } from '../data/sourceProfile';
-import { prepareDataSource, type ProcessedSourceRow, type SourceQualityReport } from '../services/dataSourcePipeline';
+import {
+  prepareDataSource,
+  type PreparedDataSource,
+  type ProcessedSourceRow,
+  type SourceQualityReport,
+} from '../services/dataSourcePipeline';
 
 export type DashboardView = 'realtime' | 'energy' | 'ratio';
 export type EnergyGranularity = 'hour' | 'day';
@@ -25,7 +30,14 @@ export interface AnalysisSource {
   profile: SourceProfile;
   quality: SourceQualityReport;
   processedRows: ProcessedSourceRow[];
+  /** 解析、字段识别和质量检测的共享结果；分析页与原理图不得重复计算。 */
+  prepared: PreparedDataSource;
 }
+
+type NewAnalysisSource = Omit<
+  AnalysisSource,
+  'id' | 'importedAt' | 'profile' | 'quality' | 'processedRows' | 'prepared'
+>;
 
 interface AnalysisState {
   sources: AnalysisSource[];
@@ -33,11 +45,15 @@ interface AnalysisState {
   granularity: EnergyGranularity;
   range: [number, number] | null;
   analysisMode: AnalysisMode;
+  /** 用户是否主动选择过分析模式；导入完成后不得覆盖其选择。 */
+  analysisModeTouched: boolean;
   selectedSourceIds: string[];
   singleSourceId: string | null;
   batteryCurrentConvention: BatteryCurrentConvention;
   dashboardFullscreen: boolean;
-  addSource: (source: Omit<AnalysisSource, 'id' | 'importedAt' | 'profile' | 'quality' | 'processedRows'>) => AnalysisSource;
+  addSource: (source: NewAnalysisSource) => AnalysisSource;
+  /** 批量提交已经整理好的来源，只触发一次状态更新。 */
+  addPreparedSources: (sources: PreparedDataSource[]) => AnalysisSource[];
   removeSource: (id: string) => void;
   clearSources: () => void;
   setActiveView: (view: DashboardView) => void;
@@ -60,12 +76,47 @@ function hasSeparateThermalAndBmsSources(sources: AnalysisSource[]): boolean {
   return thermalSources.some((thermal) => bmsSources.some((bms) => bms.id !== thermal.id));
 }
 
+function toAnalysisSource(prepared: PreparedDataSource, importedAt = new Date().toISOString()): AnalysisSource {
+  return {
+    id: prepared.id,
+    sourceFile: prepared.filename,
+    format: prepared.format,
+    headers: prepared.headers,
+    rows: prepared.rows,
+    timeColumn: prepared.timeStats.timeColumn,
+    importedAt,
+    profile: prepared.profile,
+    quality: prepared.quality,
+    processedRows: prepared.processedRows,
+    prepared,
+  };
+}
+
+function appendSources(state: AnalysisState, added: AnalysisSource[]): Partial<AnalysisState> {
+  if (!added.length) return {};
+  const addedIds = new Set(added.map((source) => source.id));
+  // 同一文件（稳定 source id）再次导入时更新它，不把相同万级数据重复堆入内存。
+  const sources = [...state.sources.filter((source) => !addedIds.has(source.id)), ...added];
+  // 仅在“首次形成双源组合”时自动切换。之后用户手动选择的并集/单源模式
+  // 不会因继续导入其他来源而被覆盖。
+  const shouldDefaultToIntersection = !state.analysisModeTouched
+    && !hasSeparateThermalAndBmsSources(state.sources)
+    && hasSeparateThermalAndBmsSources(sources);
+  return {
+    sources,
+    selectedSourceIds: [...new Set([...state.selectedSourceIds, ...added.map((source) => source.id)])],
+    singleSourceId: state.singleSourceId ?? added[0].id,
+    analysisMode: shouldDefaultToIntersection ? 'intersection' : state.analysisMode,
+  };
+}
+
 export const useAnalysisStore = create<AnalysisState>((set) => ({
   sources: [],
   activeView: 'realtime',
   granularity: 'hour',
   range: null,
   analysisMode: 'union',
+  analysisModeTouched: false,
   selectedSourceIds: [],
   singleSourceId: null,
   batteryCurrentConvention: DEFAULT_BATTERY_CURRENT_CONVENTION,
@@ -80,28 +131,14 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
       rows: source.rows,
       timeColumn: source.timeColumn,
     });
-    const added: AnalysisSource = {
-      ...source,
-      id,
-      headers: [...source.headers],
-      rows: source.rows.map((row) => ({ ...row })),
-      importedAt: new Date().toISOString(),
-      profile: prepared.profile,
-      quality: prepared.quality,
-      processedRows: prepared.processedRows,
-    };
-    set((state) => {
-      const sources = [...state.sources, added];
-      // 仅在“首次形成双源组合”时自动切换。之后用户手动选择的并集/单源模式
-      // 不会因继续导入其他来源而被覆盖。
-      const shouldDefaultToIntersection = !hasSeparateThermalAndBmsSources(state.sources) && hasSeparateThermalAndBmsSources(sources);
-      return {
-        sources,
-        selectedSourceIds: [...state.selectedSourceIds, added.id],
-        singleSourceId: state.singleSourceId ?? added.id,
-        analysisMode: shouldDefaultToIntersection ? 'intersection' : state.analysisMode,
-      };
-    });
+    const added = toAnalysisSource(prepared);
+    set((state) => appendSources(state, [added]));
+    return added;
+  },
+  addPreparedSources: (preparedSources) => {
+    const importedAt = new Date().toISOString();
+    const added = preparedSources.map((prepared) => toAnalysisSource(prepared, importedAt));
+    set((state) => appendSources(state, added));
     return added;
   },
   removeSource: (id) => set((state) => {
@@ -116,6 +153,7 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
     sources: [],
     range: null,
     analysisMode: 'union',
+    analysisModeTouched: false,
     selectedSourceIds: [],
     singleSourceId: null,
     batteryCurrentConvention: DEFAULT_BATTERY_CURRENT_CONVENTION,
@@ -123,7 +161,7 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   setActiveView: (activeView) => set({ activeView }),
   setGranularity: (granularity) => set({ granularity }),
   setRange: (range) => set({ range }),
-  setAnalysisMode: (analysisMode) => set({ analysisMode }),
+  setAnalysisMode: (analysisMode) => set({ analysisMode, analysisModeTouched: true }),
   toggleSourceSelection: (id) => set((state) => ({
     selectedSourceIds: state.selectedSourceIds.includes(id)
       ? state.selectedSourceIds.filter((sourceId) => sourceId !== id)

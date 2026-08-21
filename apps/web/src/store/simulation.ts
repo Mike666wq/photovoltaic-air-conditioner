@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { PRESETS } from '../data/presets';
-import { CABLES as DEFAULT_CABLES, type Cable } from '../data/cables';
+import { CABLES as DEFAULT_CABLES, type Cable, type CableRoutingMode } from '../data/cables';
 import type { CableKind } from '../data/palettes';
 import { PRESET_METERS, type MeterInstance, type MeterBind } from '../data/meters';
 import type { MeterType } from '../data/palettes';
@@ -17,6 +17,29 @@ export type AtMode = 'cool' | 'heat' | 'off';
 
 export type InjectionSourceRole = SourceProfileKind;
 export type TimelineMode = 'combined' | 'thermal-electrical' | 'battery-bms' | 'mixed' | 'generic';
+export type ControlMode = 'simulation' | 'replay';
+
+export type PlaybackStatusKey =
+  | 'pv_on'
+  | 'cb_connected'
+  | 'gs_on'
+  | 'grid_online'
+  | 'hp_on'
+  | 'pump_on'
+  | 'load_on'
+  | 'at_mode';
+
+export interface PlaybackSnapshot {
+  timestamp: number;
+  values: Record<string, number>;
+  availability: Record<string, boolean>;
+  provenance: Record<string, { sourceId: string; column: string }>;
+  statuses: Partial<Record<PlaybackStatusKey, boolean | AtMode | 'unknown'>>;
+  statusAvailability: Partial<Record<PlaybackStatusKey, boolean>>;
+  sourceIds: string[];
+  sourceRowIndices: Record<string, number>;
+  sourceTimestamps: Record<string, number>;
+}
 
 export interface InjectionDataset {
   sourceId: string;
@@ -53,7 +76,7 @@ export interface SimulationState {
   at_fan_speed: number;  // M1.5 Round 9 新增：末端风档位（0-4）
   pcm_temp: number;       // M1.5 Round 9 改：完全独立滑块（不再覆盖自 tank_temp）
   load_power_kw: number;  // Fix B1：负载功率（独立滑块，替代 pv_power 派生）
-  battery_power_kw: number;  // Fix B2：电池功率（正=充电，负=放电，M2 引擎接入后由物理模型驱动）
+  battery_power_kw: number;  // 电池功率（正=放电，负=充电；BMS 电流符号由独立配置解释）
   sac_water_level: number;   // 太阳能水冷风扇内置水箱水位（%）
   sac_water_temp: number;    // 太阳能水冷风扇内置水温（℃）
   sac_fan_speed: number;     // 太阳能水冷风扇风速（0..1）
@@ -78,6 +101,8 @@ export interface SimulationState {
   showGrid: boolean;
   showCoords: boolean;
   gridSize: number;
+  snapToGrid: boolean;
+  smartGuides: boolean;
   editMode: boolean;
 
   /** 全局动画开关（默认 true → CSS 动画运行 + Canvas 粒子可见；与 demo.html 一致） */
@@ -123,6 +148,8 @@ export interface SimulationState {
 
   /** 多源原始数据。不同角色追加保存，不再由后导入文件覆盖。 */
   injectionSources: InjectionDataset[];
+  /** 当前回放会话显式选中的来源；历史来源保留但不自动参与严格交集。 */
+  activePlaybackSourceIds: string[];
   /** combined 默认以热工/电表源为主时间轴；BMS 模式保留 2 秒原始时间轴。 */
   timelineMode: TimelineMode;
   /** 统一真实时间游标（Unix ms）；各源按它解析当前行。 */
@@ -136,6 +163,11 @@ export interface SimulationState {
   timelinePlaying: boolean;
   /** 回放倍速（1/2/4/8） */
   timelineSpeed: number;
+
+  /** 仿真手控与采集回放互斥，防止同一字段被时间轴和滑块交替覆盖。 */
+  controlMode: ControlMode;
+  /** 当前 canonical 同步帧，供原理图、仪表和详情共同消费。 */
+  playbackSnapshot: PlaybackSnapshot | null;
 
   /** PCM 双相变材料显示切换：'T0' | 'T1' */
   pcm_temp_select: 'T0' | 'T1';
@@ -158,6 +190,7 @@ interface SimStore extends SimulationState {
 
   // layout actions
   setPosition: (id: string, x: number, y: number) => void;
+  setNodePositions: (positions: Record<string, { x: number; y: number }>) => void;
   selectComponent: (id: string | null) => void;
   setHover: (id: string | null) => void;
   setDragging: (id: string | null) => void;
@@ -165,6 +198,9 @@ interface SimStore extends SimulationState {
   toggleGridOnline: () => void;  // Fix B3：电网在线/离线切换（独立于 gs_on；不与 toggleGrid 冲突）
   toggleCoords: () => void;
   toggleEditMode: () => void;
+  toggleSnapToGrid: () => void;
+  toggleSmartGuides: () => void;
+  setGridSize: (size: number) => void;
   resetLayout: (defaults: Record<string, { x: number; y: number }>) => void;
   /** 恢复原理图默认拓扑：清理用户线缆/仪表拖拽，仅保留系统预置仪表。 */
   resetCanvasLayout: () => void;
@@ -188,12 +224,17 @@ interface SimStore extends SimulationState {
   // M1.5 Round 9 新增：单线缆粒子动画开关 + 方向
   setCableAnimation: (cableId: string, enabled: boolean) => void;
   toggleCableDirection: (cableId: string) => void;
+  setCableDirectionMode: (cableId: string, mode: import('../data/cables').CableDirectionMode) => void;
+  setCableRouteMode: (cableId: string, mode: CableRoutingMode) => void;
+  setCableWaypoints: (cableId: string, points: Array<{ x: number; y: number }>) => void;
 
   // 仪表 actions
   /** 从调色板拖出仪表到画布（可带数据源绑定） */
   addMeter: (type: MeterType, position: { x: number; y: number }, bind?: MeterBind) => string;
   /** 移动仪表 */
   moveMeter: (id: string, position: { x: number; y: number }) => void;
+  /** 修改仪表采集点绑定；undefined 表示显式未绑定。 */
+  setMeterBind: (id: string, bind: MeterBind | undefined) => void;
   /** 删除仪表 */
   removeMeter: (id: string) => void;
   selectMeter: (id: string | null) => void;
@@ -225,12 +266,16 @@ interface SimStore extends SimulationState {
     mapping?: Record<string, NumericFieldKey>;
     role?: InjectionSourceRole;
     sourceId?: string;
+    /** 大屏批量导入已完成的共享整理结果，避免再次扫描和复制万级数据。 */
+    prepared?: PreparedDataSource;
   }) => void;
 
   /** 清除数据集（恢复静态模式） */
   clearInjectionDataset: () => void;
   /** 仅移除指定来源；其它已导入来源继续保留。 */
   removeInjectionSource: (sourceId: string) => void;
+  /** 替换当前回放会话来源集合，仅接受已导入 sourceId。 */
+  setActivePlaybackSourceIds: (sourceIds: string[]) => void;
 
   // M2-β 时序回放
   setTimelineIndex: (idx: number) => void;
@@ -239,6 +284,8 @@ interface SimStore extends SimulationState {
   setTimelineMode: (mode: TimelineMode) => void;
   setTimelineCursorMs: (timestamp: number | null) => void;
   setInjectionFieldAvailability: (availability: Partial<Record<NumericFieldKey, boolean>>) => void;
+  setPlaybackSnapshot: (snapshot: PlaybackSnapshot | null) => void;
+  exitReplay: () => void;
 
   /** PCM 相变材料温度源切换（T0 / T1） */
   setPcmTempSelect: (sel: 'T0' | 'T1') => void;
@@ -269,6 +316,8 @@ const DEFAULTS: SimulationState = {
   showGrid: true,
   showCoords: false,
   gridSize: 20,
+  snapToGrid: true,
+  smartGuides: true,
   editMode: false,
 
   animationOn: true,
@@ -288,12 +337,15 @@ const DEFAULTS: SimulationState = {
   lastInjection: null,
   injectionDataset: null,
   injectionSources: [],
+  activePlaybackSourceIds: [],
   timelineMode: 'combined',
   timelineCursorMs: null,
   injectionFieldAvailability: {},
   timelineIndex: -1,
   timelinePlaying: false,
-  timelineSpeed: 1,
+  timelineSpeed: 120,
+  controlMode: 'simulation',
+  playbackSnapshot: null,
   pcm_temp_select: 'T0',
 };
 
@@ -355,26 +407,39 @@ function resolveAnchorFallback(
 export const useSimStore = create<SimStore>((set) => ({
   ...DEFAULTS,
 
-  setField: (key, value) => set((s) => ({ ...s, [key]: value })),
+  setField: (key, value) => set((s) => {
+    const dataDriven = (s.injectionFieldAvailability as Record<string, boolean | undefined>)[key] === true;
+    if (s.controlMode === 'replay' && dataDriven) return {};
+    // 静态仿真不允许“显示有光伏功率、设备却处于关闭”的矛盾状态。
+    if (key === 'pv_power' && s.controlMode === 'simulation') {
+      const power = typeof value === 'number' ? value : 0;
+      return { pv_power: power, pv_on: power > 0.01 };
+    }
+    return { [key]: value } as Partial<SimStore>;
+  }),
 
-  togglePv: () => set((s) => ({ pv_on: !s.pv_on })),
-  toggleCb: () => set((s) => ({ cb_connected: !s.cb_connected })),
-  toggleGs: () => set((s) => ({ gs_on: !s.gs_on })),
-  toggleHp: () => set((s) => ({ hp_on: !s.hp_on })),
-  togglePump: () => set((s) => ({ pump_on: !s.pump_on })),
-  cycleAt: () => set((s) => ({
+  togglePv: () => set((s) => s.controlMode === 'replay' ? {} : s.pv_on
+    ? ({ pv_on: false, pv_power: 0 })
+    : ({ pv_on: true, pv_power: s.pv_power > 0.01 ? s.pv_power : DEFAULTS.pv_power })),
+  toggleCb: () => set((s) => s.controlMode === 'replay' ? {} : ({ cb_connected: !s.cb_connected })),
+  toggleGs: () => set((s) => s.controlMode === 'replay' ? {} : ({ gs_on: !s.gs_on })),
+  toggleHp: () => set((s) => s.controlMode === 'replay' ? {} : ({ hp_on: !s.hp_on })),
+  togglePump: () => set((s) => s.controlMode === 'replay' ? {} : ({ pump_on: !s.pump_on })),
+  cycleAt: () => set((s) => s.controlMode === 'replay' ? {} : ({
     at_mode: s.at_mode === 'cool' ? 'heat' : (s.at_mode === 'heat' ? 'off' : 'cool'),
   })),
-  toggleLoad: () => set((s) => ({ load_on: !s.load_on })),  // Fix B6：原 cycleLoad 重命名
-  toggleSolarAirCooler: () => set((s) => ({ sac_on: !s.sac_on })),
+  toggleLoad: () => set((s) => s.controlMode === 'replay' ? {} : ({ load_on: !s.load_on })),  // Fix B6：原 cycleLoad 重命名
+  toggleSolarAirCooler: () => set((s) => s.controlMode === 'replay' ? {} : ({ sac_on: !s.sac_on })),
 
   loadPreset: (name) => {
+    if (useSimStore.getState().controlMode === 'replay') return;
     const p = PRESETS[name];
     if (!p) return;
     set((s) => ({ ...s, ...p }));
   },
 
   randomize: () => {
+    if (useSimStore.getState().controlMode === 'replay') return;
     const jitter = (base: number, range: number) => base + (Math.random() - 0.5) * range;
     set({
       pv_power: jitter(3.5, 2), pv_sun: Math.max(0, Math.min(1, jitter(0.6, 0.5))),
@@ -390,7 +455,39 @@ export const useSimStore = create<SimStore>((set) => ({
     });
   },
 
-  resetAll: () => set({ ...DEFAULTS }),
+  // 仅复位仿真参数，不再顺带删除导入源、布局、线缆和仪表。
+  resetAll: () => set((state) => state.controlMode === 'replay' ? {} : ({
+    pv_power: DEFAULTS.pv_power,
+    pv_sun: DEFAULTS.pv_sun,
+    bat_soc: DEFAULTS.bat_soc,
+    hp_temp: DEFAULTS.hp_temp,
+    hp_power: DEFAULTS.hp_power,
+    tank_temp: DEFAULTS.tank_temp,
+    tank_volume: DEFAULTS.tank_volume,
+    tank_flow: DEFAULTS.tank_flow,
+    pump_flow: DEFAULTS.pump_flow,
+    at_temp: DEFAULTS.at_temp,
+    at_fan_speed: DEFAULTS.at_fan_speed,
+    pcm_temp: DEFAULTS.pcm_temp,
+    load_power_kw: DEFAULTS.load_power_kw,
+    battery_power_kw: DEFAULTS.battery_power_kw,
+    pl_flow: DEFAULTS.pl_flow,
+    rl_flow: DEFAULTS.rl_flow,
+    wl_flow: DEFAULTS.wl_flow,
+    sac_water_level: DEFAULTS.sac_water_level,
+    sac_water_temp: DEFAULTS.sac_water_temp,
+    sac_fan_speed: DEFAULTS.sac_fan_speed,
+    sac_outlet_temp: DEFAULTS.sac_outlet_temp,
+    pv_on: DEFAULTS.pv_on,
+    cb_connected: DEFAULTS.cb_connected,
+    gs_on: DEFAULTS.gs_on,
+    grid_online: DEFAULTS.grid_online,
+    hp_on: DEFAULTS.hp_on,
+    pump_on: DEFAULTS.pump_on,
+    load_on: DEFAULTS.load_on,
+    at_mode: DEFAULTS.at_mode,
+    sac_on: DEFAULTS.sac_on,
+  })),
 
   toggleAnimation: () => set((s) => ({ animationOn: !s.animationOn })),
 
@@ -401,15 +498,27 @@ export const useSimStore = create<SimStore>((set) => ({
       [id]: { x, y },
     },
   })),
+  setNodePositions: (updates) => set((s) => ({
+    positions: {
+      ...s.positions,
+      ...Object.fromEntries(Object.entries(updates).filter(([id]) => !s.meters.some((m) => m.id === id))),
+    },
+    meters: s.meters.map((meter) => updates[meter.id]
+      ? { ...meter, position: updates[meter.id], presetVb: undefined }
+      : meter),
+  })),
 
   selectComponent: (id) => set({ selectedId: id }),
   setHover: (id) => set({ hoverId: id }),
   setDragging: (id) => set({ draggingId: id }),
 
   toggleGrid: () => set((s) => ({ showGrid: !s.showGrid })),
-  toggleGridOnline: () => set((s) => ({ grid_online: !s.grid_online })),  // Fix B3
+  toggleGridOnline: () => set((s) => s.controlMode === 'replay' ? {} : ({ grid_online: !s.grid_online })),  // Fix B3
   toggleCoords: () => set((s) => ({ showCoords: !s.showCoords })),
   toggleEditMode: () => set((s) => ({ editMode: !s.editMode })),
+  toggleSnapToGrid: () => set((s) => ({ snapToGrid: !s.snapToGrid })),
+  toggleSmartGuides: () => set((s) => ({ smartGuides: !s.smartGuides })),
+  setGridSize: (size) => set({ gridSize: Math.max(5, Math.min(100, size)) }),
 
   resetLayout: (defaults) => set({ positions: { ...defaults } }),
   resetCanvasLayout: () => set({
@@ -440,7 +549,10 @@ export const useSimStore = create<SimStore>((set) => ({
         floatingFrom: fromAnchorId ? null : floatingFrom,
         floatingTo: toAnchorId ? null : floatingTo,
         animationEnabled: true,
-        direction: Math.random() < 0.5 ? 'forward' : 'reverse',
+        // 新线缆保持用户绘制的 from→to 方向；自动模式只在设备语义明确时反转。
+        direction: 'forward',
+        directionMode: 'forward',
+        routeMode: 'orthogonal-auto',
       };
       return { cables: [...s.cables, newCable] };
     });
@@ -566,6 +678,29 @@ export const useSimStore = create<SimStore>((set) => ({
       }),
     })),
 
+  setCableDirectionMode: (cableId, mode) =>
+    set((s) => ({
+      cables: s.cables.map((c) => c.id === cableId
+        ? { ...c, directionMode: mode, direction: mode === 'auto' ? c.direction : mode }
+        : c),
+    })),
+
+  setCableRouteMode: (cableId, mode) => set((s) => ({
+    cables: s.cables.map((cable) => cable.id === cableId
+      ? {
+          ...cable,
+          routeMode: mode,
+          manualWaypoints: mode === 'orthogonal-manual' ? cable.manualWaypoints : undefined,
+        }
+      : cable),
+  })),
+
+  setCableWaypoints: (cableId, points) => set((s) => ({
+    cables: s.cables.map((cable) => cable.id === cableId
+      ? { ...cable, routeMode: 'orthogonal-manual', manualWaypoints: points }
+      : cable),
+  })),
+
   setCableDrag: (drag) => set({ cableDrag: drag }),
 
   // === 侧栏 / 全屏切换 ===
@@ -601,10 +736,10 @@ export const useSimStore = create<SimStore>((set) => ({
 
   setInjectionDataset: (data) =>
     set((state) => {
-      const timeColumn = data.timeColumn ?? detectTimeColumn(data.headers, data.rows);
+      const timeColumn = data.timeColumn ?? data.prepared?.timeStats.timeColumn ?? detectTimeColumn(data.headers, data.rows);
       const provisionalRole = data.role ?? detectSourceProfile(data.headers).kind;
-      const provisionalId = data.sourceId ?? `${provisionalRole}:${data.sourceFile}`;
-      const prepared = prepareDataSource({
+      const provisionalId = data.sourceId ?? data.prepared?.id ?? `${provisionalRole}:${data.sourceFile}`;
+      const prepared = data.prepared ?? prepareDataSource({
         id: provisionalId,
         filename: data.sourceFile,
         format: data.format,
@@ -613,7 +748,7 @@ export const useSimStore = create<SimStore>((set) => ({
         timeColumn,
       });
       const role = data.role ?? prepared.profile.kind;
-      const sourceId = data.sourceId ?? `${role}:${data.sourceFile}`;
+      const sourceId = data.sourceId ?? prepared.id ?? `${role}:${data.sourceFile}`;
       const mapping = data.mapping ?? Object.fromEntries(
         data.headers.flatMap((header) => {
           const field = matchColumnToField(header);
@@ -626,15 +761,19 @@ export const useSimStore = create<SimStore>((set) => ({
         role,
         timeColumn,
         mapping: { ...mapping },
-        headers: [...data.headers],
-        rawRows: prepared.rows.map((row) => ({ ...row })),
-        rows: prepared.processedRows.filter((row) => row.valid).map((row) => ({ ...row.raw })),
+        headers: prepared.headers,
+        rawRows: prepared.rows,
+        rows: prepared.processedRows.filter((row) => row.valid).map((row) => row.raw),
         quality: prepared.quality,
-        prepared: { ...prepared, id: sourceId },
+        prepared: prepared.id === sourceId ? prepared : { ...prepared, id: sourceId },
         injectedAt: new Date().toISOString(),
       };
       const withoutSameSource = state.injectionSources.filter((source) => source.sourceId !== sourceId);
       const injectionSources = [...withoutSameSource, dataset];
+      const activePlaybackSourceIds = [...new Set([
+        ...state.activePlaybackSourceIds.filter((id) => injectionSources.some((source) => source.sourceId === id)),
+        sourceId,
+      ])];
       const preferred = role === 'thermal-electrical' || role === 'mixed'
         ? dataset
         : injectionSources.find((source) => source.role === 'thermal-electrical' || source.role === 'mixed') ?? dataset;
@@ -642,11 +781,14 @@ export const useSimStore = create<SimStore>((set) => ({
       const rawTime = preferred.timeColumn ? preferred.rows[lastIndex]?.[preferred.timeColumn] : undefined;
       return {
         injectionSources,
+        activePlaybackSourceIds,
         injectionDataset: preferred,
         timelineIndex: lastIndex,
         timelineCursorMs: parseDatasetTime(rawTime),
         timelinePlaying: false,
         injectionFieldAvailability: {},
+        controlMode: 'replay',
+        playbackSnapshot: null,
       };
     }),
 
@@ -654,10 +796,13 @@ export const useSimStore = create<SimStore>((set) => ({
     set({
       injectionDataset: null,
       injectionSources: [],
+      activePlaybackSourceIds: [],
       timelineIndex: -1,
       timelineCursorMs: null,
       timelinePlaying: false,
       injectionFieldAvailability: {},
+      controlMode: 'simulation',
+      playbackSnapshot: null,
     }),
 
   removeInjectionSource: (sourceId) => set((state) => {
@@ -665,11 +810,14 @@ export const useSimStore = create<SimStore>((set) => ({
     if (!injectionSources.length) {
       return {
         injectionSources: [],
+        activePlaybackSourceIds: [],
         injectionDataset: null,
         timelineIndex: -1,
         timelineCursorMs: null,
         timelinePlaying: false,
         injectionFieldAvailability: {},
+        controlMode: 'simulation',
+        playbackSnapshot: null,
       };
     }
     const removedActive = state.injectionDataset?.sourceId === sourceId;
@@ -682,8 +830,10 @@ export const useSimStore = create<SimStore>((set) => ({
       : undefined;
     const hasThermal = injectionSources.some((source) => source.role === 'thermal-electrical' || source.role === 'mixed');
     const hasBms = injectionSources.some((source) => source.role === 'battery-bms');
+    const remainingActiveIds = state.activePlaybackSourceIds.filter((id) => id !== sourceId);
     return {
       injectionSources,
+      activePlaybackSourceIds: remainingActiveIds.length ? remainingActiveIds : preferred ? [preferred.sourceId] : [],
       injectionDataset: preferred,
       timelineMode: state.timelineMode === 'combined' && !(hasThermal && hasBms)
         ? preferred?.role ?? 'generic'
@@ -692,6 +842,30 @@ export const useSimStore = create<SimStore>((set) => ({
       timelineCursorMs: parseDatasetTime(rawTime),
       timelinePlaying: false,
       injectionFieldAvailability: {},
+      controlMode: 'replay',
+      playbackSnapshot: null,
+    };
+  }),
+
+  setActivePlaybackSourceIds: (sourceIds) => set((state) => {
+    const available = new Map(state.injectionSources.map((source) => [source.sourceId, source]));
+    const activePlaybackSourceIds = [...new Set(sourceIds.filter((id) => available.has(id)))];
+    const selected = activePlaybackSourceIds.flatMap((id) => {
+      const source = available.get(id);
+      return source ? [source] : [];
+    });
+    const preferred = selected.find((source) => source.role === 'thermal-electrical' || source.role === 'mixed')
+      ?? selected[0]
+      ?? null;
+    return {
+      activePlaybackSourceIds,
+      injectionDataset: preferred ?? state.injectionDataset,
+      timelineIndex: preferred?.rows.length ? 0 : -1,
+      timelineCursorMs: preferred?.timeColumn
+        ? parseDatasetTime(preferred.rows[0]?.[preferred.timeColumn])
+        : null,
+      timelinePlaying: false,
+      playbackSnapshot: null,
     };
   }),
 
@@ -731,6 +905,8 @@ export const useSimStore = create<SimStore>((set) => ({
       timelineCursorMs: parseDatasetTime(rawTime),
       timelinePlaying: false,
       injectionFieldAvailability: {},
+      controlMode: 'replay',
+      playbackSnapshot: null,
     };
   }),
 
@@ -738,6 +914,18 @@ export const useSimStore = create<SimStore>((set) => ({
 
   setInjectionFieldAvailability: (injectionFieldAvailability) =>
     set({ injectionFieldAvailability }),
+
+  setPlaybackSnapshot: (playbackSnapshot) => set({
+    playbackSnapshot,
+    controlMode: playbackSnapshot ? 'replay' : 'simulation',
+  }),
+
+  exitReplay: () => set({
+    controlMode: 'simulation',
+    playbackSnapshot: null,
+    timelinePlaying: false,
+    injectionFieldAvailability: {},
+  }),
 
   setPcmTempSelect: (sel) => set({ pcm_temp_select: sel }),
 
@@ -760,6 +948,10 @@ export const useSimStore = create<SimStore>((set) => ({
         ? { ...m, position, presetVb: undefined }
         : m
     ),
+  })),
+
+  setMeterBind: (id, bind) => set((s) => ({
+    meters: s.meters.map((meter) => meter.id === id ? { ...meter, bind } : meter),
   })),
 
   removeMeter: (id) => set((s) => {

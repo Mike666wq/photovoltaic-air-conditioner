@@ -1,7 +1,8 @@
 import type { SimulationState } from '../store/simulation';
 import type { MeterBind } from './meters';
 
-export const PERSIST_SCHEMA_VERSION = 1;
+/** v2 固定所有布局坐标为画布世界坐标，并持久化线缆路由/方向控制。 */
+export const PERSIST_SCHEMA_VERSION = 2;
 export const PERSIST_APP_ID = 'photovoltaic-air-conditioner';
 export const PERSIST_FILE_TYPE = 'simulation-state';
 
@@ -50,13 +51,16 @@ export interface PersistedCable {
   kind: 'power' | 'refrigerant' | 'water';
   segments: PersistedCableSegment[];
   /**
-   * 端点未吸附时的浮动坐标。v2：viewBox 坐标系（1800×1100），与 data/components.ts 一致。
+   * 端点未吸附时的浮动坐标。v2：画布世界坐标。
    */
   floatingFrom: { x: number; y: number } | null;
   /** 同 floatingFrom：v2 = viewBox 坐标。 */
   floatingTo: { x: number; y: number } | null;
   animationEnabled: boolean;
   direction: 'forward' | 'reverse';
+  directionMode?: 'auto' | 'forward' | 'reverse';
+  routeMode?: 'straight' | 'orthogonal-auto' | 'orthogonal-manual';
+  manualWaypoints?: Array<{ x: number; y: number }>;
 }
 
 export interface PersistedMeter {
@@ -69,7 +73,7 @@ export interface PersistedMeter {
   /** 仪表采集数据源绑定。缺失时按预置仪表 id 兼容旧场景。 */
   bind?: MeterBind;
   /**
-   * 仪表 free 时的位置。v2：viewBox 坐标系（1800×1100）。
+   * 仪表 free 时的位置。v2：画布世界坐标。
    */
   position: { x: number; y: number };
   /** 预置仪表的世界坐标，避免载入后退回 (0, 0)。 */
@@ -87,6 +91,8 @@ export interface PersistedPreferences {
   showCoords: boolean;
   gridSize: number;
   animationOn: boolean;
+  snapToGrid?: boolean;
+  smartGuides?: boolean;
 }
 
 export interface PersistedInjectionInfo {
@@ -135,7 +141,10 @@ export function createEmptyDocument(): PersistedDocument {
        cables: [],
        meters: [],
     },
-     preferences: { showGrid: true, showCoords: false, gridSize: 20, animationOn: true },
+     preferences: {
+       showGrid: true, showCoords: false, gridSize: 20, animationOn: true,
+       snapToGrid: true, smartGuides: true,
+     },
      injection: null,
   };
 }

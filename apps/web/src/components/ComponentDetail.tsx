@@ -4,6 +4,7 @@ import { ImportDataDialog } from './ImportDataDialog';
 import { readCell, buildPcmInjectData } from '../services/meterInject';
 import { PCM_COLUMNS } from '../services/pdfFieldMap';
 import { useAnalysisStore } from '../store/analysis';
+import { deriveInverterMode, deriveStaticBatteryMode } from '../engine/schematicControl';
 
 /**
  * 数据报表（M2-A）：展示已导入数据集的摘要 + 前 5 行原始数据
@@ -12,6 +13,7 @@ import { useAnalysisStore } from '../store/analysis';
 function DatasetReport() {
   const dataset = useSimStore((s) => s.injectionDataset);
   const timelineIndex = useSimStore((s) => s.timelineIndex);
+  const snapshot = useSimStore((s) => s.playbackSnapshot);
 
   if (!dataset || dataset.rows.length === 0) {
     return (
@@ -22,8 +24,9 @@ function DatasetReport() {
     );
   }
 
-  const rows = dataset.rows;
-  const current = Math.max(0, Math.min(timelineIndex, rows.length - 1));
+  const rows = dataset.prepared.processedRows;
+  const sourceRowIndex = snapshot?.sourceRowIndices[dataset.sourceId];
+  const current = Math.max(0, Math.min(sourceRowIndex ?? timelineIndex, rows.length - 1));
 
   return (
     <div className="dataset-report">
@@ -31,7 +34,8 @@ function DatasetReport() {
         <span>文件：<code>{dataset.sourceFile}</code></span>
         <span>{rows.length} 行 × {dataset.headers.length} 列</span>
         {dataset.timeColumn && <span>时间列：<code>{dataset.timeColumn}</code></span>}
-        <span>当前帧：<code>{current + 1} / {rows.length}</code></span>
+        <span>交集帧：<code>{timelineIndex + 1}</code></span>
+        <span>本源行：<code>{current + 1} / {rows.length}</code></span>
       </div>
       <div className="component-detail-table-wrap">
         <table className="import-data-table">
@@ -43,10 +47,10 @@ function DatasetReport() {
             </tr>
           </thead>
           <tbody>
-            {rows.slice(Math.max(0, current - 2), current + 3).map((row, i) => (
-              <tr key={i}>
+            {rows.slice(Math.max(0, current - 2), current + 3).map((processed) => (
+              <tr key={processed.rowIndex} className={processed.rowIndex === current ? 'current' : ''}>
                 {dataset.headers.map((h) => (
-                  <td key={h}>{row[h] ?? ''}</td>
+                  <td key={h}>{processed.raw[h] ?? ''}</td>
                 ))}
               </tr>
             ))}
@@ -177,11 +181,15 @@ export function ComponentDetail({ compId, onClose }: Props) {
 function ComponentStats({ compId }: { compId: string }) {
   // 订阅 store，让 stats 随滑块/开关变化实时更新
   const s = useSimStore();
-  const hasDataSession = s.injectionSources.length > 0;
+  const hasDataSession = s.controlMode === 'replay' && s.playbackSnapshot != null;
   const available = (field: keyof typeof s.injectionFieldAvailability) =>
     !hasDataSession || s.injectionFieldAvailability[field] === true;
   const sampled = (field: keyof typeof s.injectionFieldAvailability, value: string) =>
     available(field) ? value : '—';
+  const status = (field: keyof NonNullable<typeof s.playbackSnapshot>['statusAvailability'], yes: string, no: string) =>
+    s.playbackSnapshot && s.playbackSnapshot.statusAvailability[field] !== true
+      ? '数据未提供'
+      : (s[field] ? yes : no);
   const currentConvention = useAnalysisStore((state) => state.batteryCurrentConvention);
   const stats: Array<{ label: string; value: string }> = [];
 
@@ -189,23 +197,23 @@ function ComponentStats({ compId }: { compId: string }) {
     case 'pv-array':
       stats.push({ label: 'PV 功率', value: sampled('pv_power', s.pv_power.toFixed(2) + ' kW') });
       stats.push({ label: '阳光强度', value: sampled('pv_sun', (s.pv_sun * 100).toFixed(0) + '%') });
-      stats.push({ label: '运行', value: s.pv_on ? '✓' : '✗' });
+      stats.push({ label: '运行', value: status('pv_on', '✓', '✗') });
       break;
     case 'combiner-box':
-      stats.push({ label: '连接', value: s.cb_connected ? '已连接' : '断开' });
+      stats.push({ label: '连接', value: status('cb_connected', '已连接', '断开') });
       stats.push({ label: 'PV 输入', value: sampled('pv_power', Math.min(4, Math.ceil(s.pv_power / 1.5)) + ' 路') });
       break;
     case 'grid':
-      stats.push({ label: '在线', value: s.grid_online ? '✓' : '✗' });
+      stats.push({ label: '在线', value: status('grid_online', '✓', '✗') });
       stats.push({ label: '规格', value: 'AC 380V · 50Hz' });
       break;
     case 'grid-switch':
-      stats.push({ label: '合闸', value: s.gs_on ? '✓' : '✗' });
-      stats.push({ label: '闸状态', value: s.gs_on ? '● 合闸' : '● 分闸' });
+      stats.push({ label: '合闸', value: status('gs_on', '✓', '✗') });
+      stats.push({ label: '闸状态', value: status('gs_on', '● 合闸', '● 分闸') });
       break;
     case 'inverter':
       stats.push({ label: 'IV 功率', value: sampled('pv_power', s.pv_power.toFixed(2) + ' kW') });
-      stats.push({ label: '模式', value: s.at_mode === 'off' ? 'IDLE' : 'DC→AC' });
+      stats.push({ label: '模式', value: deriveInverterMode(s) === 'dc-to-ac' ? 'DC→AC' : deriveInverterMode(s) === 'ac-to-dc' ? 'AC→DC' : 'IDLE' });
       break;
     case 'battery':
       {
@@ -220,21 +228,22 @@ function ComponentStats({ compId }: { compId: string }) {
             : currentConvention === 'positive-charge'
               ? (batA > 0 ? 'charging' : 'discharging')
               : (batA > 0 ? 'discharging' : 'charging');
+        const staticMode = deriveStaticBatteryMode(s.battery_power_kw);
         stats.push({ label: 'SOC', value: soc == null ? '—' : soc.toFixed(0) + '%' });
         stats.push({ label: '电压', value: batV != null ? batV.toFixed(1) + ' V' : '—' });
         stats.push({ label: '电流', value: batA != null ? batA.toFixed(1) + ' A' : '—' });
         stats.push({ label: '功率', value: hasBms ? '—（仅显示 BMS 电压/电流）' : (s.battery_power_kw >= 0 ? '+' : '') + s.battery_power_kw.toFixed(2) + ' kW' });
         stats.push({ label: '状态', value: batA != null
           ? (direction === 'charging' ? '充电' : direction === 'discharging' ? '放电' : direction === 'idle' ? '待机' : '方向待确认')
-          : hasDataSession ? '数据不可用' : (s.battery_power_kw > 0 ? '充电' : s.battery_power_kw < 0 ? '放电' : '待机') });
+          : hasDataSession ? '数据不可用' : (staticMode === 'charging' ? '充电' : staticMode === 'discharging' ? '放电' : '待机') });
       }
       break;
     case 'load':
-      stats.push({ label: '运行', value: s.load_on ? '✓' : '✗' });
+      stats.push({ label: '运行', value: status('load_on', '✓', '✗') });
       stats.push({ label: '负载功率', value: sampled('load_power_kw', s.load_power_kw.toFixed(2) + ' kW') });
       break;
     case 'heat-pump':
-      stats.push({ label: '运行', value: s.hp_on ? '✓' : '✗' });
+      stats.push({ label: '运行', value: status('hp_on', '✓', '✗') });
       stats.push({ label: '温度', value: sampled('hp_temp', s.hp_temp.toFixed(0) + '℃') });
       stats.push({ label: '功率', value: sampled('hp_power', s.hp_power.toFixed(1) + ' kW') });
       stats.push({ label: 'COP', value: '3.8' });
@@ -245,7 +254,7 @@ function ComponentStats({ compId }: { compId: string }) {
       stats.push({ label: '流量', value: sampled('tank_flow', s.tank_flow.toFixed(1) + ' m³/h') });
       break;
     case 'pump':
-      stats.push({ label: '运行', value: s.pump_on ? '✓' : '✗' });
+      stats.push({ label: '运行', value: status('pump_on', '✓', '✗') });
       stats.push({ label: '流量', value: sampled('pump_flow', s.pump_flow.toFixed(1) + ' m³/h') });
       break;
     case 'pcm':
@@ -263,7 +272,7 @@ function ComponentStats({ compId }: { compId: string }) {
       }
       break;
     case 'air-terminal':
-      stats.push({ label: '模式', value: s.at_mode });
+      stats.push({ label: '模式', value: s.playbackSnapshot?.statusAvailability.at_mode === false ? '数据未提供' : s.at_mode });
       stats.push({ label: '温度', value: sampled('at_temp', s.at_temp.toFixed(0) + '℃') });
       stats.push({ label: '风档', value: sampled('at_fan_speed', s.at_fan_speed + '/4') });
       break;

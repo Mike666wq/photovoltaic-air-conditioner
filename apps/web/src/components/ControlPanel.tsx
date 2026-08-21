@@ -3,6 +3,7 @@ import { useSimStore, SimulationState } from '../store/simulation';
 import { PRESETS, PRESET_LABELS } from '../data/presets';
 import { CableControlItem } from './CableControlItem';
 import { CableControlDetail } from './CableControlDetail';
+import { METER_BIND_LABELS, type MeterBind } from '../data/meters';
 
 interface SliderProps {
   label: string;
@@ -17,6 +18,11 @@ interface SliderProps {
 function Slider({ label, field, min, max, step, unit, digits = 2 }: SliderProps) {
   const value = useSimStore((s) => s[field]) as number;
   const setField = useSimStore((s) => s.setField);
+  const controlMode = useSimStore((s) => s.controlMode);
+  const dataDriven = useSimStore((s) =>
+    (s.injectionFieldAvailability as Record<string, boolean | undefined>)[field] === true,
+  );
+  const disabled = controlMode === 'replay' && dataDriven;
 
   return (
     <div className="field-row">
@@ -25,10 +31,11 @@ function Slider({ label, field, min, max, step, unit, digits = 2 }: SliderProps)
         type="range"
         min={min} max={max} step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => setField(field, parseFloat(e.target.value))}
-        aria-label={label}
+        aria-label={`${label}${disabled ? '（数据驱动）' : ''}`}
       />
-      <span className="val-display">{(value as number).toFixed(digits)} {unit}</span>
+      <span className="val-display">{(value as number).toFixed(digits)} {unit}{disabled ? ' · 数据' : ''}</span>
     </div>
   );
 }
@@ -39,11 +46,16 @@ export function ControlPanel() {
   const resetAll = useSimStore((s) => s.resetAll);
   const rightPanelOpen = useSimStore((s) => s.rightPanelOpen);
   const toggleRightPanel = useSimStore((s) => s.toggleRightPanel);
+  const controlMode = useSimStore((s) => s.controlMode);
   // M1.5 Round 9：线缆控制订阅
   const cables = useSimStore((s) => s.cables);
   const selectedCable = useSimStore((s) => s.selectedCable);
   const selectCable = useSimStore((s) => s.selectCable);
   const selectedCableData = cables.find((c) => c.id === selectedCable) ?? null;
+  const meters = useSimStore((s) => s.meters);
+  const selectedMeter = useSimStore((s) => s.selectedMeter);
+  const setMeterBind = useSimStore((s) => s.setMeterBind);
+  const selectedMeterData = meters.find((meter) => meter.id === selectedMeter) ?? null;
   const [hoverOpen, setHoverOpen] = useState(false);
   const hoverTimerRef = useRef<number | null>(null);
 
@@ -89,6 +101,11 @@ export function ControlPanel() {
           )}
 
           <div className="panel-section">
+            {controlMode === 'replay' && (
+              <div className="control-replay-notice" role="status">
+                数据回放中：已采集字段由时间轴驱动，未覆盖字段仍可手动调节。
+              </div>
+            )}
             <div className="panel-title">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M12 6v6l4 2" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
               <span>预设场景（9 个）</span>
@@ -98,6 +115,7 @@ export function ControlPanel() {
                 <button
                   key={key}
                   className="preset-btn"
+                  disabled={controlMode === 'replay'}
                   onClick={() => applyPreset(key as keyof typeof PRESETS)}
                 >
                   {PRESET_LABELS[key]}
@@ -142,7 +160,7 @@ export function ControlPanel() {
             <Slider label="水冷风扇风速" field="sac_fan_speed" min={0} max={1} step={0.05} unit="" digits={2} />
             <Slider label="水冷风扇出风温度" field="sac_outlet_temp" min={16} max={35} step={1} unit="℃" digits={0} />
             <Slider label="负载功率" field="load_power_kw" min={0} max={3} step={0.1} unit="kW" digits={2} />
-            <Slider label="电池功率" field="battery_power_kw" min={-3} max={3} step={0.1} unit="kW" digits={2} />
+            <Slider label="电池功率（+放/-充）" field="battery_power_kw" min={-3} max={3} step={0.1} unit="kW" digits={2} />
           </div>
 
           <div className="panel-section">
@@ -154,6 +172,29 @@ export function ControlPanel() {
             <Slider label="制冷剂量"   field="rl_flow" min={0} max={5} step={0.1} unit="" />
             <Slider label="水线流速"   field="wl_flow" min={0} max={5} step={0.1} unit="" />
           </div>
+
+          {selectedMeterData && (
+            <div className="panel-section meter-binding-section">
+              <div className="panel-title"><span>仪表数据绑定</span></div>
+              <label>
+                <span>{selectedMeterData.id}</span>
+                <select
+                  value={selectedMeterData.bind ?? ''}
+                  onChange={(event) => setMeterBind(
+                    selectedMeterData.id,
+                    event.target.value ? event.target.value as MeterBind : undefined,
+                  )}
+                >
+                  <option value="">未绑定</option>
+                  {Object.entries(METER_BIND_LABELS)
+                    .filter(([bind]) => selectedMeterData.type === 'power-meter'
+                      ? bind === 'meter-d' || bind === 'meter-du'
+                      : bind !== 'meter-d' && bind !== 'meter-du')
+                    .map(([bind, label]) => <option key={bind} value={bind}>{label}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
 
           {/* M1.5 Round 10：线缆控制（列表 + 详情；详情面板仅选中线缆时显示） */}
           <div className="panel-section">
@@ -193,8 +234,8 @@ export function ControlPanel() {
           </div>
 
           <div className="panel-section">
-            <button className="action-btn btn-random" onClick={randomize}>🎲 随机扰动</button>
-            <button className="action-btn btn-reset" onClick={resetAll}>⏮ 重置</button>
+            <button className="action-btn btn-random" disabled={controlMode === 'replay'} onClick={randomize}>🎲 随机扰动</button>
+            <button className="action-btn btn-reset" disabled={controlMode === 'replay'} onClick={resetAll}>⏮ 重置参数</button>
           </div>
 
           <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '10px', padding: '8px', background: '#f8fafc', borderRadius: '4px' }}>

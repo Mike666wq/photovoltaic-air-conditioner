@@ -7,6 +7,7 @@
 // 关键修复：cache-buster、DOMParser、data-animation-id
 
 import type { SimulationState } from '../store/simulation';
+import { deriveInverterMode } from '../engine/schematicControl';
 
 const svgCache = new Map<string, Promise<Document>>();
 
@@ -367,47 +368,70 @@ export function injectAnimStates(svg: SVGElement, animStates: Record<string, str
 type StateAttrFn = (state: SimulationState) => string;
 type RootAttrMap = Record<string, StateAttrFn>;
 
+function replayFlag(state: SimulationState, key: 'pv_on' | 'cb_connected' | 'gs_on' | 'grid_online' | 'hp_on' | 'pump_on' | 'load_on'): boolean {
+  if (!state.playbackSnapshot) return state[key];
+  return state.playbackSnapshot.statusAvailability[key] === true && state[key];
+}
+
+function replayAtMode(state: SimulationState): SimulationState['at_mode'] {
+  if (!state.playbackSnapshot) return state.at_mode;
+  return state.playbackSnapshot.statusAvailability.at_mode === true ? state.at_mode : 'off';
+}
+
+function replayInverterMode(state: SimulationState) {
+  return deriveInverterMode({
+    ...state,
+    pv_on: replayFlag(state, 'pv_on'),
+    cb_connected: replayFlag(state, 'cb_connected'),
+    grid_online: replayFlag(state, 'grid_online'),
+    gs_on: replayFlag(state, 'gs_on'),
+  });
+}
+
 const COMPONENT_ROOT_STATES: Record<string, RootAttrMap> = {
   'pv-array': {
-    'data-anim-state': (s) => s.pv_on ? 'on' : 'off',
+    'data-anim-state': (s) => (s.controlMode === 'replay'
+      ? replayFlag(s, 'pv_on')
+      : s.pv_on || s.pv_power > 0.01) ? 'on' : 'off',
   },
   'combiner-box': {
-    'data-anim-state': (s) => s.cb_connected ? 'connected' : 'disconnected',
+    'data-anim-state': (s) => replayFlag(s, 'cb_connected') ? 'connected' : 'disconnected',
   },
   'grid': {
     // Fix B3：grid_online 独立驱动（不再恒定 on-grid；M2 引擎可独立驱动 gridPowerKw）
-    'data-anim-grid-state': (s) => s.grid_online ? 'on-grid' : 'offline',
+    'data-anim-grid-state': (s) => replayFlag(s, 'grid_online') ? 'on-grid' : 'offline',
   },
   'grid-switch': {
-    'data-anim-state': (s) => s.gs_on ? 'on' : 'off',
+    'data-anim-state': (s) => replayFlag(s, 'gs_on') ? 'on' : 'off',
   },
   'inverter': {
-    'data-anim-state': (s) => s.pv_power > 0 ? 'on' : 'off',
-    'data-anim-iv-mode': (s) => s.at_mode === 'off' ? 'idle' : 'dc-to-ac',
+    'data-anim-state': (s) => replayInverterMode(s) === 'idle' ? 'off' : 'on',
+    'data-anim-iv-mode': replayInverterMode,
   },
   'battery': {
     'data-anim-state': (s) => s.bat_soc > 0 ? 'on' : 'off',
   },
   'load': {
-    'data-anim-state': (s) => s.load_on ? 'on' : 'off',
-    'data-load-state': (s) => s.load_on ? 'on' : 'off',
+    'data-anim-state': (s) => replayFlag(s, 'load_on') ? 'on' : 'off',
+    'data-load-state': (s) => replayFlag(s, 'load_on') ? 'on' : 'off',
   },
   'heat-pump': {
     // A1: hp_on 为 false 时把 data-anim-state 强制写成 'off'，HP 内 .anim-fan / .anim-compressor /
     // .anim-piston / .anim-refrigerant-flow / .anim-hp-water 全部 CSS 规则只匹配
     // 'on'/'cool'/'heat'，匹配不到 → 动画静态 + opacity 保持 0。
-    'data-anim-state': (s) => s.hp_on ? s.at_mode : 'off',
-    'data-hp-mode': (s) => s.at_mode,
-    'data-hp-on': (s) => s.hp_on ? 'true' : 'false',
+    'data-anim-state': (s) => replayFlag(s, 'hp_on') ? replayAtMode(s) : 'off',
+    'data-hp-mode': replayAtMode,
+    'data-hp-on': (s) => replayFlag(s, 'hp_on') ? 'true' : 'false',
   },
   'tank': {
-    'data-anim-pump-running': (s) => s.pump_on ? 'true' : 'false',
+    'data-anim-pump-running': (s) => replayFlag(s, 'pump_on') ? 'true' : 'false',
   },
   'pump': {
-    'data-anim-state': (s) => s.pump_on ? 'on' : 'off',
+    'data-anim-state': (s) => replayFlag(s, 'pump_on') ? 'on' : 'off',
   },
   'air-terminal': {
-    'data-anim-state': (s) => s.at_mode,
+    'data-anim-state': replayAtMode,
+    'data-anim-fan-running': (s) => replayAtMode(s) !== 'off' && s.at_fan_speed > 0 ? 'true' : 'false',
   },
   'solar-air-cooler': {
     'data-anim-state': (s) => s.sac_on ? (s.sac_water_level <= 10 ? 'low-water' : 'on') : 'off',
@@ -429,11 +453,14 @@ export function injectComponentRootState(
   componentId: string,
 ) {
   const root = svg.querySelector<HTMLElement>('[data-component-id]');
-  if (!root) return;
   const map = COMPONENT_ROOT_STATES[componentId];
   if (!map) return;
   Object.entries(map).forEach(([attr, fn]) => {
-    root.setAttribute(attr, fn(state));
+    const value = fn(state);
+    // 同时写外层 React SVG 和素材内部根节点。grid 的输电线位于内部根节点之外，
+    // 只有外层属性才能作为其 CSS 状态祖先；其它部件保持原内部根属性兼容。
+    svg.setAttribute(attr, value);
+    root?.setAttribute(attr, value);
   });
 }
 

@@ -1,19 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import os from 'node:os';
 import { serveBaseElements } from './vite-svg-plugin';
 import { serveScenarios } from './vite-scenarios-plugin';
-
-function getLanIp(): string | undefined {
-  const nets = os.networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] ?? []) {
-      if (net.family === 'IPv4' && !net.internal) return net.address;
-    }
-  }
-  return undefined;
-}
 
 // 思路：
 //   - `base-elements/` 在项目根（apps/web 的上一级的上一级），Vite 默认 publicDir 不允许指向项目外
@@ -26,8 +15,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    // 固定 WS 目标，LAN 访问时 HMR 断线不再整页刷新丢失状态
-    hmr: { host: getLanIp() },
+    // 让 HMR 沿用页面实际访问的 hostname；localhost 与 LAN 地址均可正常连接。
+    hmr: { clientPort: 5173 },
   },
   resolve: {
     alias: {

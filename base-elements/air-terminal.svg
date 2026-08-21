@@ -38,11 +38,8 @@
         transform-origin: 120px 92px;
         transform-box: view-box;
       }
-      [data-anim-fan-state="on"] .anim-fan-coil,
-      [data-anim-state="cool"] .anim-fan-coil,
-      [data-anim-state="heat"] .anim-fan-coil,
-      [data-anim-state="on"] .anim-fan-coil,
-      [data-anim-fan-state="heat"] .anim-fan-coil {
+      [data-anim-state="cool"][data-anim-fan-running="true"] .anim-fan-coil,
+      [data-anim-state="heat"][data-anim-fan-running="true"] .anim-fan-coil {
         opacity: 1;
         animation: fan-coil-spin var(--anim-fan-duration, 1.2s) linear infinite;
       }
@@ -51,22 +48,21 @@
       /* v0.3.2: 风扇颜色按冷热变化（cool=蓝 / heat=橙 / off=灰） */
       .anim-fan-coil path { fill: var(--anim-fan-color, url(#atFanG)); transition: fill 0.3s; }
 
-      [data-anim-state="cool"] .anim-air-particle,
-      [data-anim-fan-state="heat"] .anim-air-particle {
+      [data-anim-state="cool"][data-anim-fan-running="true"] .anim-air-particle,
+      [data-anim-state="heat"][data-anim-fan-running="true"] .anim-air-particle {
         opacity: 1;
         animation: air-flow var(--anim-air-speed, 1s) linear infinite;
       }
       [data-anim-state="cool"] .anim-air-particle { fill: #0EA5E9; }
-      [data-anim-fan-state="heat"] .anim-air-particle { fill: #F97316; }
+      [data-anim-state="heat"] .anim-air-particle { fill: #F97316; }
       @keyframes air-flow {
         0%   { transform: translateY(0); opacity: 0; }
         20%  { opacity: 0.9; }
         100% { transform: translateY(60px); opacity: 0; }
       }
 
-      [data-anim-fan-state="on"] .anim-louver-wave,
-      [data-anim-state="cool"] .anim-louver-wave,
-      [data-anim-fan-state="heat"] .anim-louver-wave {
+      [data-anim-state="cool"][data-anim-fan-running="true"] .anim-louver-wave,
+      [data-anim-state="heat"][data-anim-fan-running="true"] .anim-louver-wave {
         opacity: 1;
         animation: louver-wave 1.5s ease-in-out infinite;
       }
@@ -77,8 +73,8 @@
 
       /* v0.3.1: 顶部进风格栅发光（按 --anim-fan-speed-norm 0~1 归一化）
          M1.5 Round 9：data-anim-fan-state 改为 data-anim-state（injector 实际写入根 data-anim-state） */
-      [data-anim-state="cool"] .anim-intake-louver,
-      [data-anim-state="heat"] .anim-intake-louver {
+      [data-anim-state="cool"][data-anim-fan-running="true"] .anim-intake-louver,
+      [data-anim-state="heat"][data-anim-fan-running="true"] .anim-intake-louver {
         opacity: 1;
       }
       [data-anim-state="off"] .anim-intake-louver {
@@ -100,10 +96,8 @@
       [data-anim-state="cool"] .anim-at-status-text { fill: #0EA5E9; }
       [data-anim-state="heat"] .anim-at-status-led { fill: #F97316; }
       [data-anim-state="heat"] .anim-at-status-text { fill: #F97316; }
-      [data-anim-state="off"] .anim-at-status-led,
-      [data-anim-fan-state="off"] .anim-at-status-led { fill: #9CA3AF; }
-      [data-anim-state="off"] .anim-at-status-text,
-      [data-anim-fan-state="off"] .anim-at-status-text { fill: #9CA3AF; }
+      [data-anim-state="off"] .anim-at-status-led { fill: #9CA3AF; }
+      [data-anim-state="off"] .anim-at-status-text { fill: #9CA3AF; }
 
       /* v0.3.2: 出风格栅冷热色 */
       .anim-louver-wave { transition: fill 0.3s; }

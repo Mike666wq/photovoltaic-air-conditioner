@@ -20,6 +20,13 @@ export interface EnergyBucket {
   value: number;
 }
 
+export type AnalysisPointIndex = Map<string, AnalysisPoint[]>;
+
+export interface SynchronizedAnalysisPoints {
+  anchors: AnalysisPoint[];
+  points: AnalysisPoint[];
+}
+
 const MAX_GAP_MS = 5 * 60 * 1000;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 
@@ -46,11 +53,107 @@ export function filterPoints(points: AnalysisPoint[], range: [number, number] | 
   return points.filter((point) => point.timestamp >= range[0] && point.timestamp <= range[1]);
 }
 
+/** 按来源建立有序时间索引，供交集匹配复用，避免每个锚点重新全表扫描。 */
+export function indexAnalysisPointsBySource(points: AnalysisPoint[]): AnalysisPointIndex {
+  const index: AnalysisPointIndex = new Map();
+  for (const point of points) {
+    const sourcePoints = index.get(point.sourceId);
+    if (sourcePoints) sourcePoints.push(point);
+    else index.set(point.sourceId, [point]);
+  }
+  return index;
+}
+
+/** 在同一来源的有序点列中二分查找最近点。 */
+export function findNearestAnalysisPoint(points: AnalysisPoint[], timestamp: number, toleranceMs: number): AnalysisPoint | null {
+  if (!points.length) return null;
+  let low = 0;
+  let high = points.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (points[middle].timestamp < timestamp) low = middle + 1;
+    else high = middle;
+  }
+  const candidates = [points[low - 1], points[low]].filter((point): point is AnalysisPoint => Boolean(point));
+  let nearest: AnalysisPoint | null = null;
+  let nearestDistance = Infinity;
+  for (const point of candidates) {
+    const distance = Math.abs(point.timestamp - timestamp);
+    if (distance < nearestDistance) {
+      nearest = point;
+      nearestDistance = distance;
+    }
+  }
+  return nearestDistance <= toleranceMs ? nearest : null;
+}
+
+/**
+ * 以指定来源作为主时间轴，只保留每个主轴点在全部来源中都能于容差内匹配的点。
+ * 交集不能简单截取“首末匹配时刻之间的全部数据”，否则 2 秒 BMS 表会把未同步的
+ * 上万条中间点也带入统计，并漏掉刚好位于主轴边界外 1~2 秒的合法匹配点。
+ */
+export function buildSynchronizedAnalysisPoints(
+  pointsBySource: AnalysisPointIndex,
+  sourceIds: string[],
+  anchorSourceId: string,
+  toleranceMs: number,
+): SynchronizedAnalysisPoints {
+  if (sourceIds.length < 2) return { anchors: [], points: [] };
+  const anchorCandidates = pointsBySource.get(anchorSourceId) ?? [];
+  const anchors: AnalysisPoint[] = [];
+  const points: AnalysisPoint[] = [];
+  const seen = new Set<string>();
+
+  for (const anchor of anchorCandidates) {
+    const matched = sourceIds.map((sourceId) =>
+      findNearestAnalysisPoint(pointsBySource.get(sourceId) ?? [], anchor.timestamp, toleranceMs),
+    );
+    if (matched.some((point) => point == null)) continue;
+    anchors.push(anchor);
+    for (const point of matched as AnalysisPoint[]) {
+      const key = `${point.sourceId}:${point.timestamp}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      points.push(point);
+    }
+  }
+
+  points.sort((a, b) => a.timestamp - b.timestamp || a.sourceId.localeCompare(b.sourceId));
+  return { anchors, points };
+}
+
 export function buildSeries(points: AnalysisPoint[], fieldKey: string): SeriesPoint[] {
   return points.flatMap((point) => {
     const value = point.values[fieldKey];
     return Number.isFinite(value) ? [{ timestamp: point.timestamp, value, sourceId: point.sourceId }] : [];
   });
+}
+
+/**
+ * 仅用于折线显示的最小/最大值包络抽稀。统计仍使用完整序列；首末点和每个
+ * 时间桶内的极值都会保留，因此不会把电流尖峰或温度拐点简单平均掉。
+ */
+export function downsampleSeriesForChart(series: SeriesPoint[], maxPoints = 2_400): SeriesPoint[] {
+  if (series.length <= maxPoints || maxPoints < 4) return series;
+  const bucketCount = Math.max(1, Math.floor((maxPoints - 2) / 2));
+  const interiorLength = series.length - 2;
+  const sampled: SeriesPoint[] = [series[0]];
+  for (let bucket = 0; bucket < bucketCount; bucket++) {
+    const start = 1 + Math.floor(bucket * interiorLength / bucketCount);
+    const end = 1 + Math.floor((bucket + 1) * interiorLength / bucketCount);
+    if (start >= end) continue;
+    let minimum = series[start];
+    let maximum = series[start];
+    for (let index = start + 1; index < end; index++) {
+      const point = series[index];
+      if (point.value < minimum.value) minimum = point;
+      if (point.value > maximum.value) maximum = point;
+    }
+    if (minimum.timestamp <= maximum.timestamp) sampled.push(minimum, ...(minimum === maximum ? [] : [maximum]));
+    else sampled.push(maximum, minimum);
+  }
+  sampled.push(series[series.length - 1]);
+  return sampled;
 }
 
 export function getCurrentValue(points: AnalysisPoint[], fieldKey: string): number | null {

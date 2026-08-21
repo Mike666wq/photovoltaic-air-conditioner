@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { findChartField, readChartNumber } from '../data/chartFields';
-import { aggregateCumulativeEnergy, aggregatePowerEnergy, aggregateSignedPowerEnergy, getDerivedSeries } from './analysisSeries';
+import {
+  aggregateCumulativeEnergy,
+  aggregatePowerEnergy,
+  aggregateSignedPowerEnergy,
+  buildSynchronizedAnalysisPoints,
+  downsampleSeriesForChart,
+  findNearestAnalysisPoint,
+  getDerivedSeries,
+  indexAnalysisPointsBySource,
+  type AnalysisPoint,
+} from './analysisSeries';
 import { parseDatasetTime } from './dataset';
 
 describe('M3 图表字段与能量统计', () => {
@@ -76,5 +86,48 @@ describe('M3 图表字段与能量统计', () => {
       values: { battery_voltage: 52.37, battery_remaining_ah: 22.48, battery_soc: 22 },
     }], 'battery_remaining_energy');
     expect(derived[0].value).toBeCloseTo(1.177, 3);
+  });
+
+  it('交集同步通过来源时间索引二分匹配最近点', () => {
+    const points: AnalysisPoint[] = [
+      { timestamp: 1_000, sourceId: 'thermal', values: { outlet_temp: 25 } },
+      { timestamp: 1_001, sourceId: 'bms', values: { battery_soc: 60 } },
+      { timestamp: 3_000, sourceId: 'bms', values: { battery_soc: 59 } },
+    ];
+    const index = indexAnalysisPointsBySource(points);
+    expect(findNearestAnalysisPoint(index.get('bms') ?? [], 1_000, 2)?.timestamp).toBe(1_001);
+    expect(findNearestAnalysisPoint(index.get('bms') ?? [], 2_000, 100)).toBeNull();
+  });
+
+  it('同步交集只保留容差内匹配点，并包含主轴边界外 1 秒的 BMS 点', () => {
+    const points: AnalysisPoint[] = [
+      { timestamp: 1_000, sourceId: 'thermal', values: { outlet_temp: 25 } },
+      { timestamp: 3_000, sourceId: 'thermal', values: { outlet_temp: 26 } },
+      { timestamp: 1_001, sourceId: 'bms', values: { battery_soc: 60 } },
+      { timestamp: 2_000, sourceId: 'bms', values: { battery_soc: 59.5 } },
+      { timestamp: 3_001, sourceId: 'bms', values: { battery_soc: 59 } },
+    ];
+    const synchronized = buildSynchronizedAnalysisPoints(
+      indexAnalysisPointsBySource(points),
+      ['thermal', 'bms'],
+      'thermal',
+      2,
+    );
+    expect(synchronized.anchors.map((point) => point.timestamp)).toEqual([1_000, 3_000]);
+    expect(synchronized.points.map((point) => point.timestamp)).toEqual([1_000, 1_001, 3_000, 3_001]);
+    expect(synchronized.points.some((point) => point.timestamp === 2_000)).toBe(false);
+  });
+
+  it('曲线抽稀限制显示点数并保留首末点与尖峰', () => {
+    const series = Array.from({ length: 10_000 }, (_, index) => ({
+      timestamp: index,
+      value: index === 5_432 ? 999 : Math.sin(index / 100),
+      sourceId: 'bms',
+    }));
+    const sampled = downsampleSeriesForChart(series, 800);
+    expect(sampled.length).toBeLessThanOrEqual(800);
+    expect(sampled[0]).toEqual(series[0]);
+    expect(sampled[sampled.length - 1]).toEqual(series[series.length - 1]);
+    expect(sampled.some((point) => point.timestamp === 5_432 && point.value === 999)).toBe(true);
   });
 });

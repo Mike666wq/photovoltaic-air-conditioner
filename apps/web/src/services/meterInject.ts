@@ -8,39 +8,49 @@ import {
   METER_BIND_COLUMNS,
   PCM_COLUMNS,
 } from './pdfFieldMap';
-import { parseDatasetTime } from './dataset';
+import { CHART_FIELDS, normalizeChartHeader } from '../data/chartFields';
+import {
+  findNearestPlaybackRow,
+  getUsableTimedRows,
+  type TimedPreparedRow,
+} from './playbackSession';
+import type { InjectionDataset } from '../store/simulation';
 
 const BMS_TOLERANCE_MS = 2_000;
 
+const timedRowCache = new WeakMap<InjectionDataset['prepared'], TimedPreparedRow[]>();
+
 function nearestRow(
-  rows: Array<Record<string, string>>,
-  timeColumn: string,
+  source: InjectionDataset,
   cursorMs: number,
 ): Record<string, string> | null {
-  let best: Record<string, string> | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const row of rows) {
-    const timestamp = parseDatasetTime(row[timeColumn]);
-    if (timestamp == null) continue;
-    const distance = Math.abs(timestamp - cursorMs);
-    // 与 timeSession 的等距规则一致：稳定选择后一采样点。
-    if (distance <= bestDistance) {
-      best = row;
-      bestDistance = distance;
-    }
+  let rows = timedRowCache.get(source.prepared);
+  if (!rows) {
+    rows = getUsableTimedRows(source.prepared);
+    timedRowCache.set(source.prepared, rows);
   }
-  return bestDistance <= BMS_TOLERANCE_MS ? best : null;
+  return findNearestPlaybackRow(rows, cursorMs, BMS_TOLERANCE_MS)?.raw ?? null;
 }
 
 /** 当前统一时间游标下所有有效源行；不做跨边界前向填充。 */
 export function getCurrentRows(state: SimulationState): Array<Record<string, string>> {
+  if (state.playbackSnapshot) {
+    return state.playbackSnapshot.sourceIds.flatMap((sourceId) => {
+      const source = state.injectionSources.find((candidate) => candidate.sourceId === sourceId);
+      const rowIndex = state.playbackSnapshot?.sourceRowIndices[sourceId];
+      const row = rowIndex == null ? null : source?.prepared.processedRows[rowIndex]?.raw;
+      return row ? [row] : [];
+    });
+  }
   const master = getCurrentRow(state);
   if (!master) return [];
   const result = [master];
   if (state.timelineMode !== 'combined' || state.timelineCursorMs == null) return result;
+  const activeIds = new Set(state.activePlaybackSourceIds);
   for (const source of state.injectionSources) {
+    if (activeIds.size && !activeIds.has(source.sourceId)) continue;
     if (source.sourceId === state.injectionDataset?.sourceId || source.role !== 'battery-bms' || !source.timeColumn) continue;
-    const row = nearestRow(source.rows, source.timeColumn, state.timelineCursorMs);
+    const row = nearestRow(source, state.timelineCursorMs);
     if (row) result.push(row);
   }
   return result;
@@ -50,6 +60,10 @@ export function getCurrentRows(state: SimulationState): Array<Record<string, str
 export function getCurrentRow(state: SimulationState): Record<string, string> | null {
   const ds = state.injectionDataset;
   if (!ds || ds.rows.length === 0) return null;
+  if (state.playbackSnapshot) {
+    const rowIndex = state.playbackSnapshot.sourceRowIndices[ds.sourceId];
+    return rowIndex == null ? null : ds.prepared.processedRows[rowIndex]?.raw ?? null;
+  }
   if (state.timelineIndex < 0) return null;
   const row = ds.rows[Math.min(state.timelineIndex, ds.rows.length - 1)];
   return row ?? null;
@@ -62,6 +76,14 @@ export function readCell(state: SimulationState, pdfHeader: string): number | nu
     if (v == null || String(v).trim() === '') continue;
     const n = parseFloat(String(v));
     if (!isNaN(n)) return n;
+  }
+  const normalized = normalizeChartHeader(pdfHeader);
+  const canonical = CHART_FIELDS.find((field) =>
+    field.aliases.some((alias) => normalizeChartHeader(alias) === normalized),
+  );
+  if (canonical && state.playbackSnapshot?.availability[canonical.key]) {
+    const value = state.playbackSnapshot.values[canonical.key];
+    if (Number.isFinite(value)) return value;
   }
   return null;
 }
@@ -114,10 +136,10 @@ function buildTempInject(
     case 'env-temp': fallback = state.at_temp; break;
     case 'supply-temp': fallback = state.tank_temp; break;
     case 'return-temp': fallback = state.tank_temp; break;
-    case 'outlet-temp': fallback = state.hp_temp; break;
+    case 'outlet-temp': fallback = state.at_temp; break;
     default: fallback = state.tank_temp;
   }
-  const hasDataSession = state.injectionSources.length > 0;
+  const hasDataSession = state.controlMode === 'replay' && state.playbackSnapshot != null;
   const t = live ?? (hasDataSession ? null : fallback);
   const label = bind === 'env-temp' ? '环境温度'
     : bind === 'supply-temp' ? '送水温度'
@@ -156,7 +178,7 @@ function buildMeterInject(
   const fallbackP = state.load_power_kw;
   const fallbackPf = 1;
 
-  const hasDataSession = state.injectionSources.length > 0;
+  const hasDataSession = state.controlMode === 'replay' && state.playbackSnapshot != null;
   const fmt = (n: number | null, fallback: number, digits = 1): string =>
     n != null ? n.toFixed(digits) : (hasDataSession ? '—' : fallback.toFixed(digits));
 

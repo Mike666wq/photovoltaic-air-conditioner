@@ -19,11 +19,9 @@ import { readCellCandidates, ENV_TEMP_COLUMNS, normTemp } from '../services/mete
  *   - 用独立 SVG + transform 属性 setInterval(200ms) 局部更新，不影响主 SVG。
  */
 
-const PAD_X = 10;
-const PAD_TOP = 8;
-const TITLE_H = 24;
-const PAD_BOTTOM = 10;
-const MAX_SVG_H = 220;
+const SVG_RENDER_SIZE = 72;
+const SVG_START_X = 19;
+const SVG_START_Y = 40;
 const VIEW_BOX = 240;
 const CENTER_X = 120;
 const CENTER_Y = 100;
@@ -52,7 +50,7 @@ function fallbackTemp(bind: string | undefined): number {
     case 'env-temp': return s.at_temp;
     case 'supply-temp':
     case 'return-temp': return s.tank_temp;
-    case 'outlet-temp': return s.hp_temp;
+    case 'outlet-temp': return s.at_temp;
     default: return s.tank_temp;
   }
 }
@@ -81,15 +79,9 @@ export function TsPointer({ meter }: TsPointerProps) {
   const card = cardPositions[meter.id];
   if (!card) return null;
 
-  // SVG 在卡片内的实际尺寸
-  const svgWidth = card.w - PAD_X * 2;
-  const svgHeight = Math.min(svgWidth, MAX_SVG_H);
-  const svgStartX = PAD_X;
-  const svgStartY = PAD_TOP + TITLE_H;
-
-  // 指针覆盖 SVG（覆盖整个 SVG 区域，渲染一个旋转的 <line>）
-  const overlayW = svgWidth;
-  const overlayH = svgHeight;
+  // 固定世界卡片 110×130，TS SVG 72×72 居中；不再用卡片宽度猜测表盘。
+  const overlayW = SVG_RENDER_SIZE;
+  const overlayH = SVG_RENDER_SIZE;
   // SVG 内部坐标 → 覆盖 SVG 像素坐标
   const cx = (CENTER_X / VIEW_BOX) * overlayW;
   const cy = (CENTER_Y / VIEW_BOX) * overlayH;
@@ -97,8 +89,8 @@ export function TsPointer({ meter }: TsPointerProps) {
   const angle = -90 + norm * 180; // 0℃→-90°（左）, 50℃→+90°（右）
 
   // 覆盖层左上角在画布内的绝对坐标
-  const overlayX = card.x + svgStartX;
-  const overlayY = card.y + svgStartY;
+  const overlayX = card.x + SVG_START_X;
+  const overlayY = card.y + SVG_START_Y;
 
   return (
     <svg

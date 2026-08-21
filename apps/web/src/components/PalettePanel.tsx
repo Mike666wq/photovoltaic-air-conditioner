@@ -125,7 +125,8 @@ export function PalettePanel() {
 
           <div className="palette-foot">
             <div className="palette-foot-row">💡 线缆/仪表拖到画布即可放置</div>
-            <div className="palette-foot-row">🔗 端点 8px 内自动吸附（部件/线缆均可）</div>
+            <div className="palette-foot-row">🔗 端点按屏幕 14px 范围吸附，缩放后手感不变</div>
+            <div className="palette-foot-row">📐 新线缆自动横平竖直并绕开器件</div>
             <div className="palette-foot-row">🖱 点击选中 + 删除按钮</div>
             <div className="palette-foot-row">⚡ 仪表拖出后可作为线缆连接端点</div>
           </div>

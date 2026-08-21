@@ -14,7 +14,8 @@ interface Nodes {
   groups: PanelGroups;
 }
 
-const SUN_BASE_SPEED = 0.012;
+/** 旧实现每个 60Hz 帧推进 0.012rad，换算为与刷新率无关的 rad/s。 */
+const SUN_RADIANS_PER_SECOND = 0.012 * 60;
 
 const EMPTY_NODES: Nodes = {
   sun: null,
@@ -68,9 +69,12 @@ export function usePvSunAnimation(
   useEffect(() => {
     let rafId: number;
     let sunAngle = 0;
+    let previousTime: number | null = null;
 
-    const tick = () => {
+    const tick = (now: number) => {
       const s = stateRef.current;
+      const deltaSeconds = previousTime == null ? 0 : Math.min(0.1, Math.max(0, (now - previousTime) / 1000));
+      previousTime = now;
 
       // 动画关闭：提前 return（节省 CPU）
       if (!s.animationOn) {
@@ -103,11 +107,34 @@ export function usePvSunAnimation(
         return;
       }
 
-      // 太阳自主移动：正弦波平滑扫动
-      if (s.pv_sun > 0) {
-        sunAngle += SUN_BASE_SPEED * s.pv_sun;
-        if (sunAngle > Math.PI * 2) sunAngle -= Math.PI * 2;
+      const replayPower = s.playbackSnapshot?.values.pv_power
+        ?? (s.playbackSnapshot?.values.pv_voltage != null && s.playbackSnapshot?.values.pv_current != null
+          ? s.playbackSnapshot.values.pv_voltage * s.playbackSnapshot.values.pv_current / 1000
+          : null);
+      const pvAvailable = s.controlMode !== 'replay'
+        || s.playbackSnapshot?.statusAvailability.pv_on === true;
+      const pvRunning = pvAvailable && s.pv_on
+        && (s.controlMode === 'replay' ? (replayPower ?? 0) > 0.01 : s.pv_power > 0.01);
+      const effectiveSun = s.controlMode === 'replay'
+        ? Math.max(0, Math.min(1, (replayPower ?? 0) / 6))
+        : Math.max(0, Math.min(1, s.pv_sun));
+
+      if (!pvRunning || effectiveSun <= 0) {
+        if (cone) cone.style.opacity = '0';
+        (['left', 'mid', 'right'] as const).forEach((key) => {
+          const group = groups[key];
+          if (!group) return;
+          group.style.opacity = '0.15';
+          group.style.filter = 'none';
+          group.setAttribute('data-sun-illuminated', 'false');
+        });
+        rafId = requestAnimationFrame(tick);
+        return;
       }
+
+      // 太阳自主移动：正弦波平滑扫动
+      sunAngle += SUN_RADIANS_PER_SECOND * effectiveSun * deltaSeconds;
+      if (sunAngle > Math.PI * 2) sunAngle %= Math.PI * 2;
 
       // 计算太阳位置：x 从 -30 到 270，y 用抛物线
       const t = (Math.sin(sunAngle - Math.PI / 2) + 1) / 2; // 0~1，从左到右

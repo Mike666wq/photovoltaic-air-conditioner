@@ -32,12 +32,13 @@
   </defs>
 
   <style>
-    .anim-iv-wave path {
-      stroke-dasharray: 6 3;
+    .anim-iv-wave path { stroke-dasharray: 6 3; }
+    [data-anim-state="on"] .anim-iv-wave path {
       animation: iv-wave-flow 0.8s linear infinite;
     }
     @keyframes iv-wave-flow { to { stroke-dashoffset: -9; } }
-    .anim-iv-heat { opacity: 0; animation: iv-heat-rise 1.5s ease-out infinite; }
+    .anim-iv-heat { opacity: 0; }
+    [data-anim-state="on"] .anim-iv-heat { animation: iv-heat-rise 1.5s ease-out infinite; }
     @keyframes iv-heat-rise {
       0%   { transform: translateY(0); opacity: 0; }
       30%  { opacity: 0.4; }
@@ -45,14 +46,15 @@
     }
     .anim-iv-arrow { animation: arrow-pulse 1s ease-in-out infinite; }
     @keyframes arrow-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
-    .anim-iv-arrow-dcac, .anim-iv-arrow-idle { display: none; }
+    .anim-iv-arrow-dcac, .anim-iv-arrow-acdc, .anim-iv-arrow-idle { display: none; }
+    [data-anim-iv-mode="dc-to-ac"] .anim-iv-arrow-dcac { display: inline; }
     [data-anim-iv-mode="ac-to-dc"] .anim-iv-arrow-dcac { display: none; }
     [data-anim-iv-mode="ac-to-dc"] .anim-iv-arrow-acdc { display: inline; }
     [data-anim-iv-mode="idle"] .anim-iv-arrow-idle { display: inline; }
     .anim-iv-top-fan { transform-origin: 200px 60px; transform-box: view-box; }
     [data-anim-state="on"] .anim-iv-top-fan { animation: iv-top-fan-spin 1s linear infinite; }
     @keyframes iv-top-fan-spin { to { transform: rotate(360deg); } }
-    .anim-iv-led { animation: iv-led-blink 1.5s ease-in-out infinite; }
+    [data-anim-state="on"] .anim-iv-led { animation: iv-led-blink 1.5s ease-in-out infinite; }
     @keyframes iv-led-blink { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
     .anim-iv-power-bar { transition: width 0.4s ease-in-out; }
   </style>

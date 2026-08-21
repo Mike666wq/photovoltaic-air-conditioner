@@ -112,10 +112,9 @@ function median(values: number[]): number | null {
 }
 
 function buildTimeStats(
-  rows: Array<Record<string, string>>,
+  timestamps: Array<number | null>,
   timeColumn: string | undefined,
 ): SourceTimeStats {
-  const timestamps = rows.map((row) => timeColumn ? parseDatasetTime(row[timeColumn]) : null);
   const valid = timestamps.filter((value): value is number => value != null).sort((a, b) => a - b);
   const unique = [...new Set(valid)];
   const intervals = unique.slice(1).map((value, index) => value - unique[index]).filter((value) => value > 0);
@@ -125,7 +124,7 @@ function buildTimeStats(
     start: valid[0] ?? null,
     end: valid.length ? valid[valid.length - 1] : null,
     validTimestampCount: valid.length,
-    invalidTimestampCount: rows.length - valid.length,
+    invalidTimestampCount: timestamps.length - valid.length,
     uniqueTimestampCount: unique.length,
     duplicateTimestampCount: valid.length - unique.length,
     medianIntervalMs,
@@ -149,12 +148,12 @@ function addIssue(
 function inspectRow(
   row: Record<string, string>,
   rowIndex: number,
+  timestamp: number | null,
   timeColumn: string | undefined,
   mappings: SourceFieldMapping[],
   profile: SourceProfile,
   duplicateTimestamps: ReadonlySet<number>,
 ): ProcessedSourceRow {
-  const timestamp = timeColumn ? parseDatasetTime(row[timeColumn]) : null;
   const issues: RowQualityIssue[] = [];
   const invalidFields = new Set<string>();
 
@@ -229,22 +228,26 @@ function inspectRow(
  */
 export function prepareDataSource(input: PrepareDataSourceInput): PreparedDataSource {
   const headers = [...input.headers];
-  const rows = input.rows.map((row) => ({ ...row }));
+  // 调用方交给整理层后按只读数据源使用。保留同一组原始行引用，避免 18k×36
+  // 的 BMS 表在解析完成后立刻再复制一整份；质量报告也只引用而不改写原行。
+  const rows = input.rows;
   const profile = detectSourceProfile(headers);
   const fieldMappings = buildFieldMappings(headers);
   const timeColumn = input.timeColumn ?? detectTimeColumn(headers, rows);
-  const timeStats = buildTimeStats(rows, timeColumn);
+  // 时间戳是大文件质量检测的热点。一次解析结果同时复用于时间统计、
+  // 重复时间检查和逐行报告，避免 BMS 万级数据被重复解析三遍。
+  const timestamps = rows.map((row) => timeColumn ? parseDatasetTime(row[timeColumn]) : null);
+  const timeStats = buildTimeStats(timestamps, timeColumn);
 
   const timestampCounts = new Map<number, number>();
-  for (const row of rows) {
-    const timestamp = timeColumn ? parseDatasetTime(row[timeColumn]) : null;
+  for (const timestamp of timestamps) {
     if (timestamp != null) timestampCounts.set(timestamp, (timestampCounts.get(timestamp) ?? 0) + 1);
   }
   const duplicateTimestamps = new Set(
     [...timestampCounts.entries()].filter(([, count]) => count > 1).map(([timestamp]) => timestamp),
   );
   const processedRows = rows.map((row, rowIndex) =>
-    inspectRow(row, rowIndex, timeColumn, fieldMappings, profile, duplicateTimestamps),
+    inspectRow(row, rowIndex, timestamps[rowIndex], timeColumn, fieldMappings, profile, duplicateTimestamps),
   );
   const issueCounts: SourceQualityReport['issueCounts'] = {};
   for (const row of processedRows) {

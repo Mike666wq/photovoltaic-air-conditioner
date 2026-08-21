@@ -39,12 +39,13 @@
     /* 输电线流动效果 */
     .anim-power-flow {
       stroke-dasharray: 6 4;
-      animation: power-flow 0.8s linear infinite;
+      animation: none;
     }
 @keyframes power-flow { to { stroke-dashoffset: -10; } }
 
     /* v0.4.0: 方向粒子动画（上网向右） */
-    .grid-particle-right { opacity: 0; animation: grid-flow-right 1.5s linear infinite; }
+    .grid-particle-right { opacity: 0; animation: none; }
+    [data-anim-grid-state="on-grid"] .grid-particle-right { animation: grid-flow-right 1.5s linear infinite; }
     @keyframes grid-flow-right {
       0%   { transform: translateX(0); opacity: 0; filter: drop-shadow(0 0 2px #22C55E); }
       10%  { opacity: 1; filter: drop-shadow(0 0 4px #22C55E); }
@@ -94,7 +95,8 @@
 @keyframes power-flow { to { stroke-dashoffset: -10; } }
 
     /* v0.4.0: 方向粒子动画（上网向右） */
-    .grid-particle-right { opacity: 0; animation: grid-flow-right 1.5s linear infinite; }
+    .grid-particle-right { opacity: 0; animation: none; }
+    [data-anim-grid-state="on-grid"] .grid-particle-right { animation: grid-flow-right 1.5s linear infinite; }
     @keyframes grid-flow-right {
       0%   { transform: translateX(0); opacity: 0; filter: drop-shadow(0 0 2px #22C55E); }
       10%  { opacity: 1; filter: drop-shadow(0 0 4px #22C55E); }
@@ -141,7 +143,7 @@
   <!-- v0.4.0: 方向粒子 - 上网=绿向右，下网=橙向左 -->
   <g class="anim-grid-direction" data-animation-id="grid_anim_state">
     <!-- 上网（向右，绿） -->
-    <g data-anim-grid-state="on-grid">
+    <g>
       <circle class="grid-particle-right" cx="50" cy="135" r="2.5" fill="#22C55E"/>
       <circle class="grid-particle-right" cx="80" cy="138" r="2.5" fill="#22C55E"/>
       <circle class="grid-particle-right" cx="110" cy="140" r="2.5" fill="#22C55E"/>

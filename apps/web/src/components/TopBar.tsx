@@ -14,6 +14,9 @@ export function TopBar() {
   const editMode = useSimStore((s) => s.editMode);
   const showGrid = useSimStore((s) => s.showGrid);
   const toggleGrid = useSimStore((s) => s.toggleGrid);
+  const toggleSnapToGrid = useSimStore((s) => s.toggleSnapToGrid);
+  const toggleSmartGuides = useSimStore((s) => s.toggleSmartGuides);
+  const setGridSize = useSimStore((s) => s.setGridSize);
   const resetCanvasLayout = useSimStore((s) => s.resetCanvasLayout);
   const leftPanelOpen = useSimStore((s) => s.leftPanelOpen);
   const rightPanelOpen = useSimStore((s) => s.rightPanelOpen);
@@ -32,7 +35,7 @@ export function TopBar() {
   const ss = String(time.getSeconds()).padStart(2, '0');
 
   const fitCanvas = () => window.dispatchEvent(new Event('canvas-fit'));
-  const hasDataSession = state.injectionSources.length > 0;
+  const hasDataSession = state.controlMode === 'replay' && state.playbackSnapshot != null;
   const showInjected = (field: 'pv_power' | 'bat_soc' | 'tank_temp') =>
     !hasDataSession || state.injectionFieldAvailability[field] === true;
 
@@ -65,6 +68,24 @@ export function TopBar() {
         >
           {showGrid ? '▦ 网格' : '▢ 网格'}
         </button>
+        <details className="snap-menu">
+          <summary className={`topbar-btn ${state.snapToGrid || state.smartGuides ? 'primary' : ''}`} title="设置智能吸附">
+            🧲 吸附
+          </summary>
+          <div className="snap-menu-popover" onClick={(event) => event.stopPropagation()}>
+            <label><input type="checkbox" checked={state.smartGuides} onChange={toggleSmartGuides} /> 对象边缘与中心</label>
+            <label><input type="checkbox" checked={state.snapToGrid} onChange={toggleSnapToGrid} /> 吸附到网格</label>
+            <label>
+              网格尺寸
+              <select value={state.gridSize} onChange={(event) => setGridSize(Number(event.target.value))}>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={40}>40</option>
+              </select>
+            </label>
+            <small>拖动时按 Alt/Option 可临时关闭吸附</small>
+          </div>
+        </details>
         <span className="topbar-divider" />
         <button
           className={`topbar-btn ${leftPanelOpen ? 'primary' : ''}`}
@@ -108,6 +129,13 @@ export function TopBar() {
           title="居中并缩放到全部部件、仪表与线缆"
         >
           ⌖ 回正
+        </button>
+        <button
+          className="topbar-btn"
+          onClick={() => window.dispatchEvent(new Event('canvas-align-all'))}
+          title="小幅整理安全直连的器件、分开重叠卡片；不改线缆端口，浮动接点支路保持原位"
+        >
+          ◎ 一键整理
         </button>
         <button
           className="topbar-btn"

@@ -1,23 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { COMPONENTS, SVG_FILES, VIEW_W, VIEW_H, type ComponentDef } from '../data/components';
+import { COMPONENTS, SVG_FILES, type ComponentDef } from '../data/components';
 import { useSimStore, type SimulationState } from '../store/simulation';
 import { fetchSvg, injectAll, injectComponentRootState } from '../injector/injector';
-import { derivePcmVisual } from '../engine/pcm';
-import { LINE_COLORS } from '../data/cables';
+import { LINE_COLORS, type Cable } from '../data/cables';
 import { METER_PALETTE, METER_FILES, type MeterType } from '../data/palettes';
 import type { MeterInstance } from '../data/meters';
 import { METER_BIND_LABELS } from '../data/meters';
 import { buildMeterInjectData, buildPcmInjectData, readCell } from '../services/meterInject';
 import { readDropType } from './PalettePanel';
-import { useParticleAnimation } from '../hooks/useParticleAnimation';
+import { PARTICLE_STYLE, useParticleAnimation } from '../hooks/useParticleAnimation';
 import { usePvSunAnimation } from '../hooks/usePvSunAnimation';
 import { useTransientSpark } from '../hooks/useTransientSpark';
 import { TsPointer } from './TsPointer';
 import { ComponentDetail } from './ComponentDetail';
 import { useAnalysisStore } from '../store/analysis';
+import {
+  alignRects, autoAlignRects, computeObjectSnap, distributeRects, tidyRects,
+  type AlignmentConstraint, type AlignmentGuide, type AlignCommand, type Point, type WorldRect,
+} from '../engine/alignment';
+import { pointsToSvg, resolveCableRoutes, type ResolvedCablePath } from '../engine/orthogonalRouter';
+import {
+  boundsOfRectsAndPoints, canvasInsets, cardWorldRect, COMPONENT_WORLD_SIZE,
+  METER_WORLD_SIZE, portPoint,
+} from '../engine/canvasGeometry';
+import {
+  deriveInverterMode,
+  deriveCableSegmentFlow,
+  deriveSelectedPcmVisual,
+  deriveStaticBatteryMode,
+  fanSpeedLabel,
+} from '../engine/schematicControl';
 
 const CLICKABLE = new Set([
-  'pv-array', 'combiner-box', 'grid-switch', 'heat-pump',
+  'pv-array', 'combiner-box', 'grid', 'grid-switch', 'heat-pump',
   'pump', 'air-terminal', 'load', 'pcm', 'solar-air-cooler',
 ]);
 
@@ -69,7 +84,9 @@ function tempColor(t: number): string {
 }
 
 function buildInjectData(rawState: SimulationState) {
-  const hasDataSession = rawState.injectionSources.length > 0;
+  const hasDataSession = rawState.controlMode === 'replay' && rawState.playbackSnapshot != null;
+  const statusUnavailable = (key: keyof NonNullable<SimulationState['playbackSnapshot']>['statusAvailability']) =>
+    rawState.playbackSnapshot != null && rawState.playbackSnapshot.statusAvailability[key] !== true;
   const sampledNumber = <K extends keyof Pick<SimulationState,
     'pv_power' | 'pv_sun' | 'bat_soc' | 'hp_temp' | 'hp_power' | 'tank_temp' |
     'tank_volume' | 'tank_flow' | 'pump_flow' | 'at_temp' | 'at_fan_speed' |
@@ -87,13 +104,23 @@ function buildInjectData(rawState: SimulationState) {
     pump_flow: sampledNumber('pump_flow'), at_temp: sampledNumber('at_temp'), at_fan_speed: sampledNumber('at_fan_speed'),
     pcm_temp: sampledNumber('pcm_temp'), load_power_kw: sampledNumber('load_power_kw'), battery_power_kw: sampledNumber('battery_power_kw'),
     pl_flow: sampledNumber('pl_flow'), rl_flow: sampledNumber('rl_flow'), wl_flow: sampledNumber('wl_flow'),
+    pv_on: statusUnavailable('pv_on') ? false : rawState.pv_on,
+    cb_connected: statusUnavailable('cb_connected') ? false : rawState.cb_connected,
+    gs_on: statusUnavailable('gs_on') ? false : rawState.gs_on,
+    grid_online: statusUnavailable('grid_online') ? false : rawState.grid_online,
+    hp_on: statusUnavailable('hp_on') ? false : rawState.hp_on,
+    pump_on: statusUnavailable('pump_on') ? false : rawState.pump_on,
+    load_on: statusUnavailable('load_on') ? false : rawState.load_on,
+    at_mode: statusUnavailable('at_mode') ? 'off' : rawState.at_mode,
   } : rawState;
+  const effectivePvOn = state.controlMode === 'replay' ? state.pv_on : state.pv_on || state.pv_power > 0.01;
   const isUnavailable = (key: keyof typeof rawState.injectionFieldAvailability) =>
     hasDataSession && rawState.injectionFieldAvailability[key] !== true;
   // 部件容量标签（从 data/components.ts 取 spec）
   const capOf = (id: string) => COMPONENTS.find((c) => c.id === id)?.spec ?? '';
-  // PCM 视觉派生（融化比例驱动，纯函数）
-  const pcm = derivePcmVisual(state);
+  // PCM 视觉派生：采集会话优先使用当前选中的 T0/T1，而不只是切换 LCD 文字。
+  const pcmData = buildPcmInjectData(rawState);
+  const pcm = deriveSelectedPcmVisual(state, pcmData.liveTemp);
   const ratingOf = (id: string) => COMPONENTS.find((c) => c.id === id)?.rating ?? '';
 
   // XLSX 电池字段读取（电压/电流/SOC；剩余容量无 UI 消费，不做直读）
@@ -110,6 +137,8 @@ function buildInjectData(rawState: SimulationState) {
       : currentConvention === 'positive-charge'
         ? (batA > 0 ? 'charging' : 'discharging')
         : (batA > 0 ? 'discharging' : 'charging');
+  const staticBatteryMode = deriveStaticBatteryMode(state.battery_power_kw);
+  const inverterMode = deriveInverterMode(state);
 
   // 负载功率进度条归一化（0..100，对应 SVG bg 宽度 100px）
   // Fix B1：改用独立滑块 load_power_kw（替代旧 pv_power 派生）
@@ -140,16 +169,16 @@ function buildInjectData(rawState: SimulationState) {
     // BMS 电流方向必须由数据源配置确认；未知时不根据正负号猜测充放电。
     bat_status_text: batA != null
       ? (batteryDirection === 'charging' ? '充电' : batteryDirection === 'discharging' ? '放电' : batteryDirection === 'idle' ? '待机' : '方向待确认')
-      : hasDataSession ? '数据不可用' : (state.battery_power_kw > 0 ? '充电' : state.battery_power_kw < 0 ? '放电' : '待机'),
+      : hasDataSession ? '数据不可用' : (staticBatteryMode === 'charging' ? '充电' : staticBatteryMode === 'discharging' ? '放电' : '待机'),
     bat_status_label: batA != null
       ? (batteryDirection === 'charging' ? 'CHG' : batteryDirection === 'discharging' ? 'DCH' : batteryDirection === 'idle' ? 'IDLE' : 'UNSET')
-      : hasDataSession ? 'N/A' : (state.battery_power_kw > 0 ? 'CHG' : state.battery_power_kw < 0 ? 'DCH' : 'IDLE'),
+      : hasDataSession ? 'N/A' : (staticBatteryMode === 'charging' ? 'CHG' : staticBatteryMode === 'discharging' ? 'DCH' : 'IDLE'),
     bat_capacity: capOf('battery'),
     bat_label: ratingOf('battery'),
-    bat_voltage: batV != null ? batV.toFixed(1) : (hasBmsSession ? '—' : state.battery_power_kw > 0 ? '53.0' : '—'),
-    bat_current: batA != null ? batA.toFixed(1) : (hasBmsSession ? '—' : state.battery_power_kw > 0 ? (Math.abs(state.battery_power_kw) / 0.053).toFixed(1) : '—'),
+    bat_voltage: batV != null ? batV.toFixed(1) : (hasBmsSession ? '—' : staticBatteryMode !== 'idle' ? '53.0' : '—'),
+    bat_current: batA != null ? batA.toFixed(1) : (hasBmsSession ? '—' : staticBatteryMode !== 'idle' ? (state.battery_power_kw / 0.053).toFixed(1) : '—'),
     // === CB ===
-    cb_status_text: state.cb_connected ? '合闸' : '分闸',
+    cb_status_text: statusUnavailable('cb_connected') ? '数据未提供' : state.cb_connected ? '合闸' : '分闸',
     cb_capacity: capOf('combiner-box'),
     cb_spec: ratingOf('combiner-box'),
     cb_pv_inputs: String(Math.min(4, Math.ceil(state.pv_power / 1.5))) + ' 路',
@@ -160,7 +189,7 @@ function buildInjectData(rawState: SimulationState) {
     grid_capacity: capOf('grid'),
     // === GS ===
     gs_capacity: capOf('grid-switch'),
-    gs_status_text: state.gs_on ? '● 合闸' : '● 分闸',
+    gs_status_text: statusUnavailable('gs_on') ? '● 未知' : state.gs_on ? '● 合闸' : '● 分闸',
     gs_label_on: 'ON',
     gs_label_off: 'OFF',
     gs_handle: state.gs_on ? 'ON' : 'OFF',
@@ -188,13 +217,13 @@ function buildInjectData(rawState: SimulationState) {
     pump_flow_label: isUnavailable('pump_flow') ? '—' : state.pump_flow.toFixed(1),
     // === AT ===
     at_temp: isUnavailable('at_temp') ? '—' : Math.round(state.at_temp) + '℃',
-    at_status_text: state.at_mode === 'cool' ? '制冷' : state.at_mode === 'heat' ? '制热' : '关机',
+    at_status_text: statusUnavailable('at_mode') ? '数据未提供' : state.at_mode === 'cool' ? '制冷' : state.at_mode === 'heat' ? '制热' : '关机',
     at_capacity: capOf('air-terminal'),
     at_mode_label: state.at_mode === 'cool' ? '❄ 制冷' : state.at_mode === 'heat' ? '♨ 制热' : '⏻ 关机',
     at_mode: state.at_mode === 'cool' ? '❄ COOL' : state.at_mode === 'heat' ? '♨ HEAT' : 'OFF',
     at_set_temp: isUnavailable('at_temp') ? '—' : Math.round(state.at_temp) + '℃',
     at_set_label: '设定',
-    at_fan_speed_label: state.at_mode === 'off' ? '停' : '中',
+    at_fan_speed_label: fanSpeedLabel(state.at_fan_speed, state.at_mode),
     at_count: '3 台',
     // === Solar air cooler（独立水箱/水泵/风机，不接中央水路）===
     sac_water_level: Math.round(state.sac_water_level) + '%',
@@ -203,7 +232,6 @@ function buildInjectData(rawState: SimulationState) {
     sac_power: sacState === 'on' ? (0.08 + state.sac_fan_speed * 0.16).toFixed(2) + ' kW' : '0.00 kW',
     // === PCM ===（T0/T1 双相变材料：按 pcm_temp_select 取温度 + 数据集当前行）
     ...(() => {
-      const pcmData = buildPcmInjectData(rawState);
       const liveTxt = isUnavailable('pcm_temp')
         ? '—'
         : pcmData.liveTemp == null
@@ -232,36 +260,36 @@ function buildInjectData(rawState: SimulationState) {
 
   const status: Record<string, string> = {
     // === PV 状态 LED（status_glow + status_led）===
-    'status_glow':        ledColor(state.pv_on ? 'on' : 'off'),
-    'status_led':         ledColor(state.pv_on ? 'on' : 'off'),
+    'status_glow':        ledColor(effectivePvOn ? 'on' : 'off'),
+    'status_led':         ledColor(effectivePvOn ? 'on' : 'off'),
     // === CB 状态 LED（cb_led 已有；补 cb_led_glow + 报警 LED）===
     'cb_led_glow':        ledColor(state.cb_connected ? 'connected' : 'disconnected'),
     'cb_led':             ledColor(state.cb_connected ? 'connected' : 'disconnected'),
     'cb_alarm_glow':      '#FCD34D',  // 报警 LED 默认琥珀色（M1 范围：固定色，报警逻辑由 M2 引擎驱动）
     'cb_alarm_led':       '#EAB308',
     // === Grid 离线 LED（红色光晕）===
-    'grid_offline_glow':  ledColor('online'),
-    'grid_offline_led':   ledColor('online'),
+    'grid_offline_glow':  state.grid_online ? ledColor('off') : ledColor('fault'),
+    'grid_offline_led':   state.grid_online ? ledColor('off') : ledColor('fault'),
     // === GS 合闸 LED（gs_led_on 已有；补 gs_led_glow_on + 分闸 LED gs_led_off）===
     'gs_led_glow_on':     ledColor(state.gs_on ? 'on' : 'off'),
     'gs_led_on':          ledColor(state.gs_on ? 'on' : 'off'),
     'gs_led_off':         state.gs_on ? '#6B7280' : '#EF4444',  // 合闸时灭/分闸时红
     // === GS 手柄球（绿=合闸/红=分闸）—— 走 geometry.fill 通道（用户归类为 geometry 而非 LED）===
     // === Inverter 4 路 LED（PV / Bat / Grid / Load）===
-    'iv_pv_led_glow':     ledColor(state.pv_on ? 'on' : 'off'),
-    'iv_pv_led':          ledColor(state.pv_on ? 'on' : 'off'),
+    'iv_pv_led_glow':     ledColor(effectivePvOn ? 'on' : 'off'),
+    'iv_pv_led':          ledColor(effectivePvOn ? 'on' : 'off'),
     'iv_bat_led_glow':    ledColor(state.bat_soc > 0 ? 'on' : 'off'),
     'iv_bat_led':         ledColor(state.bat_soc > 0 ? 'on' : 'off'),
-    'iv_grid_led_glow':   ledColor('online'),
-    'iv_grid_led':        ledColor('online'),
+    'iv_grid_led_glow':   ledColor(state.grid_online && state.gs_on ? 'online' : 'offline'),
+    'iv_grid_led':        ledColor(state.grid_online && state.gs_on ? 'online' : 'offline'),
     'iv_load_led':        ledColor(state.load_on ? 'on' : 'off'),
     // === Battery 状态 LED（bat_status_led 已有；补 bat_status_glow）===
     'bat_status_glow':    batA != null
       ? ledColor(batteryDirection === 'unknown' ? 'idle' : batteryDirection)
-      : ledColor(hasDataSession ? 'idle' : state.bat_soc > 50 ? 'charging' : 'discharging'),
+      : ledColor(hasDataSession ? 'idle' : staticBatteryMode),
     'bat_status_led':     batA != null
       ? ledColor(batteryDirection === 'unknown' ? 'idle' : batteryDirection)
-      : ledColor(hasDataSession ? 'idle' : state.bat_soc > 50 ? 'charging' : 'discharging'),
+      : ledColor(hasDataSession ? 'idle' : staticBatteryMode),
     // === HP 状态 LED ===
     'hp_status_glow':     ledColor(state.hp_on ? 'running' : 'standby'),
     'hp_status_led':      ledColor(state.hp_on ? 'running' : 'standby'),
@@ -292,7 +320,7 @@ function buildInjectData(rawState: SimulationState) {
     // BMS 方向未知时使用中性色，避免把正负号误标为充/放电。
     'bat_status_text':  batA != null
       ? ledColor(batteryDirection === 'unknown' ? 'idle' : batteryDirection)
-      : ledColor(hasDataSession ? 'idle' : state.battery_power_kw > 0 ? 'charging' : state.battery_power_kw < 0 ? 'discharging' : 'idle'),
+      : ledColor(hasDataSession ? 'idle' : staticBatteryMode),
     'pump_status_text': ledColor(state.pump_on ? 'running' : 'stopped'),
     'at_status_text':   ledColor(state.at_mode),
     'sac_outlet_temp':  sacState === 'on' ? '#7DD3FC' : '#94A3B8',
@@ -334,7 +362,7 @@ function buildInjectData(rawState: SimulationState) {
     // 只有确认 BMS 电流方向后才驱动流向动画。
     bat_anim_flow_dir: batA != null
       ? (batteryDirection === 'charging' ? 'in' : batteryDirection === 'discharging' ? 'out' : 'idle')
-      : hasDataSession ? 'idle' : (state.battery_power_kw < 0 ? 'in' : state.battery_power_kw > 0 ? 'out' : 'idle'),
+      : hasDataSession ? 'idle' : (staticBatteryMode === 'charging' ? 'in' : staticBatteryMode === 'discharging' ? 'out' : 'idle'),
     soc_low: batSoc != null && batSoc < 20,
   };
 
@@ -354,7 +382,7 @@ function buildInjectData(rawState: SimulationState) {
     refrigerant: state.at_mode === 'cool' ? 'cool' : state.at_mode === 'heat' ? 'heat' : 'idle',
     fan: state.hp_on ? 'on' : 'off',
     impeller: state.pump_on ? 'on' : 'off',
-    'iv-mode': state.at_mode === 'off' ? 'idle' : 'dc-to-ac',
+    'iv-mode': inverterMode,
     phase: pcm.phase,
     'pump-running': state.pump_on ? 'true' : 'false',
   };
@@ -365,6 +393,7 @@ function buildInjectData(rawState: SimulationState) {
 const CLICK_ACTIONS: Record<string, (s: ReturnType<typeof useSimStore.getState>) => void> = {
   'pv-array':      (s) => s.togglePv(),
   'combiner-box':  (s) => s.toggleCb(),
+  'grid':          (s) => s.toggleGridOnline(),
   'grid-switch':   (s) => s.toggleGs(),
   'heat-pump':     (s) => s.toggleHp(),
   'pump':          (s) => s.togglePump(),
@@ -438,7 +467,11 @@ function ComponentSlot({ comp, state, onClick, onDoubleClick, svgRef }: Componen
       nodes?.forEach((n) => { n.textContent = ' '; });
       return;
     }
-    const formatTime = () => new Date().toLocaleTimeString('en-GB', { hour12: false });
+    const formatTime = () => new Date(
+      state.controlMode === 'replay' && state.playbackSnapshot
+        ? state.playbackSnapshot.timestamp
+        : Date.now(),
+    ).toLocaleTimeString('en-GB', { hour12: false });
     const tick = () => {
       const svg = ref.current;
       if (!svg) return;
@@ -451,7 +484,7 @@ function ComponentSlot({ comp, state, onClick, onDoubleClick, svgRef }: Componen
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [comp.id, state.animationOn, state.load_on]);
+  }, [comp.id, state.animationOn, state.load_on, state.controlMode, state.playbackSnapshot?.timestamp]);
 
   // PV 太阳 RAF 动画（非 PV 部件槽位 hook 内部 early-return，无副作用）
   usePvSunAnimation(ref, state);
@@ -584,10 +617,108 @@ function findOwnerEnd(
   return null;
 }
 
+function resolveAnchorPort(
+  anchorId: string,
+  cables: Cable[],
+  visited = new Set<string>(),
+): { id: string; side: 'top' | 'bottom' | 'left' | 'right' } | null {
+  const direct = anchorId.match(/^(.+)\.(top|bottom|left|right)$/);
+  if (direct && !anchorId.startsWith('cable:')) {
+    return { id: direct[1], side: direct[2] as 'top' | 'bottom' | 'left' | 'right' };
+  }
+  const cableRef = anchorId.match(/^cable:(.+)\.(from|to)$/);
+  if (!cableRef || visited.has(cableRef[1])) return null;
+  const cable = cables.find((item) => item.id === cableRef[1]);
+  if (!cable || cable.segments.length === 0) return null;
+  const nextVisited = new Set(visited);
+  nextVisited.add(cable.id);
+  const nested = cableRef[2] === 'from'
+    ? cable.segments[0].fromAnchorId
+    : cable.segments[cable.segments.length - 1].toAnchorId;
+  return nested ? resolveAnchorPort(nested, cables, nextVisited) : null;
+}
+
+function parseDirectAnchorPort(anchorId: string) {
+  if (anchorId.startsWith('cable:')) return null;
+  const match = anchorId.match(/^(.+)\.(top|bottom|left|right)$/);
+  if (!match) return null;
+  return { id: match[1], side: match[2] as 'top' | 'bottom' | 'left' | 'right' };
+}
+
+/**
+ * 只整理真正的“卡片到卡片”直连线缆。若某个卡片还连着浮动接点 / 线缆接点，
+ * 就把它锁在原位，避免整理卡片后留下没有同步移动的悬空转角。
+ * 完全未接线的卡片可参与重叠消解，但不会被纳入线路拓扑。
+ */
+function buildSafeCableLayout(cables: Cable[], rects: WorldRect[]) {
+  const riskyIds = new Set<string>();
+  const connectedIds = new Set<string>();
+  for (const cable of cables) {
+    for (const segment of cable.segments) {
+      const directFrom = parseDirectAnchorPort(segment.fromAnchorId);
+      const directTo = parseDirectAnchorPort(segment.toAnchorId);
+      const resolvedFrom = resolveAnchorPort(segment.fromAnchorId, cables);
+      const resolvedTo = resolveAnchorPort(segment.toAnchorId, cables);
+      if (resolvedFrom) connectedIds.add(resolvedFrom.id);
+      if (resolvedTo) connectedIds.add(resolvedTo.id);
+      if (directFrom && directTo) continue;
+      if (resolvedFrom) riskyIds.add(resolvedFrom.id);
+      if (resolvedTo) riskyIds.add(resolvedTo.id);
+    }
+  }
+
+  const constraints: AlignmentConstraint[] = [];
+  for (const cable of cables) {
+    for (const segment of cable.segments) {
+      const from = parseDirectAnchorPort(segment.fromAnchorId);
+      const to = parseDirectAnchorPort(segment.toAnchorId);
+      if (!from || !to || from.id === to.id || riskyIds.has(from.id) || riskyIds.has(to.id)) continue;
+      const fromHorizontal = from.side === 'left' || from.side === 'right';
+      const toHorizontal = to.side === 'left' || to.side === 'right';
+      const fromVertical = from.side === 'top' || from.side === 'bottom';
+      const toVertical = to.side === 'top' || to.side === 'bottom';
+      if (fromHorizontal && toHorizontal) constraints.push({ axis: 'y', ids: [from.id, to.id] });
+      if (fromVertical && toVertical) constraints.push({ axis: 'x', ids: [from.id, to.id] });
+    }
+  }
+  return {
+    cables,
+    constraints,
+    overlapMovableIds: new Set(rects.map((rect) => rect.id).filter((id) => !connectedIds.has(id))),
+  };
+}
+
+interface AlignUndoSnapshot {
+  positions: SimulationState['positions'];
+  meters: SimulationState['meters'];
+  cables: SimulationState['cables'];
+  cardPositions: SimulationState['cardPositions'];
+}
+
+function captureAlignSnapshot(state: SimulationState): AlignUndoSnapshot {
+  return {
+    positions: Object.fromEntries(Object.entries(state.positions).map(([id, point]) => [id, { ...point }])),
+    meters: state.meters.map((meter) => ({
+      ...meter,
+      position: { ...meter.position },
+      presetVb: meter.presetVb ? { ...meter.presetVb } : undefined,
+    })),
+    cables: state.cables.map((cable) => ({
+      ...cable,
+      segments: cable.segments.map((segment) => ({ ...segment })),
+      floatingFrom: cable.floatingFrom ? { ...cable.floatingFrom } : cable.floatingFrom,
+      floatingTo: cable.floatingTo ? { ...cable.floatingTo } : cable.floatingTo,
+      manualWaypoints: cable.manualWaypoints?.map((point) => ({ ...point })),
+    })),
+    cardPositions: Object.fromEntries(Object.entries(state.cardPositions).map(([id, rect]) => [id, { ...rect }])),
+  };
+}
+
 export function CircuitCanvas() {
   const state = useSimStore();
   const positions = useSimStore((s) => s.positions);
   const meters = useSimStore((s) => s.meters);
+  const selectedCable = useSimStore((s) => s.selectedCable);
   const selectedMeter = useSimStore((s) => s.selectedMeter);
   const editMode = useSimStore((s) => s.editMode);
   const cableDrag = useSimStore((s) => s.cableDrag);
@@ -597,10 +728,26 @@ export function CircuitCanvas() {
   const addCable = useSimStore((s) => s.addCable);
   const setCableDrag = useSimStore((s) => s.setCableDrag);
   const setPosition = useSimStore((s) => s.setPosition);
+  const setNodePositions = useSimStore((s) => s.setNodePositions);
   const setStoreDragging = useSimStore((s) => s.setDragging);
   const addMeter = useSimStore((s) => s.addMeter);
   const moveMeter = useSimStore((s) => s.moveMeter);
   const setCardPositions = useSimStore((s) => s.setCardPositions);
+  const removeCable = useSimStore((s) => s.removeCable);
+  const setCableRouteMode = useSimStore((s) => s.setCableRouteMode);
+  const setCableAnimation = useSimStore((s) => s.setCableAnimation);
+  const setCableDirectionMode = useSimStore((s) => s.setCableDirectionMode);
+  const selectedCableForToolbar = state.cables.find((cable) => cable.id === selectedCable);
+  const selectedFlowReasons = selectedCableForToolbar?.segments.map((_, index) =>
+    deriveCableSegmentFlow(selectedCableForToolbar, index, state).reason
+  ) ?? [];
+  const selectedFlowLabel = selectedFlowReasons.every((reason) => reason === 'flowing')
+    ? '流动中'
+    : selectedFlowReasons.includes('data-unavailable') ? '拓扑/数据不可用'
+    : selectedFlowReasons.includes('status-off') ? '设备已断开'
+    : selectedFlowReasons.includes('zero-flow') ? '功率为 0'
+    : selectedFlowReasons.includes('disabled') ? '动画已关闭'
+    : '等待计算';
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const cableOverlayRef = useRef<SVGSVGElement | null>(null);
@@ -615,6 +762,10 @@ export function CircuitCanvas() {
   viewRef.current = view;
   const fittedRef = useRef(false);
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [marquee, setMarquee] = useState<{ start: Point; current: Point } | null>(null);
+  const [alignUndoSnapshot, setAlignUndoSnapshot] = useState<AlignUndoSnapshot | null>(null);
   // M1.5 Round 13: 部件详情弹窗（双击部件触发）
   const [detailCompId, setDetailCompId] = useState<string | null>(null);
   // I2: Esc 取消拖动。当前活跃拖动回调（startDragCard / startDragEnd 设置自身 cancel 函数）
@@ -644,6 +795,21 @@ export function CircuitCanvas() {
     }
     return map;
   }, []);
+
+  /** 固定世界几何是布局真值；DOM 只负责显示，不再反向决定锚点和避障范围。 */
+  const getCardWorldRects = useCallback((): WorldRect[] => {
+    const componentRects = COMPONENTS.map((component) => cardWorldRect(
+      component.id,
+      positions[component.id] ?? defaultPositions[component.id],
+      meters,
+    ));
+    const meterRects = meters.map((meter) => cardWorldRect(
+      meter.id,
+      meter.presetVb ?? meter.position,
+      meters,
+    ));
+    return [...componentRects, ...meterRects];
+  }, [defaultPositions, meters, positions]);
 
   /**
    * 初次挂载 + 画布尺寸变化时同步 cardPositions 到 store。
@@ -688,16 +854,22 @@ export function CircuitCanvas() {
    * I2: cancelled 标志用于 Esc 取消拖动。onMove / onUp 在 cancelled=true 时 noop，
    * 但仍然会执行 listener 移除（保证后续拖拽能重新挂载）。
    */
-  const startDragCard = (
-    e: React.MouseEvent,
-    id: string,
-    currentPos: { x: number; y: number },
-    moveTo: (pos: { x: number; y: number }) => void,
-  ) => {
+  const startDragCard = (e: React.MouseEvent, id: string, dragIds: string[]) => {
     let moved = false;
     let cancelled = false;
     const startX = e.clientX;
     const startY = e.clientY;
+    const rects = getCardWorldRects();
+    const dragRects = rects.filter((rect) => dragIds.includes(rect.id));
+    const otherRects = rects.filter((rect) => !dragIds.includes(rect.id));
+    const groupRect: WorldRect = {
+      id: '__selection__',
+      x: Math.min(...dragRects.map((rect) => rect.x)),
+      y: Math.min(...dragRects.map((rect) => rect.y)),
+      w: Math.max(...dragRects.map((rect) => rect.x + rect.w)) - Math.min(...dragRects.map((rect) => rect.x)),
+      h: Math.max(...dragRects.map((rect) => rect.y + rect.h)) - Math.min(...dragRects.map((rect) => rect.y)),
+    };
+    const startPositions = Object.fromEntries(dragRects.map((rect) => [rect.id, { x: rect.x, y: rect.y }]));
     cardDownRef.current = { id, x: startX, y: startY };
     // 注册 cancel 回调（Esc 时调用）
     cancelDragRef.current = () => { cancelled = true; };
@@ -707,7 +879,31 @@ export function CircuitCanvas() {
       const dy = ev.clientY - startY;
       if (!moved && Math.hypot(dx, dy) < 4) return;
       moved = true;
-      moveTo({ x: currentPos.x + dx / viewRef.current.zoom, y: currentPos.y + dy / viewRef.current.zoom });
+      let worldDx = dx / viewRef.current.zoom;
+      let worldDy = dy / viewRef.current.zoom;
+      if (ev.shiftKey) {
+        if (Math.abs(worldDx) >= Math.abs(worldDy)) worldDy = 0;
+        else worldDx = 0;
+      }
+      const snap = computeObjectSnap(
+        { x: groupRect.x + worldDx, y: groupRect.y + worldDy },
+        { w: groupRect.w, h: groupRect.h },
+        otherRects,
+        {
+          zoom: viewRef.current.zoom,
+          gridSize: useSimStore.getState().gridSize,
+          snapToGrid: useSimStore.getState().snapToGrid,
+          smartGuides: useSimStore.getState().smartGuides,
+          disabled: ev.altKey,
+        },
+      );
+      const snappedDx = snap.position.x - groupRect.x;
+      const snappedDy = snap.position.y - groupRect.y;
+      setAlignmentGuides(snap.guides);
+      setNodePositions(Object.fromEntries(dragIds.map((nodeId) => [nodeId, {
+        x: startPositions[nodeId].x + snappedDx,
+        y: startPositions[nodeId].y + snappedDy,
+      }])));
     };
     const onUp = () => {
       if (cancelled) {
@@ -721,6 +917,8 @@ export function CircuitCanvas() {
       // ref 由 handleComponentClick 消费后清空
       setDraggingCardId(null);
       setStoreDragging(null);
+      setAlignmentGuides([]);
+      window.requestAnimationFrame(syncCardPositionsToStore);
       cancelDragRef.current = null;
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
@@ -816,23 +1014,31 @@ export function CircuitCanvas() {
     return { x: (sx - rect.left - current.x) / current.zoom, y: (sy - rect.top - current.y) / current.zoom };
   };
 
-  /** 将全部内容置于可视范围中央；旧像素坐标场景加载后也能立即恢复可见。 */
+  /** 将真实节点/人工折点置于无遮挡安全视口中央。 */
   const fitView = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
-    const pts = COMPONENTS.map((c) => positions[c.id] ?? { x: c.x, y: c.y });
-    meters.forEach((m) => pts.push(m.presetVb ?? m.position));
-    const xs = pts.map((p) => p.x);
-    const ys = pts.map((p) => p.y);
-    const minX = Math.min(0, ...xs) - 80;
-    const minY = Math.min(0, ...ys) - 60;
-    const maxX = Math.max(VIEW_W, ...xs.map((x) => x + 210)) + 80;
-    const maxY = Math.max(VIEW_H, ...ys.map((y) => y + 280)) + 60;
-    const zoom = Math.max(0.25, Math.min(1.25, Math.min((rect.width - 48) / (maxX - minX), (rect.height - 48) / (maxY - minY))));
-    setView({ x: (rect.width - (minX + maxX) * zoom) / 2, y: (rect.height - (minY + maxY) * zoom) / 2, zoom });
-  }, [positions, meters]);
+    const extraPoints = state.cables.flatMap((cable) => [
+      ...(cable.floatingFrom ? [cable.floatingFrom] : []),
+      ...(cable.floatingTo ? [cable.floatingTo] : []),
+      ...(cable.manualWaypoints ?? []),
+    ]);
+    const bounds = boundsOfRectsAndPoints(getCardWorldRects(), extraPoints, 48);
+    if (!bounds) return;
+    const insets = canvasInsets(state);
+    const availableWidth = Math.max(120, rect.width - insets.left - insets.right);
+    const availableHeight = Math.max(120, rect.height - insets.top - insets.bottom);
+    const contentWidth = Math.max(1, bounds.maxX - bounds.minX);
+    const contentHeight = Math.max(1, bounds.maxY - bounds.minY);
+    const zoom = Math.max(0.25, Math.min(1.25, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)));
+    setView({
+      x: insets.left + (availableWidth - (bounds.minX + bounds.maxX) * zoom) / 2,
+      y: insets.top + (availableHeight - (bounds.minY + bounds.maxY) * zoom) / 2,
+      zoom,
+    });
+  }, [getCardWorldRects, state.cables, state.fullscreen, state.leftPanelOpen, state.rightPanelOpen]);
 
   useEffect(() => {
     if (!fittedRef.current && canvasSize.w > 0 && canvasSize.h > 0) {
@@ -866,6 +1072,21 @@ export function CircuitCanvas() {
     }
     setCardPositions(positions);
   }, [setCardPositions]);
+
+  /**
+   * 批量对齐 / 撤销只有一次状态提交；该次 render 中线缆读取到的仍可能是提交前 DOM。
+   * 等两帧让卡片样式落地后再同步几何并触发一次稳定重绘，避免线缆停在旧位置。
+   */
+  useEffect(() => {
+    let innerFrame = 0;
+    const outerFrame = window.requestAnimationFrame(() => {
+      innerFrame = window.requestAnimationFrame(syncCardPositionsToStore);
+    });
+    return () => {
+      window.cancelAnimationFrame(outerFrame);
+      if (innerFrame) window.cancelAnimationFrame(innerFrame);
+    };
+  }, [meters, positions, syncCardPositionsToStore]);
 
   /**
    * 锚点 → 画布内像素坐标。
@@ -907,23 +1128,8 @@ export function CircuitCanvas() {
     if (!m) return null;
     const cardId = m[1];
     const side = m[2];
-    const card = cardRefs.current[cardId];
-    if (!card) return null;
-    const cardRect = card.getBoundingClientRect();
-    const canvasRect = canvasRef.current?.getBoundingClientRect();
-    if (!canvasRect) return null;
-    const current = viewRef.current;
-    const cx = (cardRect.left - canvasRect.left - current.x) / current.zoom;
-    const cy = (cardRect.top - canvasRect.top - current.y) / current.zoom;
-    const cw = cardRect.width / current.zoom;
-    const ch = cardRect.height / current.zoom;
-    switch (side) {
-      case 'top':    return { x: cx + cw / 2, y: cy };
-      case 'bottom': return { x: cx + cw / 2, y: cy + ch };
-      case 'left':   return { x: cx,           y: cy + ch / 2 };
-      case 'right':  return { x: cx + cw,      y: cy + ch / 2 };
-    }
-    return null;
+    const rect = getCardWorldRects().find((candidate) => candidate.id === cardId);
+    return rect ? portPoint(rect, side as 'top' | 'bottom' | 'left' | 'right') : null;
   };
 
   /** 枚举所有可吸附锚点（组件 + 仪表卡片 + 线缆端点） */
@@ -960,13 +1166,13 @@ export function CircuitCanvas() {
     return out;
   };
 
-  /** 找最近锚点（≤ 8px，canvas 像素坐标） */
+  /** 找最近锚点（屏幕半径 14px，按 zoom 换算世界距离） */
   const findNearestAnchorPx = (
     pt: { x: number; y: number },
     excludeCableId?: string,
   ): { id: string; pos: { x: number; y: number } } | null => {
     let best: { id: string; pos: { x: number; y: number } } | null = null;
-    let bestDist = 8;
+    let bestDist = 14 / Math.max(0.2, viewRef.current.zoom);
     for (const s of listAllSnapPoints(excludeCableId)) {
       const d = Math.hypot(s.pos.x - pt.x, s.pos.y - pt.y);
       if (d < bestDist) {
@@ -1034,6 +1240,7 @@ export function CircuitCanvas() {
       selectComponent(null);
       selectCable(null);
       selectMeter(null);
+      if (!e.shiftKey) setSelectedNodeIds(new Set());
     }
   };
 
@@ -1041,6 +1248,32 @@ export function CircuitCanvas() {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (!target.classList.contains('canvas-area') && !target.classList.contains('canvas-bg')) return;
+    if (state.editMode && e.shiftKey) {
+      const startWorld = screenToCanvas(e.clientX, e.clientY);
+      if (!startWorld) return;
+      setMarquee({ start: startWorld, current: startWorld });
+      const onSelectMove = (ev: MouseEvent) => {
+        const current = screenToCanvas(ev.clientX, ev.clientY);
+        if (current) setMarquee({ start: startWorld, current });
+      };
+      const onSelectUp = (ev: MouseEvent) => {
+        const current = screenToCanvas(ev.clientX, ev.clientY) ?? startWorld;
+        const box = {
+          x: Math.min(startWorld.x, current.x), y: Math.min(startWorld.y, current.y),
+          w: Math.abs(current.x - startWorld.x), h: Math.abs(current.y - startWorld.y),
+        };
+        const hit = getCardWorldRects().filter((rect) =>
+          rect.x < box.x + box.w && rect.x + rect.w > box.x
+          && rect.y < box.y + box.h && rect.y + rect.h > box.y).map((rect) => rect.id);
+        setSelectedNodeIds(new Set(hit));
+        setMarquee(null);
+        window.removeEventListener('mousemove', onSelectMove);
+        window.removeEventListener('mouseup', onSelectUp);
+      };
+      window.addEventListener('mousemove', onSelectMove);
+      window.addEventListener('mouseup', onSelectUp);
+      return;
+    }
     const start = { x: e.clientX, y: e.clientY, view: viewRef.current };
     let moved = false;
     const onMove = (ev: MouseEvent) => {
@@ -1086,6 +1319,75 @@ export function CircuitCanvas() {
 
   const isDraggingCable = cableDrag != null;
 
+  const applySelectionPositions = (updates: Record<string, Point>) => {
+    setNodePositions(updates);
+    window.requestAnimationFrame(syncCardPositionsToStore);
+  };
+
+  const runAlign = (command: AlignCommand) => {
+    applySelectionPositions(alignRects(getCardWorldRects().filter((rect) => selectedNodeIds.has(rect.id)), command));
+  };
+
+  const runDistribute = (axis: 'x' | 'y') => {
+    applySelectionPositions(distributeRects(getCardWorldRects().filter((rect) => selectedNodeIds.has(rect.id)), axis));
+  };
+
+  const runTidy = () => {
+    applySelectionPositions(tidyRects(getCardWorldRects().filter((rect) => selectedNodeIds.has(rect.id))));
+  };
+
+  useEffect(() => {
+    const alignAll = () => {
+      const rects = getCardWorldRects();
+      const current = useSimStore.getState();
+      const safeLayout = buildSafeCableLayout(current.cables, rects);
+      const updates = autoAlignRects(rects, current.gridSize, safeLayout.constraints, {
+        overlapMovableIds: safeLayout.overlapMovableIds,
+      });
+      const meterIds = new Set(current.meters.map((meter) => meter.id));
+      setAlignUndoSnapshot(captureAlignSnapshot(current));
+      useSimStore.setState((live) => ({
+        positions: {
+          ...live.positions,
+          ...Object.fromEntries(Object.entries(updates).filter(([id]) => !meterIds.has(id))),
+        },
+        meters: live.meters.map((meter) => updates[meter.id]
+          ? { ...meter, position: updates[meter.id], presetVb: undefined }
+          : meter),
+        cables: safeLayout.cables,
+      }));
+    };
+    window.addEventListener('canvas-align-all', alignAll);
+    return () => window.removeEventListener('canvas-align-all', alignAll);
+  }, [getCardWorldRects]);
+
+  useEffect(() => {
+    const onSelectionKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.key === 'Escape') {
+        setSelectedNodeIds(new Set());
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && state.editMode) {
+        event.preventDefault();
+        setSelectedNodeIds(new Set(getCardWorldRects().map((rect) => rect.id)));
+        return;
+      }
+      if (!state.editMode || selectedNodeIds.size === 0 || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      const step = event.shiftKey ? state.gridSize : 1;
+      const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+      const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+      const updates = Object.fromEntries(getCardWorldRects()
+        .filter((rect) => selectedNodeIds.has(rect.id))
+        .map((rect) => [rect.id, { x: rect.x + dx, y: rect.y + dy }]));
+      setNodePositions(updates);
+    };
+    window.addEventListener('keydown', onSelectionKey);
+    return () => window.removeEventListener('keydown', onSelectionKey);
+  }, [getCardWorldRects, selectedNodeIds, setNodePositions, state.editMode, state.gridSize]);
+
   return (
     <div
       className={`canvas-area ${editMode ? 'edit-mode' : ''} ${isDraggingOver ? 'drag-over' : ''}`}
@@ -1098,7 +1400,7 @@ export function CircuitCanvas() {
       onDoubleClick={(e) => { if ((e.target as HTMLElement).classList.contains('canvas-area') || (e.target as HTMLElement).classList.contains('canvas-bg')) fitView(); }}
       onWheel={handleWheel}
     >
-      <div className="canvas-bg" style={state.showGrid ? { backgroundSize: `${20 * view.zoom}px ${20 * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : undefined} />
+      <div className="canvas-bg" style={state.showGrid ? { backgroundSize: `${state.gridSize * 5 * view.zoom}px ${state.gridSize * 5 * view.zoom}px, ${state.gridSize * 5 * view.zoom}px ${state.gridSize * 5 * view.zoom}px, ${state.gridSize * view.zoom}px ${state.gridSize * view.zoom}px, ${state.gridSize * view.zoom}px ${state.gridSize * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : undefined} />
       <div className="world-layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
 
       {/* 12 固定部件卡片（绝对定位，任何时候可拖） */}
@@ -1108,18 +1410,26 @@ export function CircuitCanvas() {
         return (
           <div
             key={comp.id}
-            className={`component-card ${draggingCardId === comp.id ? 'dragging' : ''}`}
+            className={`component-card ${draggingCardId === comp.id ? 'dragging' : ''} ${selectedNodeIds.has(comp.id) ? 'selected' : ''}`}
             ref={(el) => { cardRefs.current[comp.id] = el; }}
-            style={{ position: 'absolute', left: pos.x, top: pos.y, width: 'clamp(120px, 11vw, 180px)' }}
+            style={{ position: 'absolute', left: pos.x, top: pos.y, width: COMPONENT_WORLD_SIZE.w, height: COMPONENT_WORLD_SIZE.h }}
             onMouseDown={(e) => {
               // I1: editMode 关闭时卡片锁定，不能被拖动（点击仍透传到 SVG 触发状态切换）
               if (!state.editMode) return;
               e.preventDefault();
               e.stopPropagation();
               selectComponent(comp.id);
+              const nextSelection = e.shiftKey
+                ? new Set(selectedNodeIds)
+                : (selectedNodeIds.has(comp.id) ? new Set(selectedNodeIds) : new Set([comp.id]));
+              if (e.shiftKey) {
+                if (nextSelection.has(comp.id)) nextSelection.delete(comp.id); else nextSelection.add(comp.id);
+              }
+              if (!nextSelection.has(comp.id)) nextSelection.add(comp.id);
+              setSelectedNodeIds(nextSelection);
               setDraggingCardId(comp.id);
               setStoreDragging(comp.id);
-              startDragCard(e, comp.id, pos, (p) => setPosition(comp.id, p.x, p.y));
+              startDragCard(e, comp.id, [...nextSelection]);
             }}
             data-component-id={comp.id}
           >
@@ -1146,18 +1456,26 @@ export function CircuitCanvas() {
         return (
           <div
             key={m.id}
-            className={`component-card meter-card ${draggingCardId === m.id ? 'dragging' : ''} ${isSelected ? 'selected' : ''}`}
+            className={`component-card meter-card ${draggingCardId === m.id ? 'dragging' : ''} ${isSelected || selectedNodeIds.has(m.id) ? 'selected' : ''}`}
             ref={(el) => { cardRefs.current[m.id] = el; }}
-            style={{ position: 'absolute', left: pos.x, top: pos.y, width: 'clamp(80px, 7vw, 110px)' }}
+            style={{ position: 'absolute', left: pos.x, top: pos.y, width: METER_WORLD_SIZE.w, height: METER_WORLD_SIZE.h }}
             onMouseDown={(e) => {
               // I1: editMode 关闭时仪表卡片锁定
               if (!state.editMode) return;
               e.preventDefault();
               e.stopPropagation();
               selectMeter(m.id);
+              const nextSelection = e.shiftKey
+                ? new Set(selectedNodeIds)
+                : (selectedNodeIds.has(m.id) ? new Set(selectedNodeIds) : new Set([m.id]));
+              if (e.shiftKey) {
+                if (nextSelection.has(m.id)) nextSelection.delete(m.id); else nextSelection.add(m.id);
+              }
+              if (!nextSelection.has(m.id)) nextSelection.add(m.id);
+              setSelectedNodeIds(nextSelection);
               setDraggingCardId(m.id);
               setStoreDragging(m.id);
-              startDragCard(e, m.id, pos, (p) => moveMeter(m.id, p));
+              startDragCard(e, m.id, [...nextSelection]);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -1193,6 +1511,8 @@ export function CircuitCanvas() {
           syncCardPositionsToStore={syncCardPositionsToStore}
           cancelDragRef={cancelDragRef}
           toWorld={screenToCanvas}
+          getObstacles={getCardWorldRects}
+          zoom={view.zoom}
         />
       </svg>
 
@@ -1201,7 +1521,83 @@ export function CircuitCanvas() {
         <TsPointer key={`tsptr-${m.id}`} meter={m} />
       ))}
 
+      <svg className="alignment-overlay" aria-hidden="true">
+        {alignmentGuides.map((guide, index) => guide.axis === 'x' ? (
+          <line key={`${guide.axis}-${index}`} x1={guide.value} x2={guide.value} y1={guide.from} y2={guide.to}
+            className={`alignment-guide ${guide.kind}`} vectorEffect="non-scaling-stroke" />
+        ) : (
+          <line key={`${guide.axis}-${index}`} y1={guide.value} y2={guide.value} x1={guide.from} x2={guide.to}
+            className={`alignment-guide ${guide.kind}`} vectorEffect="non-scaling-stroke" />
+        ))}
+        {marquee && (
+          <rect
+            x={Math.min(marquee.start.x, marquee.current.x)}
+            y={Math.min(marquee.start.y, marquee.current.y)}
+            width={Math.abs(marquee.current.x - marquee.start.x)}
+            height={Math.abs(marquee.current.y - marquee.start.y)}
+            className="selection-marquee"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+      </svg>
+
       </div>
+      {selectedNodeIds.size > 1 && state.editMode && (
+        <div className="alignment-toolbar" onMouseDown={(event) => event.stopPropagation()}>
+          <span>{selectedNodeIds.size} 项</span>
+          <button onClick={() => runAlign('left')} title="左对齐">左</button>
+          <button onClick={() => runAlign('hcenter')} title="水平居中">中</button>
+          <button onClick={() => runAlign('right')} title="右对齐">右</button>
+          <button onClick={() => runAlign('top')} title="顶部对齐">上</button>
+          <button onClick={() => runAlign('vcenter')} title="垂直居中">中</button>
+          <button onClick={() => runAlign('bottom')} title="底部对齐">下</button>
+          <button onClick={() => runDistribute('x')} title="水平均匀分布">横向分布</button>
+          <button onClick={() => runDistribute('y')} title="垂直均匀分布">纵向分布</button>
+          <button className="tidy" onClick={runTidy} title="保持当前行列顺序自动整理">自动整理</button>
+          <button onClick={() => setSelectedNodeIds(new Set())} title="清空选择">×</button>
+        </div>
+      )}
+      {selectedCable && (
+        <div className="cable-editor-toolbar" onMouseDown={(event) => event.stopPropagation()}>
+          <span>线缆</span>
+          <span className={`cable-flow-status ${selectedFlowReasons.every((reason) => reason === 'flowing') ? 'running' : ''}`}>{selectedFlowLabel}</span>
+          <button className={(state.cables.find((cable) => cable.id === selectedCable)?.animationEnabled ?? true) ? 'active' : ''}
+            onClick={() => {
+              const cable = state.cables.find((item) => item.id === selectedCable);
+              if (cable) setCableAnimation(selectedCable, !(cable.animationEnabled ?? true));
+            }}>
+            {(state.cables.find((cable) => cable.id === selectedCable)?.animationEnabled ?? true) ? '动画开' : '动画关'}
+          </button>
+          {(['forward', 'reverse'] as const).map((mode) => (
+            <button key={mode}
+              className={((state.cables.find((cable) => cable.id === selectedCable)?.directionMode === 'reverse' ? 'reverse' : 'forward') === mode) ? 'active' : ''}
+              onClick={() => setCableDirectionMode(selectedCable, mode)}>
+              {mode === 'forward' ? '正向→' : '反向←'}
+            </button>
+          ))}
+          <button className={(state.cables.find((cable) => cable.id === selectedCable)?.routeMode ?? 'orthogonal-auto') === 'orthogonal-auto' ? 'active' : ''}
+            onClick={() => setCableRouteMode(selectedCable, 'orthogonal-auto')}>自动布线</button>
+          <button className={state.cables.find((cable) => cable.id === selectedCable)?.routeMode === 'straight' ? 'active' : ''}
+            onClick={() => setCableRouteMode(selectedCable, 'straight')}>直线</button>
+          <small>双击线路添加折点；双击折点删除</small>
+          <button className="danger" onClick={() => { removeCable(selectedCable); selectCable(null); }}>删除</button>
+        </div>
+      )}
+      {alignUndoSnapshot && (
+        <div className="align-undo-toast" onMouseDown={(event) => event.stopPropagation()}>
+          <span>已安全整理直连器件与重叠卡片</span>
+          <button onClick={() => {
+            useSimStore.setState({
+              positions: alignUndoSnapshot.positions,
+              meters: alignUndoSnapshot.meters,
+              cables: alignUndoSnapshot.cables,
+              cardPositions: alignUndoSnapshot.cardPositions,
+            });
+            setAlignUndoSnapshot(null);
+          }}>撤销</button>
+          <button className="dismiss" onClick={() => setAlignUndoSnapshot(null)} aria-label="关闭撤销提示">×</button>
+        </div>
+      )}
       <div className="canvas-nav" style={{ right: state.rightPanelOpen ? 350 : 18 }} onMouseDown={(e) => e.stopPropagation()}>
         <button type="button" onClick={() => zoomAtCenter(1 / 1.2)} title="缩小">−</button>
         <span>{Math.round(view.zoom * 100)}%</span>
@@ -1221,6 +1617,8 @@ function CableOverlay({
   syncCardPositionsToStore,
   cancelDragRef,
   toWorld,
+  getObstacles,
+  zoom,
 }: {
   getAnchorPos: (anchorId: string) => { x: number; y: number } | null;
   canvasRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -1228,19 +1626,25 @@ function CableOverlay({
   syncCardPositionsToStore: () => void;
   cancelDragRef: React.MutableRefObject<(() => void) | null>;
   toWorld: (screenX: number, screenY: number) => { x: number; y: number } | null;
+  getObstacles: () => WorldRect[];
+  zoom: number;
 }) {
   const cables = useSimStore((s) => s.cables);
   const selectedCable = useSimStore((s) => s.selectedCable);
   const selectedMeter = useSimStore((s) => s.selectedMeter);
-  const removeCable = useSimStore((s) => s.removeCable);
   const removeMeter = useSimStore((s) => s.removeMeter);
   const selectCable = useSimStore((s) => s.selectCable);
   const updateCableEnd = useSimStore((s) => s.updateCableEnd);
   const setCableFloating = useSimStore((s) => s.setCableFloating);
   const setCableDrag = useSimStore((s) => s.setCableDrag);
+  const setCableWaypoints = useSimStore((s) => s.setCableWaypoints);
   const cableDrag = useSimStore((s) => s.cableDrag);
   const state = useSimStore((s) => s);
   const particleLayerRef = useRef<SVGGElement>(null);
+  const [draggingWaypoint, setDraggingWaypoint] = useState<{ cableId: string; index: number } | null>(null);
+  const [cableAxisGuide, setCableAxisGuide] = useState<AlignmentGuide | null>(null);
+  const routeCacheRef = useRef<Map<string, ResolvedCablePath[]>>(new Map());
+  routeCacheRef.current.clear();
 
   // 把 store 里的 cables 在传给粒子 hook 前把 floatingFrom/To 转成 CSS px
   // （hook 内部把点直接放进 SVG cx/cy，SVG viewBox 是 CSS px 空间）
@@ -1254,11 +1658,26 @@ function CableOverlay({
     [state, cablesForParticles],
   );
 
-  useParticleAnimation(particleLayerRef, particleState, getAnchorPos);
+  const getResolvedRoutes = (cable: Cable) => {
+    const cached = routeCacheRef.current.get(cable.id);
+    if (cached) return cached;
+    const routes = resolveCableRoutes(
+      cable,
+      getAnchorPos,
+      getObstacles(),
+      (anchorId) => {
+        const resolved = resolveAnchorPort(anchorId, cables);
+        return resolved ? { ownerId: resolved.id, side: resolved.side } : null;
+      },
+    );
+    routeCacheRef.current.set(cable.id, routes);
+    return routes;
+  };
+  useParticleAnimation(particleLayerRef, particleState, getResolvedRoutes, zoom);
 
   const findNearestWorld = (pt: { x: number; y: number }, excludeCableId?: string) => {
     let best: { id: string; pos: { x: number; y: number } } | null = null;
-    let bestDist = 8;
+    let bestDist = 14 / Math.max(0.2, zoom);
     // 组件锚点
     for (const c of COMPONENTS) {
       for (const side of ['top', 'bottom', 'left', 'right'] as const) {
@@ -1309,8 +1728,34 @@ function CableOverlay({
 
     const onMove = (ev: MouseEvent) => {
       if (cancelled) return;
-      const pt = toWorld(ev.clientX, ev.clientY);
-      if (!pt) return;
+      const rawPoint = toWorld(ev.clientX, ev.clientY);
+      if (!rawPoint) return;
+      const liveCable = useSimStore.getState().cables.find((item) => item.id === cableId);
+      const otherEnd = end === 'from' ? 'to' : 'from';
+      const otherAnchor = liveCable
+        ? (otherEnd === 'from' ? liveCable.segments[0]?.fromAnchorId : liveCable.segments[liveCable.segments.length - 1]?.toAnchorId)
+        : '';
+      const otherPoint = (otherAnchor ? getAnchorPos(otherAnchor) : null)
+        ?? (otherEnd === 'from' ? liveCable?.floatingFrom : liveCable?.floatingTo)
+        ?? null;
+      const snap = findNearestWorld(rawPoint, cableId);
+      let pt = snap?.pos ?? rawPoint;
+      setCableAxisGuide(null);
+      if (!snap && otherPoint) {
+        const threshold = 8 / Math.max(0.2, zoom);
+        const dx = Math.abs(rawPoint.x - otherPoint.x);
+        const dy = Math.abs(rawPoint.y - otherPoint.y);
+        if ((ev.shiftKey && dx <= dy) || dx <= threshold) {
+          pt = { x: otherPoint.x, y: rawPoint.y };
+          setCableAxisGuide({ axis: 'x', value: otherPoint.x, from: Math.min(otherPoint.y, rawPoint.y), to: Math.max(otherPoint.y, rawPoint.y), kind: 'center' });
+        } else if (ev.shiftKey || dy <= threshold) {
+          pt = { x: rawPoint.x, y: otherPoint.y };
+          setCableAxisGuide({ axis: 'y', value: otherPoint.y, from: Math.min(otherPoint.x, rawPoint.x), to: Math.max(otherPoint.x, rawPoint.x), kind: 'center' });
+        } else if (useSimStore.getState().snapToGrid && !ev.altKey) {
+          const grid = useSimStore.getState().gridSize;
+          pt = { x: Math.round(rawPoint.x / grid) * grid, y: Math.round(rawPoint.y / grid) * grid };
+        }
+      }
       setCableFloating(cableId, end, pt);
       // ★ 联动 owner：owner 不同于当前端点时才显式 setCableFloating
       // （owner 即当前端点时不做重复调用）
@@ -1318,7 +1763,6 @@ function CableOverlay({
         setCableFloating(owner.cableId, owner.end, pt);
       }
       // 排除自身另一端，避免 A.to 误吸附 A.from
-      const snap = findNearestWorld(pt, cableId);
       setCableDrag({ cableId, end, pos: pt, snapAnchorId: snap?.id ?? null });
     };
     const onUp = () => {
@@ -1335,6 +1779,36 @@ function CableOverlay({
       }
       cancelDragRef.current = null;
       setCableDrag(null);
+      setCableAxisGuide(null);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const startDragWaypoint = (
+    cableId: string,
+    index: number,
+    baseWaypoints: Point[],
+    e: React.MouseEvent,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDraggingWaypoint({ cableId, index });
+    const onMove = (event: MouseEvent) => {
+      const point = toWorld(event.clientX, event.clientY);
+      if (!point) return;
+      const grid = useSimStore.getState().gridSize;
+      const next = event.altKey ? point : {
+        x: Math.round(point.x / grid) * grid,
+        y: Math.round(point.y / grid) * grid,
+      };
+      const points = baseWaypoints.map((item, itemIndex) => itemIndex === index ? next : item);
+      setCableWaypoints(cableId, points);
+    };
+    const onUp = () => {
+      setDraggingWaypoint(null);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
@@ -1357,55 +1831,63 @@ function CableOverlay({
         const floatingToCss = cable.floatingTo;
         const fromPos = fromResolved ?? floatingFromCss ?? null;
         const toPos = toResolved ?? floatingToCss ?? null;
+        const routePaths = getResolvedRoutes(cable);
+        const routePoints = routePaths[0]?.points ?? [];
+        const isFloating = !fromResolved || !toResolved;
+        const editableWaypoints = routePaths.length !== 1
+          ? []
+          : cable.routeMode === 'orthogonal-manual' && cable.manualWaypoints?.length
+            ? cable.manualWaypoints
+            : routePoints.slice(1, -1);
 
         return (
           <g key={cable.id} className={`editable-cable ${isSelected ? 'selected' : ''}`}>
-            {/* 段渲染 */}
-            {segs.map((seg, i) => {
-              const segFromDefault = seg.fromAnchorId ? getAnchorPos(seg.fromAnchorId) : null;
-              const segToDefault = seg.toAnchorId ? getAnchorPos(seg.toAnchorId) : null;
-              let p1 = segFromDefault;
-              let p2 = segToDefault;
-              if (i === 0 && !p1) p1 = floatingFromCss ?? null;
-              if (i === segs.length - 1 && !p2) p2 = floatingToCss ?? null;
-              if (!p1 || !p2) return null;
-
-              // ★ 浮动端若被其它 cable 引用（cable-cable 连接），视为"已锚定"
-              const fromRefIsReferenced = !segFromDefault && i === 0 && cables.some((c) =>
-                c.id !== cable.id &&
-                c.segments.some((s) =>
-                  s.fromAnchorId === `cable:${cable.id}.from` || s.toAnchorId === `cable:${cable.id}.from`
-                )
-              );
-              const toRefIsReferenced = !segToDefault && i === segs.length - 1 && cables.some((c) =>
-                c.id !== cable.id &&
-                c.segments.some((s) =>
-                  s.fromAnchorId === `cable:${cable.id}.to` || s.toAnchorId === `cable:${cable.id}.to`
-                )
-              );
-
-              // ★ 主修复：被引用算"已解析"
-              const isFromResolvedEffective = !!segFromDefault || fromRefIsReferenced;
-              const isToResolvedEffective   = !!segToDefault   || toRefIsReferenced;
-              const isFloating = !isFromResolvedEffective || !isToResolvedEffective;
-              return (
-                <line
-                  key={`seg-${cable.id}-${i}`}
-                  x1={p1.x} y1={p1.y}
-                  x2={p2.x} y2={p2.y}
-                  stroke={isSelected ? '#FCD34D' : color}
-                  strokeWidth={isSelected ? 5 : 4}
-                  strokeLinecap="round"
-                  strokeDasharray={isFloating ? '10 6' : undefined}
-                  opacity={isSelected ? 0.95 : isFloating ? 0.5 : 0.75}
+            {routePaths.map((resolvedPath) => resolvedPath.points.length >= 2 && (
+              <g key={`${cable.id}-segment-${resolvedPath.segmentIndex}`} data-cable-id={cable.id} data-segment-index={resolvedPath.segmentIndex}>
+                <polyline points={pointsToSvg(resolvedPath.points)} fill="none" stroke="transparent" strokeWidth={16 / zoom}
                   style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    selectCable(isSelected ? null : cable.id);
+                  onClick={(event) => { event.stopPropagation(); selectCable(isSelected ? null : cable.id); }}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    if (cable.segments.length !== 1) return;
+                    const point = toWorld(event.clientX, event.clientY);
+                    if (!point) return;
+                    let bestIndex = 0;
+                    let bestDistance = Number.POSITIVE_INFINITY;
+                    for (let i = 1; i < resolvedPath.points.length; i++) {
+                      const a = resolvedPath.points[i - 1];
+                      const b = resolvedPath.points[i];
+                      const distance = Math.min(Math.hypot(point.x - a.x, point.y - a.y), Math.hypot(point.x - b.x, point.y - b.y));
+                      if (distance < bestDistance) { bestDistance = distance; bestIndex = i; }
+                    }
+                    const full = [...resolvedPath.points];
+                    full.splice(bestIndex, 0, point);
+                    setCableWaypoints(cable.id, full.slice(1, -1));
+                    selectCable(cable.id);
                   }}
                 />
-              );
-            })}
+                <polyline points={pointsToSvg(resolvedPath.points)} fill="none"
+                  // 电力粒子本身为黄色；选中线若也变黄会让运动粒子完全隐形。
+                  stroke={isSelected ? '#7C3AED' : color}
+                  strokeWidth={isSelected ? 5 : 4}
+                  strokeLinecap="round" strokeLinejoin="round"
+                  strokeDasharray={isFloating ? '10 6' : undefined}
+                  opacity={isSelected ? 0.95 : isFloating ? 0.5 : 0.75}
+                  pointerEvents="none" vectorEffect="non-scaling-stroke"
+                />
+              </g>
+            ))}
+            {isSelected && editableWaypoints.map((point, index) => (
+              <circle key={`waypoint-${cable.id}-${index}`} cx={point.x} cy={point.y} r={5 / zoom}
+                fill={draggingWaypoint?.cableId === cable.id && draggingWaypoint.index === index ? '#7c3aed' : 'white'}
+                stroke="#7c3aed" strokeWidth={1.5 / zoom} style={{ cursor: 'move' }}
+                onMouseDown={(event) => startDragWaypoint(cable.id, index, editableWaypoints, event)}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  setCableWaypoints(cable.id, editableWaypoints.filter((_, itemIndex) => itemIndex !== index));
+                }}
+              />
+            ))}
             {/* 端点手柄 */}
             {fromPos && fromResolved && (
               <g>
@@ -1457,7 +1939,25 @@ function CableOverlay({
           </g>
         );
       })}
-      <g ref={particleLayerRef} className="particle-layer" />
+      <g ref={particleLayerRef} className="particle-layer" pointerEvents="none">
+        {cables.flatMap((cable) => cable.segments.flatMap((_, segmentIndex) =>
+          Array.from({ length: 8 }, (_, particleIndex) => {
+            const style = PARTICLE_STYLE[cable.kind];
+            return (
+              <circle
+                key={`${cable.id}:${segmentIndex}:${particleIndex}`}
+                data-particle-key={`${cable.id}:${segmentIndex}:${particleIndex}`}
+                data-cable-id={cable.id}
+                data-segment-index={segmentIndex}
+                data-particle-index={particleIndex}
+                fill={particleIndex % 2 === 0 ? style.main : style.edge}
+                stroke={style.edge}
+                opacity={0}
+              />
+            );
+          })
+        ))}
+      </g>
       {/* 拖动端点时高亮最近锚点 */}
       {cableDrag?.snapAnchorId && (() => {
         const p = getAnchorPos(cableDrag.snapAnchorId);
@@ -1468,17 +1968,13 @@ function CableOverlay({
             pointerEvents="none" />
         );
       })()}
-      {/* 删除按钮（线缆选中时） */}
-      {selectedCable && (
-        <g className="delete-btn" style={{ cursor: 'pointer' }} onClick={(e) => {
-          e.stopPropagation();
-          removeCable(selectedCable);
-          selectCable(null);
-        }}>
-          <rect x={10} y={10} width={110} height={26} rx={4} fill="#ef4444" opacity={0.95} />
-          <text x={65} y={28} textAnchor="middle" fill="white" fontSize="13" fontWeight="bold">✕ 删除线缆</text>
-        </g>
-      )}
+      {cableAxisGuide && (cableAxisGuide.axis === 'x' ? (
+        <line x1={cableAxisGuide.value} x2={cableAxisGuide.value} y1={cableAxisGuide.from} y2={cableAxisGuide.to}
+          className="alignment-guide center" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+      ) : (
+        <line y1={cableAxisGuide.value} y2={cableAxisGuide.value} x1={cableAxisGuide.from} x2={cableAxisGuide.to}
+          className="alignment-guide center" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+      ))}
       {/* 删除按钮（仪表选中时） */}
       {selectedMeter && (
         <g className="delete-btn" style={{ cursor: 'pointer' }} onClick={(e) => {

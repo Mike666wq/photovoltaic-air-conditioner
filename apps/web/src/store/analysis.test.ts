@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_BATTERY_CURRENT_CONVENTION, useAnalysisStore } from './analysis';
+import { prepareDataSource } from '../services/dataSourcePipeline';
 
 const source = (sourceFile: string, headers: string[]) => ({
   sourceFile,
@@ -12,7 +13,7 @@ const source = (sourceFile: string, headers: string[]) => ({
 describe('analysis store 多来源筛选', () => {
   beforeEach(() => {
     useAnalysisStore.getState().clearSources();
-    useAnalysisStore.setState({ analysisMode: 'union', batteryCurrentConvention: DEFAULT_BATTERY_CURRENT_CONVENTION });
+    useAnalysisStore.setState({ analysisMode: 'union', analysisModeTouched: false, batteryCurrentConvention: DEFAULT_BATTERY_CURRENT_CONVENTION });
   });
 
   it('导入来源后默认纳入并集，同时保留首个单源选择', () => {
@@ -23,6 +24,40 @@ describe('analysis store 多来源筛选', () => {
     expect(state.selectedSourceIds).toEqual([process.id, bms.id]);
     expect(state.singleSourceId).toBe(process.id);
     expect(state.analysisMode).toBe('intersection');
+  });
+
+  it('批量提交共享整理结果且只保留同一份行数据', () => {
+    const processInput = source('process.xlsx', ['时间', 'T4.PV']);
+    const bmsInput = source('bms.xlsx', ['时间', 'SOC(%)']);
+    const prepared = [processInput, bmsInput].map((input, index) => prepareDataSource({
+      id: `prepared-${index}`,
+      filename: input.sourceFile,
+      format: input.format,
+      headers: input.headers,
+      rows: input.rows,
+      timeColumn: input.timeColumn,
+    }));
+
+    const added = useAnalysisStore.getState().addPreparedSources(prepared);
+    expect(added).toHaveLength(2);
+    expect(added[0].prepared).toBe(prepared[0]);
+    expect(added[0].rows).toBe(prepared[0].rows);
+    expect(added[0].processedRows).toBe(prepared[0].processedRows);
+    expect(useAnalysisStore.getState().analysisMode).toBe('intersection');
+
+    const replacement = prepareDataSource({
+      id: prepared[0].id,
+      filename: prepared[0].filename,
+      format: prepared[0].format,
+      headers: prepared[0].headers,
+      rows: [{ 时间: '2026-07-17 09:00:00', 'T4.PV': '26' }],
+      timeColumn: '时间',
+    });
+    useAnalysisStore.getState().addPreparedSources([replacement]);
+    const afterReplacement = useAnalysisStore.getState();
+    expect(afterReplacement.sources).toHaveLength(2);
+    expect(afterReplacement.sources.find((item) => item.id === replacement.id)?.rows).toBe(replacement.rows);
+    expect(afterReplacement.selectedSourceIds).toHaveLength(2);
   });
 
   it('来源筛选可以排除再恢复，删除来源会清理悬空选择', () => {
@@ -53,6 +88,14 @@ describe('analysis store 多来源筛选', () => {
     useAnalysisStore.getState().setAnalysisMode('union');
     useAnalysisStore.getState().addSource(source('other.xlsx', ['时间', 'T5.PV']));
     expect(useAnalysisStore.getState().analysisMode).toBe('union');
+  });
+
+  it('导入进行中用户已切到单数据源时，后续来源提交不会覆盖选择', () => {
+    useAnalysisStore.getState().addSource(source('process.xlsx', ['时间', 'T4.PV']));
+    useAnalysisStore.getState().setAnalysisMode('single');
+    useAnalysisStore.getState().addSource(source('bms.xlsx', ['时间', 'SOC(%)']));
+    expect(useAnalysisStore.getState().analysisMode).toBe('single');
+    expect(useAnalysisStore.getState().analysisModeTouched).toBe(true);
   });
 
   it('导入时保留质量报告，异常温度电压错位行不会被标为有效', () => {
