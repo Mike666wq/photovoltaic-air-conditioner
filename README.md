@@ -32,8 +32,8 @@
 | [部件动画增强.md](./部件动画增强.md) | 7 部件 v0.3 优化编码规范 |
 | [base-elements/README.md](./base-elements/README.md) | 18 个 SVG 视觉规范 + 动画接入规范 |
 | [base-elements/数据字段映射.md](./base-elements/数据字段映射.md) | 字段定义 + 动画驱动字段 + 转速字段表 |
-| [CICD持续集成部署.md](./CICD持续集成部署.md) | 已验收的 GitHub Actions → GHCR → Debian 12 自动部署完整操作手册 |
-| [deploy/README.md](./deploy/README.md) | 生产服务器状态、发布、回滚、备份与故障排查速查 |
+| [CICD持续集成部署.md](./CICD持续集成部署.md) | GitHub Actions 自动构建并发布 GHCR、Kubernetes 手动滚动更新说明 |
+| [deploy/README.md](./deploy/README.md) | Kubernetes 手动更新、状态检查与回滚速查 |
 
 ---
 

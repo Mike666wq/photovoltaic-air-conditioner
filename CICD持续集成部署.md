@@ -1,22 +1,21 @@
-# 光伏·空调仿真平台：从零到生产的 CI/CD 操作手册
+# 光伏·空调仿真平台：GitHub Actions 构建与 GHCR 发布手册
 
-> 版本：v7.0（已按 2026-08-02 首次生产部署实测校正）
+> 版本：v8.0（GHCR 自动发布 + Kubernetes 手动更新）
 >
-> 更新：2026-08-02
+> 更新：2026-08-22
 >
-> 目标：按本文完成后，只需推送一个版本 Tag，GitHub 会构建镜像并推送 GHCR，生产服务器自动拉取该镜像、启动容器、检查健康状态；服务器不保存应用源码，也不构建镜像。
+> 目标：推送版本 Tag 后，GitHub 自动验证、构建镜像并推送 GHCR；生产 Kubernetes 更新由运维人员手动执行 `kubectl set image`，检查使用 `kubectl rollout status`，回滚使用 `kubectl rollout undo`。
 
-## 本次已验收的生产结果
+> **当前生效边界：** `.github/workflows/release.yml` 中旧的 Docker Compose + SCP/SSH `deploy` Job 已整体注释保留，不会连接服务器，也不会自动部署。本文后半部分原 Docker Compose 自动部署内容仅作历史参考；当前生产操作以“第 20 节”和 [`deploy/README.md`](./deploy/README.md) 的 Kubernetes 命令为准。
+
+## 当前生效的 CI/CD 结果
 
 本项目的 CI/CD 已完整跑通，当前验收基线如下：
 
 - 推送 `main` 会运行 CI：安装依赖、TypeScript 检查、Vite 构建、Docker 构建与容器冒烟测试；不会发布生产镜像。
-- 推送合法版本 Tag（如 `v0.2.1`）会运行 Release：校验 Tag 属于 `main`、构建镜像、推送 GHCR、上传部署配置并远程部署。
-- 服务器只接收 `docker-compose.yml` 与 `deploy/deploy.sh`，应用源码不会上传到服务器。
-- 服务器按 `ghcr.io/...@sha256:...` 不可变 digest 拉取镜像，并映射 `服务器:8765 → 容器:8080`。
-- 应用健康检查为 `http://127.0.0.1:8080/health`，带 2 分钟启动宽限；部署脚本最长等待 5 分钟。
-- 发布成功后会保存当前 Tag、digest 与 Compose 快照；新版本失败时自动恢复上一健康版本。
-- 旧镜像默认保留在服务器上，便于回滚；Docker 不会因旧容器被替换而自动删除其镜像。
+- 推送合法版本 Tag（如 `v0.2.3`）会运行 Release：校验 Tag 属于 `main`、构建镜像并推送 GHCR。
+- `publish-image` 绿色即为 GitHub 自动流程完成；工作流不再上传部署配置，也不再 SSH 登录服务器。
+- Kubernetes 更新、状态检查和回滚暂时由运维人员手动执行。
 
 ## 0. 先理解最终流程
 
@@ -31,22 +30,21 @@
                 ▼
 GitHub Actions
   校验 Tag 属于 main → 构建 Docker 镜像 → 推送 GHCR
-  → 将不可变 digest 交给服务器部署脚本
                 │
                 ▼
-生产服务器
-  docker compose pull ghcr.io/...@sha256:...
-  → docker compose up -d → 健康检查 → 失败回滚上一 digest
+运维人员在 Kubernetes 服务器手动执行
+  kubectl set image → kubectl rollout status
+  需要回滚时执行 kubectl rollout undo
 ```
 
-**应用代码只进入 GitHub 和 GHCR 镜像，绝不上传到服务器。** Release 过程中会向服务器传送 `docker-compose.yml` 和 `deploy/deploy.sh` 两个很小的部署配置文件，用来升级部署规则；它们不是应用源码，也不参与镜像构建。
+**应用代码只进入 GitHub 和 GHCR 镜像。** Release 当前不会向服务器传送任何文件。
 
 ### CI、Release、Tag 与 digest 的关系
 
 | 名称 | 触发方式 | 做什么 | 是否生成 GHCR 镜像 |
 |---|---|---|---|
 | `CI` | PR 或推送 `main` | typecheck、前端构建、临时 Docker 镜像构建和冒烟测试 | 否；临时镜像只存在于 Runner |
-| `Release` | 推送 `vX.Y.Z` 或 `vX.Y.Z-rcN` Tag | 再次验证、构建并推送 GHCR、自动部署 | 是 |
+| `Release` | 推送 `vX.Y.Z` 或 `vX.Y.Z-rcN` Tag | 再次验证、构建并推送 GHCR | 是 |
 | 版本 Tag | 例如 `v0.2.1` | 给人阅读和发布管理使用 | GHCR 中可见 |
 | 镜像 digest | 例如 `@sha256:abc...` | 服务器实际部署的不可变镜像身份 | 永远指向同一镜像 |
 
@@ -57,11 +55,11 @@ GHCR 中会看到版本 Tag，但服务器的 `docker images` 或 `docker ps` �
 | 文件 | 职责 |
 |---|---|
 | `.github/workflows/ci.yml` | PR/main 的代码、前端和临时容器验证 |
-| `.github/workflows/release.yml` | Tag 触发、构建并推送 GHCR、向服务器发起部署 |
+| `.github/workflows/release.yml` | Tag 触发、构建并推送 GHCR；旧自动部署 Job 已注释 |
 | `Dockerfile` | 定义镜像如何构建以及容器内如何启动 Node 静态服务 |
 | `.dockerignore` | 控制哪些本地文件不进入 GitHub Runner 的 Docker 构建上下文 |
-| `docker-compose.yml` | 定义服务器使用哪个 digest、端口映射、场景卷、安全限制和健康检查 |
-| `deploy/deploy.sh` | pull、启动、健康验收、版本快照、备份与失败回滚 |
+| `docker-compose.yml` | 旧单机部署配置，当前 Kubernetes 流程不调用 |
+| `deploy/deploy.sh` | 旧 Compose 部署脚本，保留但当前 Release 不调用 |
 
 ## 必须遵守的首次上线顺序
 
@@ -69,11 +67,9 @@ GHCR 中会看到版本 Tag，但服务器的 `docker images` 或 `docker ps` �
 
 1. 本地创建首个 Git 提交，推送 `main`。
 2. 等待 GitHub 的 **CI** 成功（绿色）。此时只验证构建，**不会**创建 GHCR 容器包。
-3. 完成服务器第 9～13 节：root SSH 专用密钥、服务器指纹、Docker/Compose、`/opt/pv-ac-sim/.env`、防火墙、GHCR 拉取 Token 登录。
-4. 回 GitHub 填写第 14 节的 5 个 `SERVER_*` Environment Secrets。
-5. 在 main 创建并推送第一个发布 Tag，例如 `v0.2.0`。
-6. GitHub 的 **Release** 工作流执行 `publish-image`，此时才自动创建 GHCR 容器包并推送镜像。
-7. `publish-image` 成功后，才去 Packages 页面执行第 18 节的包权限/可见性检查；随后 `deploy` Job 自动在服务器拉取镜像。
+3. 在 main 创建并推送第一个发布 Tag，例如 `v0.2.3`。
+4. GitHub 的 **Release** 工作流执行 `publish-image`，自动创建或更新 GHCR 容器包。
+5. `publish-image` 绿色后，在 Kubernetes 服务器按第 20 节手动滚动更新。
 
 ---
 
@@ -304,7 +300,7 @@ git push -u origin main
 
 目的：避免他人覆盖或删除已发布版本。Tag 指向的提交不可随意改写。
 
-## 8.1 创建 production Environment 与部署审批
+## 8.1 [历史自动部署配置] 创建 production Environment 与部署审批
 
 路径：仓库 **Settings → Environments → New environment**。
 
@@ -318,7 +314,7 @@ git push -u origin main
 
 若仓库套餐/组织策略不支持私有仓库 Environment 审批，依旧可运行自动部署；此时必须严格控制 Tag 创建权限。
 
-# 第三部分：生产服务器（先完成这里）
+# 第三部分：[历史 Compose 自动部署参考，当前跳过]
 
 以下按你的决定，以 **Debian 12（Bookworm）**、SSH 端口 22、`root` 直接部署为例。命令中的 `SERVER_IP` 必须替换为真实值。
 
@@ -488,7 +484,7 @@ Docker 发布端口可能绕过 UFW 的普通规则；如需严格限制公网�
 
 ---
 
-# 第四部分：GHCR 拉取凭据（完成服务器后再做）
+# 第四部分：[历史 Compose 自动部署参考，当前跳过]
 
 ## 12. 创建服务器拉取私有镜像的 Token
 
@@ -515,7 +511,7 @@ printf '%s' '第12节创建的完整Token' | \
 
 ---
 
-# 第五部分：回到 GitHub 填部署 Secrets
+# 第五部分：[历史 SCP/SSH 自动部署参考，当前跳过]
 
 ## 14. 配置 GitHub 部署 Secrets
 
@@ -535,7 +531,7 @@ printf '%s' '第12节创建的完整Token' | \
 
 # 第六部分：首次发布、Package 自动创建与验收
 
-## 15. 首次发布前的最终检查
+## 15. [历史自动部署检查，当前跳过]
 
 本地必须检查 Git 状态：
 
@@ -582,12 +578,9 @@ git push origin v0.2.0
 
 1. `verify` 为绿色：Tag 合法、提交在 main、typecheck/build 成功。
 2. `publish-image` 为绿色：GHCR 登录、Buildx 构建、push 成功。
-3. `deploy` 显示等待时，审批人点击 **Review deployments** → 选择 `production` → **Approve and deploy**；没有审批功能时它会自动继续。
-4. `deploy` 为绿色，并在日志中看到 `部署成功：v0.2.0` 和 digest。
+3. 当前没有 `deploy` Job；`publish-image` 绿色即表示 GitHub 自动流程完成。
 
-首次部署仅上传 Compose 和部署脚本；服务器不会接收 Dockerfile、`apps/`、`base-elements/`、Node 依赖和实验数据。
-
-三个 Job 的含义必须分清：`publish-image` 成功说明镜像已经进入 GHCR；SCP 步骤只上传部署配置，不是上传镜像；最后的 SSH 步骤才让服务器执行 `docker compose pull` 并启动容器。
+工作流不会通过 SCP/SSH 连接服务器，也不会自动修改 Kubernetes Deployment。
 
 ## 18. Release 成功后检查自动创建的 GHCR Package
 
@@ -601,46 +594,51 @@ git push origin v0.2.0
 
 如果 `publish-image` 失败，Package 不会出现；返回 Actions 查看该 Job 的红色步骤，而不是在 Packages 页面手动创建容器。
 
-## 19. 首发验收
+## 19. GHCR 发布验收
 
-服务器执行：
+确认 GitHub Release 的 `verify` 和 `publish-image` 均为绿色，并在 GHCR Package 中看到本次版本 Tag，例如：
 
-```bash
-cd /opt/pv-ac-sim
-cat current-release
-cat current-image
-docker ps --filter name=pv-ac-sim-web
-docker inspect --format='{{.State.Health.Status}}' pv-ac-sim-web
-curl --fail http://127.0.0.1:8765/health
-curl --fail http://127.0.0.1:8765/
+```text
+ghcr.io/mike666wq/photovoltaic-air-conditioner:v0.2.3
 ```
 
-从另一网络：
-
-```bash
-curl --fail http://SERVER_IP:8765/health
-```
-
-浏览器访问 `http://SERVER_IP:8765/`，检查首页、SVG 资源、场景保存/刷新读取/删除。
-
-最终必须同时满足：Release 全部绿色、`current-release` 是本次 Tag、`current-image` 是本次 digest、容器状态为 `healthy`、内网和公网 `/health` 都返回 HTTP 200。页面暂时能打开但容器仍为 `unhealthy`，不能算完整验收成功。
-
-## 20. 后续正常发布
+## 20. Kubernetes 手动更新、检查与回滚
 
 每次都遵守相同流程：功能分支 → PR → CI 绿 → 合并 main → main CI 绿 → 新 Tag。
 
 ```bash
 git checkout main
 git pull --ff-only origin main
-git tag -a v0.2.1 -m "Release v0.2.1"
-git push origin v0.2.1
+git tag -a v0.2.3 -m "Release v0.2.3"
+git push origin v0.2.3
 ```
 
-服务器会直接拉取新的 digest，不需要 SSH 上去执行构建命令。
+等 `publish-image` 绿色后，登录 Kubernetes 服务器，使用本次唯一版本 Tag 更新：
+
+```bash
+kubectl -n cloud set image deployment/pv-ac-sim-web \
+  pv-ac-sim-web=ghcr.io/mike666wq/photovoltaic-air-conditioner:v0.2.3
+
+kubectl -n cloud rollout status deployment/pv-ac-sim-web --timeout=5m
+```
+
+查看当前镜像：
+
+```bash
+kubectl -n cloud get deployment pv-ac-sim-web \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="pv-ac-sim-web")].image}{"\n"}'
+```
+
+需要回滚到上一修订版本时：
+
+```bash
+kubectl -n cloud rollout undo deployment/pv-ac-sim-web
+kubectl -n cloud rollout status deployment/pv-ac-sim-web --timeout=5m
+```
 
 ---
 
-# 第七部分：运行、回滚和故障
+# 第七部分：[历史 Docker Compose 运维参考，当前不执行]
 
 ## 21. 查看状态和日志
 

@@ -1,111 +1,91 @@
-# 生产部署运维速查
+# Kubernetes 生产发布运维速查
 
-> 完整流程见 [`../CICD持续集成部署.md`](../CICD持续集成部署.md)。
+> 当前生效模式：GitHub Actions 校验源码、构建镜像并推送 GHCR；不再通过 SCP/SSH 自动部署。生产更新由运维人员在 Kubernetes 服务器手动执行。
 >
-> 当前模式：GitHub Actions 构建并推送 GHCR 镜像；服务器只 pull 不可变 digest 并运行容器。
->
-> GHCR 的 `vX.Y.Z` 供人识别，服务器按 `@sha256:...` 部署以保证镜像不可变；`current-release` 与 `current-image` 保存两者对应关系。
+> 原 Docker Compose 部署脚本 [`deploy.sh`](./deploy.sh) 暂时保留，但当前 Release 不再调用。
 
-## 当前运行信息
+## GitHub 发布镜像
 
-| 项目 | 当前值 |
-|---|---|
-| 容器 | `pv-ac-sim-web` |
-| 镜像来源 | `ghcr.io/<owner>/photovoltaic-air-conditioner@sha256:...` |
-| 容器端口 | `8080` |
-| 公网端口 | `8765` |
-| 健康检查 | `/health` |
-| 场景目录 | `/opt/pv-ac-sim/scenarios` |
-| 当前 Tag/digest | `/opt/pv-ac-sim/current-release`、`current-image` |
-| 回滚元数据 | `/opt/pv-ac-sim/deploy/versions/<tag>/` |
-
-## 查看状态与日志
-
-```bash
-ssh -p 22 user@SERVER_IP
-cd /opt/pv-ac-sim
-cat current-release
-cat current-image
-docker ps --filter name=pv-ac-sim-web
-docker inspect --format='{{.State.Health.Status}}' pv-ac-sim-web
-curl --fail http://127.0.0.1:8765/health
-docker logs --tail 100 pv-ac-sim-web
-docker stats --no-stream pv-ac-sim-web
-```
-
-## 日常发布
+在本地确保 `main` 已经通过 CI，然后创建新的唯一版本 Tag：
 
 ```bash
 git checkout main
 git pull --ff-only origin main
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin v0.2.0
+git tag -a v0.2.3 -m "Release v0.2.3"
+git push origin v0.2.3
 ```
 
-GitHub Actions 会构建、测试、推送 GHCR 镜像，然后让服务器 pull 指定 digest。服务器不会构建镜像。不要执行 `git push --tags`。
+GitHub Actions 的 Release 工作流依次执行：
 
-成功标准：Release 全绿、`current-release` 为本次 Tag、`current-image` 为本次 digest、`docker inspect --format='{{.State.Health.Status}}' pv-ac-sim-web` 输出 `healthy`。
+```text
+verify → publish-image
+```
 
-## 手动回滚
+`publish-image` 绿色即表示 GHCR 已生成：
+
+```text
+ghcr.io/mike666wq/photovoltaic-air-conditioner:v0.2.3
+```
+
+正式版同时更新 `latest`，但 Kubernetes 手动更新应使用本次唯一版本 Tag，确保 `kubectl set image` 一定产生新的 Deployment 修订版本。
+
+## Kubernetes 手动滚动更新
+
+登录 Kubernetes 服务器后执行，将版本号替换为刚发布成功的 Tag：
 
 ```bash
-cd /opt/pv-ac-sim
-./deploy/deploy.sh v0.1.0
+kubectl -n cloud set image deployment/pv-ac-sim-web \
+  pv-ac-sim-web=ghcr.io/mike666wq/photovoltaic-air-conditioner:v0.2.3
+
+kubectl -n cloud rollout status deployment/pv-ac-sim-web --timeout=5m
 ```
 
-脚本从 `deploy/versions/v0.1.0/` 读取保存的 digest 与 Compose 快照，pull 后启动旧版本。应用回滚不回滚场景数据。
-
-## 场景备份
+`rollout status` 显示 `successfully rolled out` 即更新完成。再检查：
 
 ```bash
-cd /opt/pv-ac-sim
-backup="/tmp/pv-ac-scenarios-$(date +%Y%m%d-%H%M%S).tar.gz"
-tar --exclude='scenarios/*.tmp' -czf "$backup" scenarios/
-ls -lh "$backup"
+kubectl -n cloud get deployment pv-ac-sim-web
+kubectl -n cloud get pods -l app=pv-ac-sim-web -o wide
+kubectl -n cloud get service pv-ac-sim-web
 ```
 
-部署前自动备份仅保留最近 10 份且与服务器同机；重要场景应复制到异地。
-
-## 常见故障
-
-GHCR 拉取失败：
+## 查看当前镜像与日志
 
 ```bash
-docker logout ghcr.io
-printf '%s' 'GHCR_READ_TOKEN' | docker login ghcr.io -u GITHUB_USERNAME --password-stdin
-docker pull "$(cat /opt/pv-ac-sim/current-image)"
+kubectl -n cloud get deployment pv-ac-sim-web \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="pv-ac-sim-web")].image}{"\n"}'
+
+kubectl -n cloud logs deployment/pv-ac-sim-web --tail=200
+kubectl -n cloud describe deployment pv-ac-sim-web
 ```
 
-容器 unhealthy：
+## 一行回滚
+
+回滚到上一 Deployment 修订版本：
 
 ```bash
-docker ps -a --filter name=pv-ac-sim-web
-docker logs --tail 200 pv-ac-sim-web
-docker inspect --format='{{range .State.Health.Log}}{{printf "开始=%s exit=%d 输出=%q\n" .Start .ExitCode .Output}}{{end}}' pv-ac-sim-web
-docker exec pv-ac-sim-web wget -S -O- http://127.0.0.1:8080/health
-curl -v http://127.0.0.1:8765/health
+kubectl -n cloud rollout undo deployment/pv-ac-sim-web
 ```
 
-健康检查固定使用 IPv4 回环地址 `127.0.0.1`；不要改成可能解析为 IPv6 `::1` 的 `localhost`。
-
-场景无法保存：
+随后必须确认回滚完成：
 
 ```bash
-ls -ld /opt/pv-ac-sim/scenarios
-grep -E '^(APP_UID|APP_GID)=' /opt/pv-ac-sim/.env
+kubectl -n cloud rollout status deployment/pv-ac-sim-web --timeout=5m
 ```
 
-公网不可访问：检查 `WEB_BIND_IP=0.0.0.0`、Docker 端口映射、服务器防火墙和云安全组的 `8765/tcp`。
-
-## 镜像保留与清理
-
-旧容器被替换后，Docker 默认不会删除旧镜像；当前部署脚本也主动保留旧镜像，方便快速回滚。用下面命令查看空间与版本映射：
+查看历史或回滚到指定修订版本：
 
 ```bash
-docker system df
-cat /opt/pv-ac-sim/current-release
-cat /opt/pv-ac-sim/current-image
-find /opt/pv-ac-sim/deploy/versions -maxdepth 2 -type f -print
+kubectl -n cloud rollout history deployment/pv-ac-sim-web
+kubectl -n cloud rollout undo deployment/pv-ac-sim-web --to-revision=2
 ```
 
-仅在磁盘空间紧张并确认旧版本不再需要时，按明确 digest 删除单个旧镜像。不要在共享服务器执行 `docker system prune -a`。
+## 当前 CI/CD 边界
+
+| 环节 | 当前方式 |
+|---|---|
+| PR/main 检查 | GitHub Actions 自动执行 |
+| Docker 镜像构建 | GitHub Actions 自动执行 |
+| GHCR 镜像发布 | 推送版本 Tag 后自动执行 |
+| Kubernetes 拉取新镜像 | 手动执行 `kubectl set image` 后由 Kubernetes 完成 |
+| 滚动更新检查 | 手动执行 `kubectl rollout status` |
+| 回滚 | 手动执行 `kubectl rollout undo` |
