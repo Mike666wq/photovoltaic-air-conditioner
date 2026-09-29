@@ -43,6 +43,7 @@ import { applyTimelineFrame } from '../components/TimelineControls';
 import { EChart } from '../components/dashboard/EChart';
 import { ChartPanel } from '../components/dashboard/ChartPanel';
 import { MetricCard } from '../components/dashboard/MetricCard';
+import { buildLineChartLayout } from '../components/dashboard/lineChartLayout';
 import '../analysis-dashboard.css';
 
 type DashboardLineType = 'solid' | 'dashed' | 'dotted';
@@ -160,18 +161,11 @@ function lineOption(series: Array<{ key: string; label: string; unit: string; ax
         : item.label,
     }));
   });
-  const hasSecondary = expandedSeries.some((item) => item.axis === 1);
   return {
     animation: false,
     title: title ? { text: title, show: false } : undefined,
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross', lineStyle: { color: '#7dd3fc' }, crossStyle: { color: '#7dd3fc' } }, backgroundColor: '#0b2138', borderColor: '#2786a8', textStyle: { color: '#e6f4ff' } },
-    legend: { top: 2, textStyle: { color: '#d7efff' }, itemWidth: 24, itemHeight: 10, itemGap: 16 },
-    grid: { top: 34, left: 48, right: hasSecondary ? 54 : 20, bottom: 34 },
-    xAxis: { type: 'time', axisLine: { lineStyle: { color: '#31516a' } }, axisLabel: { color: '#8da9bd' } },
-    yAxis: hasSecondary
-      ? [{ type: 'value', name: series.find((item) => item.axis !== 1)?.unit ?? '', nameTextStyle: { color: '#8da9bd' }, axisLabel: { color: '#8da9bd' }, splitLine: { lineStyle: { color: 'rgba(148,203,232,.12)' } } }, { type: 'value', name: series.find((item) => item.axis === 1)?.unit ?? '', nameTextStyle: { color: '#8da9bd' }, axisLabel: { color: '#8da9bd' }, splitLine: { show: false } }]
-      : { type: 'value', name: series[0]?.unit ?? '', nameTextStyle: { color: '#8da9bd' }, axisLabel: { color: '#8da9bd' }, splitLine: { lineStyle: { color: 'rgba(148,203,232,.12)' } } },
-    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 4, borderColor: 'transparent', fillerColor: 'rgba(34,211,238,.16)', textStyle: { color: '#8da9bd' } }],
+    ...buildLineChartLayout(series),
     series: expandedSeries.map((item) => {
       const style = LINE_STYLES[item.key] ?? { color: '#22d3ee', type: 'solid' as const, width: 2, symbol: 'circle' as const };
       const sourceTypes: DashboardLineType[] = [style.type, 'dashed', 'dotted'];
@@ -759,7 +753,7 @@ export function AnalysisDashboardPage() {
       <ChartPanel title="光伏直流监测" subtitle={chartSubtitle('ZU / ZI', pvFields, { missing: { pv_voltage: '光伏直流电压（ZU）', pv_current: '光伏直流电流（ZI）' } })}>
         {seriesFor('pv_voltage').length || seriesFor('pv_current').length ? <EChart option={lineOption([{ key: 'pv_voltage', label: '直流电压', unit: 'V', data: seriesFor('pv_voltage') }, { key: 'pv_current', label: '直流电流', unit: 'A', axis: 1, data: seriesFor('pv_current') }])} /> : <div className="m3-chart-empty">所选来源或时间范围内没有 ZU / ZI 有效测点。</div>}
       </ChartPanel>
-      <ChartPanel title="交流电气监测" subtitle={chartSubtitle('D / DU', electricalFields, { missing: { system_voltage: '系统电压（D1）', system_current: '系统电流（D2）', grid_voltage: '市电电压（DU1）', grid_current: '市电电流（DU2）' } })}>
+      <ChartPanel title="系统与市电电压／电流" subtitle={chartSubtitle('系统侧 D1 电压 / D2 电流；市电侧 DU1 电压 / DU2 电流', electricalFields, { missing: { system_voltage: '系统侧电压（D1）', system_current: '系统侧电流（D2）', grid_voltage: '市电侧电压（DU1）', grid_current: '市电侧电流（DU2）' } })}>
         {['system_voltage', 'system_current', 'grid_voltage', 'grid_current'].some((key) => seriesFor(key).length) ? <EChart option={lineOption([{ key: 'system_voltage', label: '系统电压', unit: 'V', data: seriesFor('system_voltage') }, { key: 'system_current', label: '系统电流', unit: 'A', axis: 1, data: seriesFor('system_current') }, { key: 'grid_voltage', label: '市电电压', unit: 'V', data: seriesFor('grid_voltage') }, { key: 'grid_current', label: '市电电流', unit: 'A', axis: 1, data: seriesFor('grid_current') }])} /> : <div className="m3-chart-empty">所选来源或时间范围内没有 D / DU 有效测点。</div>}
       </ChartPanel>
       <ChartPanel title="电池状态" subtitle={chartSubtitle('BMS：SOC / 包电压 / 包电流', batteryStateFields, { missing: { battery_soc: 'SOC', battery_voltage: '包电压', battery_current: '包电流' } })}>
