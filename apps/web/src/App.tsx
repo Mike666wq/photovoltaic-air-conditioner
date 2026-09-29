@@ -1,17 +1,35 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { ToastContainer } from './components/ToastContainer';
 import { SchematicPage } from './pages/SchematicPage';
 
+const loadAnalysisDashboard = () => import('./pages/AnalysisDashboardPage');
 const AnalysisDashboardPage = lazy(async () => ({
-  default: (await import('./pages/AnalysisDashboardPage')).AnalysisDashboardPage,
+  default: (await loadAnalysisDashboard()).AnalysisDashboardPage,
 }));
 
 export function App() {
+  useEffect(() => {
+    // 原理图首屏稳定后在空闲阶段预取大屏与 ECharts 代码，避免用户第一次点击
+    // “数据分析”时才下载、解析整块依赖。超时兜底保证浏览器不支持 idle API 时也可预热。
+    const preload = () => { void loadAnalysisDashboard(); };
+    if ('requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(preload, { timeout: 2_000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timeoutId = globalThis.setTimeout(preload, 800);
+    return () => globalThis.clearTimeout(timeoutId);
+  }, []);
+
   return (
-    <Routes>
-      <Route path="/" element={<SchematicPage />} />
-      <Route path="/analysis" element={<Suspense fallback={<div className="app-loading">正在加载数据分析大屏…</div>}><AnalysisDashboardPage /></Suspense>} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<SchematicPage />} />
+        <Route path="/analysis" element={<Suspense fallback={<div className="app-loading">正在加载数据分析大屏…</div>}><AnalysisDashboardPage /></Suspense>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      {/* ToastContainer 提到路由外层：此前只挂在原理图页，大屏调用 useToastStore 会静默无效 */}
+      <ToastContainer />
+    </>
   );
 }

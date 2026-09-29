@@ -1,3 +1,5 @@
+import { toSchematicBatteryPowerKw } from './batteryConvention';
+import { DEFAULT_BATTERY_CURRENT_CONVENTION, type BatteryCurrentConvention } from '../store/analysis';
 import type { NumericFieldKey } from './dataMapper';
 import type { PlaybackFrame } from './playbackSession';
 import type {
@@ -32,6 +34,7 @@ const MEASUREMENT_FIELDS: NumericFieldKey[] = [
 export function buildSchematicFrame(
   frame: PlaybackFrame,
   state: Pick<SimulationState, 'pcm_temp_select'>,
+  batteryConvention: BatteryCurrentConvention = DEFAULT_BATTERY_CURRENT_CONVENTION,
 ): SchematicFrameResult {
   const values = frame.values;
   const measurements: Partial<Record<NumericFieldKey, number>> = {};
@@ -55,8 +58,12 @@ export function buildSchematicFrame(
     put('pump_flow', values.water_flow);
   }
   if (values.battery_voltage != null && values.battery_current != null) {
-    // 本项目 BMS 原始正电流=充电；原理图内部功率统一正=放电、负=充电。
-    put('battery_power_kw', -(values.battery_voltage * values.battery_current) / 1000);
+    // 符号换算统一走 batteryConvention：用户口径 → 原理图内部口径（正=放电）。
+    // 原先此处硬编码 -(V*I)/1000，等于假定用户口径恒为 positive-charge；
+    // 用户在大屏切换「BMS 电流方向」后，这里不会跟随。
+    put('battery_power_kw', toSchematicBatteryPowerKw(
+      values.battery_voltage, values.battery_current, batteryConvention,
+    ) ?? undefined);
   }
 
   for (const field of MEASUREMENT_FIELDS) {

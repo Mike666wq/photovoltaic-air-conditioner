@@ -23,9 +23,8 @@
  *
  * 配套：
  *   - 数据字段映射.md（字段定义 + 动画驱动字段）
- *   - demo.html（演示页面 + 点击交互）
- *   - 数据读入.md（M2 数据接入规范）
- *   - 仿真引擎契约.md §3（SimulationState 权威定义）
+ *   - index.html（已弃用的单文件演示页，保留作 SVG 测试参考）
+ *   - ../../apps/web/AGENTS.md → 根目录 AGENTS.md（工程规约与架构现状）
  */
 
 export type FieldValue = string | number;

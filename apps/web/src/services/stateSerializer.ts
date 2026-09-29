@@ -1,15 +1,20 @@
-import { useSimStore, type SimulationState } from '../store/simulation';
+import { useSimStore, type SimulationState, derivePvOn } from '../store/simulation';
 import {
   PERSIST_APP_ID,
   PERSIST_FILE_TYPE,
   PERSIST_SCHEMA_VERSION,
   type PersistedCable,
   type PersistedDocument,
+  type PersistedExperimentSessionManifest,
   type PersistedMeter,
   type PersistedPreferences,
   type PersistedSimulation,
 } from '../data/saveSchema';
 import { PRESET_METERS, type MeterBind } from '../data/meters';
+import { COMPONENTS } from '../data/components';
+import { useAnalysisStore } from '../store/analysis';
+import { validateExperimentBatch, type ExperimentBatch } from './experimentSession';
+import { restoreExperimentSession, type ExperimentRestoreReport } from './sessionCoordinator';
 
 export class DocumentValidationError extends Error {
   constructor(message: string) {
@@ -22,13 +27,17 @@ type JsonObject = Record<string, unknown>;
 
 const CABLE_KINDS = new Set(['power', 'refrigerant', 'water']);
 const CABLE_DIRECTIONS = new Set(['forward', 'reverse']);
-const CABLE_DIRECTION_MODES = new Set(['auto', 'forward', 'reverse']);
+const CABLE_DIRECTION_MODES = new Set(['forward', 'reverse']);
 const CABLE_ROUTE_MODES = new Set(['straight', 'orthogonal-auto', 'orthogonal-manual']);
 const METER_TYPES = new Set(['power-meter', 'temp-sensor']);
 const METER_MOUNTS = new Set(['free', 'component', 'cable']);
+const SOURCE_FORMATS = new Set(['csv', 'xlsx', 'pdf']);
+const SOURCE_ROLES = new Set(['thermal-electrical', 'battery-bms', 'mixed', 'generic']);
 const METER_BINDS = new Set<MeterBind>([
   'meter-d', 'meter-du', 'env-temp', 'supply-temp', 'return-temp', 'outlet-temp',
 ]);
+const COMPONENT_IDS = new Set(COMPONENTS.map((component) => component.id));
+const ANCHOR_PATTERN = /^(.+)\.(top|bottom|left|right)$/;
 
 function fail(path: string, message: string): never {
   throw new DocumentValidationError(`${path}：${message}`);
@@ -185,6 +194,9 @@ function validateLayout(value: unknown, legacy: boolean): PersistedDocument['lay
   const raw = objectAt(value, 'layout');
   const rawPositions = objectAt(raw.positions, 'layout.positions');
   const positions = Object.fromEntries(Object.entries(rawPositions).map(([id, point]) => [id, pointAt(point, `layout.positions.${id}`)]));
+  for (const id of Object.keys(positions)) {
+    if (!COMPONENT_IDS.has(id)) fail(`layout.positions.${id}`, '不是已知部件，仪表位置应保存在 layout.meters');
+  }
   if (!Array.isArray(raw.cables)) fail('layout.cables', '必须是数组');
   if (!Array.isArray(raw.meters)) fail('layout.meters', '必须是数组');
   const cables = raw.cables.map((cable, index) => validateCable(cable, index, legacy));
@@ -199,6 +211,32 @@ function validateLayout(value: unknown, legacy: boolean): PersistedDocument['lay
     if (!meter.id || meterIds.has(meter.id)) fail('layout.meters', `仪表 id 为空或重复：${meter.id}`);
     meterIds.add(meter.id);
     if (meter.cableId && !cableIds.has(meter.cableId)) fail(`layout.meters.${meter.id}.cableId`, '引用的线缆不存在');
+    if (meter.mount === 'component') {
+      const owner = meter.anchorId?.match(ANCHOR_PATTERN)?.[1];
+      if (!owner || !COMPONENT_IDS.has(owner)) fail(`layout.meters.${meter.id}.anchorId`, '引用的部件锚点不存在');
+    }
+  }
+  const validNodeAnchor = (anchorId: string) => {
+    const owner = anchorId.match(ANCHOR_PATTERN)?.[1];
+    return Boolean(owner && (COMPONENT_IDS.has(owner) || meterIds.has(owner)));
+  };
+  for (const [cableIndex, cable] of cables.entries()) {
+    for (const [segmentIndex, segment] of cable.segments.entries()) {
+      const endpoints = [
+        { key: 'fromAnchorId', value: segment.fromAnchorId, floating: cable.floatingFrom, mayFloat: segmentIndex === 0 },
+        { key: 'toAnchorId', value: segment.toAnchorId, floating: cable.floatingTo, mayFloat: segmentIndex === cable.segments.length - 1 },
+      ] as const;
+      for (const endpoint of endpoints) {
+        const path = `layout.cables[${cableIndex}].segments[${segmentIndex}].${endpoint.key}`;
+        if (!endpoint.value) {
+          if (!endpoint.mayFloat || !endpoint.floating) fail(path, '空端点必须是首尾端点且带有浮动坐标');
+          continue;
+        }
+        if (!endpoint.value.startsWith('cable:') && !validNodeAnchor(endpoint.value)) {
+          fail(path, `引用的部件或仪表锚点不存在：${endpoint.value}`);
+        }
+      }
+    }
   }
   validateNoCableReferenceCycles(cables);
   return { positions, cables, meters };
@@ -220,7 +258,18 @@ function validatePreferences(value: unknown, legacy: boolean): PersistedPreferen
 
 export function serializeState(name: string): PersistedDocument {
   const s = useSimStore.getState();
+  const analysis = useAnalysisStore.getState();
   const now = new Date().toISOString();
+  const referencedSourceIds = new Set(analysis.experimentBatches.flatMap((batch) => batch.sourceIds));
+  const persistedSources = analysis.sources.filter((source) => referencedSourceIds.has(source.id)).map((source) => ({
+    sourceId: source.id,
+    cacheKey: source.id,
+    sourceFile: source.sourceFile,
+    format: source.format,
+    role: source.profile.kind,
+    rowsCount: source.rows.length,
+    timeColumn: source.timeColumn,
+  }));
   return {
     schemaVersion: PERSIST_SCHEMA_VERSION,
     appId: PERSIST_APP_ID,
@@ -263,7 +312,12 @@ export function serializeState(name: string): PersistedDocument {
       snapToGrid: s.snapToGrid,
       smartGuides: s.smartGuides,
     },
-    injection: null,
+    injection: analysis.experimentBatches.length ? {
+      kind: 'experiment-session',
+      activeBatchId: analysis.activeExperimentBatchId,
+      batches: analysis.experimentBatches.map((batch) => ({ ...batch, sourceIds: [...batch.sourceIds] })),
+      sources: persistedSources,
+    } : null,
   };
 }
 
@@ -283,22 +337,77 @@ function extractSimulation(s: SimulationState): PersistedSimulation {
   };
 }
 
-/** 深校验并把受支持的 v1 文档迁移为当前 v2 世界坐标文档。 */
+function validateExperimentManifest(value: unknown): PersistedExperimentSessionManifest {
+  const raw = objectAt(value, 'injection');
+  if (raw.kind !== 'experiment-session') fail('injection.kind', '必须是 experiment-session');
+  if (!Array.isArray(raw.sources)) fail('injection.sources', '必须是数组');
+  if (!Array.isArray(raw.batches)) fail('injection.batches', '必须是数组');
+  const sources = raw.sources.map((item, index) => {
+    const path = `injection.sources[${index}]`;
+    const source = objectAt(item, path);
+    const rowsCount = finiteAt(source.rowsCount, `${path}.rowsCount`);
+    if (!Number.isInteger(rowsCount) || rowsCount < 0) fail(`${path}.rowsCount`, '必须是非负整数');
+    return {
+      sourceId: stringAt(source.sourceId, `${path}.sourceId`),
+      cacheKey: stringAt(source.cacheKey, `${path}.cacheKey`),
+      sourceFile: stringAt(source.sourceFile, `${path}.sourceFile`),
+      format: enumAt<'csv' | 'xlsx' | 'pdf'>(source.format, SOURCE_FORMATS, `${path}.format`),
+      role: enumAt<'thermal-electrical' | 'battery-bms' | 'mixed' | 'generic'>(source.role, SOURCE_ROLES, `${path}.role`),
+      rowsCount,
+      timeColumn: optionalString(source.timeColumn, `${path}.timeColumn`),
+    };
+  });
+  const sourceIds = new Set<string>();
+  for (const source of sources) {
+    if (!source.sourceId || sourceIds.has(source.sourceId)) fail('injection.sources', `数据源 id 为空或重复：${source.sourceId}`);
+    sourceIds.add(source.sourceId);
+  }
+  const batches = raw.batches.map((item, index) => {
+    const path = `injection.batches[${index}]`;
+    const batch = objectAt(item, path);
+    const parsed: ExperimentBatch = {
+      id: stringAt(batch.id, `${path}.id`),
+      name: stringAt(batch.name, `${path}.name`),
+      sourceIds: Array.isArray(batch.sourceIds)
+        ? batch.sourceIds.map((sourceId, sourceIndex) => stringAt(sourceId, `${path}.sourceIds[${sourceIndex}]`))
+        : fail(`${path}.sourceIds`, '必须是数组'),
+      anchorSourceId: stringAt(batch.anchorSourceId, `${path}.anchorSourceId`),
+      toleranceMs: finiteAt(batch.toleranceMs, `${path}.toleranceMs`),
+      createdAt: stringAt(batch.createdAt, `${path}.createdAt`),
+      updatedAt: stringAt(batch.updatedAt, `${path}.updatedAt`),
+    };
+    try {
+      validateExperimentBatch(parsed);
+    } catch (cause) {
+      fail(path, cause instanceof Error ? cause.message : '批次无效');
+    }
+    for (const sourceId of parsed.sourceIds) {
+      if (!sourceIds.has(sourceId)) fail(`${path}.sourceIds`, `引用的缓存数据源不存在：${sourceId}`);
+    }
+    return parsed;
+  });
+  const batchIds = new Set<string>();
+  for (const batch of batches) {
+    if (batchIds.has(batch.id)) fail('injection.batches', `批次 id 重复：${batch.id}`);
+    batchIds.add(batch.id);
+  }
+  const activeBatchId = raw.activeBatchId == null ? null : stringAt(raw.activeBatchId, 'injection.activeBatchId');
+  if (activeBatchId && !batchIds.has(activeBatchId)) fail('injection.activeBatchId', '引用的批次不存在');
+  return { kind: 'experiment-session', activeBatchId, batches, sources };
+}
+
+/** 深校验并把受支持的 v1/v2 文档迁移为当前 v3 文档。 */
 export function validateDocument(value: unknown): PersistedDocument {
   const raw = objectAt(value, '文档');
   const version = finiteAt(raw.schemaVersion, 'schemaVersion');
-  if (version !== 1 && version !== PERSIST_SCHEMA_VERSION) fail('schemaVersion', `不支持的版本 ${version}`);
+  if (version !== 1 && version !== 2 && version !== PERSIST_SCHEMA_VERSION) fail('schemaVersion', `不支持的版本 ${version}`);
   if (raw.appId !== PERSIST_APP_ID) fail('appId', `不匹配：${String(raw.appId)}`);
   if (raw.fileType !== PERSIST_FILE_TYPE) fail('fileType', `不匹配：${String(raw.fileType)}`);
   const legacy = version === 1;
-  const injection = raw.injection == null ? null : (() => {
-    const item = objectAt(raw.injection, 'injection');
-    return {
-      sourceFile: item.sourceFile == null ? null : stringAt(item.sourceFile, 'injection.sourceFile'),
-      injectedAt: item.injectedAt == null ? null : stringAt(item.injectedAt, 'injection.injectedAt'),
-      rowsCount: item.rowsCount == null ? null : finiteAt(item.rowsCount, 'injection.rowsCount'),
-    };
-  })();
+  // v1/v2 只保存了文件名/行数，无法可信恢复原始数据；迁移时明确丢弃旧占位信息。
+  const injection = version === PERSIST_SCHEMA_VERSION && raw.injection != null
+    ? validateExperimentManifest(raw.injection)
+    : null;
   return {
     schemaVersion: PERSIST_SCHEMA_VERSION,
     appId: PERSIST_APP_ID,
@@ -323,9 +432,16 @@ function scheduleCanvasFitAfterCommit(): void {
   window.requestAnimationFrame(() => window.requestAnimationFrame(dispatch));
 }
 
-/** 原子恢复场景；数据文件不属于场景文档，加载时必须退出并清空旧回放。 */
-export function applyDocumentToStore(doc: PersistedDocument): void {
+export interface DocumentApplyResult {
+  dataSession: 'none' | ExperimentRestoreReport['status'];
+  restoredBatchIds: string[];
+  missingSourceIds: string[];
+}
+
+/** 原子恢复场景；v3 再按轻量清单从本地缓存恢复实验会话。 */
+export async function applyDocumentToStore(doc: PersistedDocument): Promise<DocumentApplyResult> {
   const sim = doc.simulation;
+  const existingSession = useSimStore.getState();
   const restoredMeters = doc.layout.meters.map((meter) => {
     const preset = PRESET_METERS.find((item) => item.id === meter.id);
     const isOrigin = meter.position.x === 0 && meter.position.y === 0;
@@ -337,7 +453,25 @@ export function applyDocumentToStore(doc: PersistedDocument): void {
   });
   useSimStore.setState({
     ...sim,
-    pv_on: sim.pv_power > 0.01 ? true : sim.pv_on,
+    // 数据会话先保留在原状态；只有缓存中存在完整批次时，恢复协调器才原子替换它。
+    injectionDataset: existingSession.injectionDataset,
+    injectionSources: existingSession.injectionSources,
+    activePlaybackSourceIds: existingSession.activePlaybackSourceIds,
+    playbackAnchorSourceId: existingSession.playbackAnchorSourceId,
+    playbackToleranceMs: existingSession.playbackToleranceMs,
+    timelineMode: existingSession.timelineMode,
+    timelineCursorMs: existingSession.timelineCursorMs,
+    injectionFieldAvailability: existingSession.injectionFieldAvailability,
+    timelineIndex: existingSession.timelineIndex,
+    timelinePlaying: existingSession.timelinePlaying,
+    controlMode: existingSession.controlMode,
+    playbackSnapshot: existingSession.playbackSnapshot,
+    lastInjection: existingSession.lastInjection,
+    // pv_on 是 pv_power 的派生量（见 store/simulation.ts 的 derivePvOn 证据链），
+    // 载入时按同一规则重新派生。保留这行是有意为之：早期 randomize() 漏了派生，
+    // 仓库里 3/4 的旧场景存的就是「有功率但 pv_on=false」的矛盾档，载入时归一化才对。
+    // 若删掉，这里会直接显示「光伏关闭」同时顶栏报 4.85kW，比现状更糟。
+    pv_on: derivePvOn(sim.pv_power),
     cables: doc.layout.cables,
     meters: restoredMeters,
     positions: doc.layout.positions,
@@ -357,16 +491,18 @@ export function applyDocumentToStore(doc: PersistedDocument): void {
     rightPanelOpen: true,
     fullscreen: false,
     cardPositions: {},
-    lastInjection: null,
-    injectionDataset: null,
-    injectionSources: [],
-    timelineMode: 'combined',
-    timelineCursorMs: null,
-    injectionFieldAvailability: {},
-    timelineIndex: -1,
-    timelinePlaying: false,
-    controlMode: 'simulation',
-    playbackSnapshot: null,
   });
   scheduleCanvasFitAfterCommit();
+  if (doc.injection) {
+    // replaceExisting：仅当新场景确实带回了数据源时才替换旧分析库。
+    // 若缓存缺失导致恢复为空，旧库原样保留，不做不可逆销毁。
+    const report = await restoreExperimentSession(doc.injection, { replaceExisting: true });
+    return {
+      dataSession: report.status,
+      restoredBatchIds: report.restoredBatchIds,
+      missingSourceIds: report.missingSourceIds,
+    };
+  }
+  // 场景没有可恢复的实验清单时，保留现有数据会话；场景的布局和仿真参数仍已更新。
+  return { dataSession: 'none', restoredBatchIds: [], missingSourceIds: [] };
 }

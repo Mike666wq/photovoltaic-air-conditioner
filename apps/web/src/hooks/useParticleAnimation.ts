@@ -113,6 +113,14 @@ export function useParticleAnimation(
 
   // RAF 循环：使用真实 deltaTime，避免 Safari 60/120Hz 速度不同。
   useEffect(() => {
+    if (!state.animationOn) {
+      // 关闭动画：确保粒子不可见，并让循环不再启动。
+      // 粒子层虽有 display:none，但内联 opacity 需在重新打开前清掉，
+      // 否则重新打开的第一帧会闪一下旧位置。
+      particleLayerRef.current?.querySelectorAll<SVGCircleElement>('circle[data-particle-key]')
+        .forEach((circle) => { circle.style.opacity = '0'; });
+      return;
+    }
     let rafId: number;
     let previousTime: number | null = null;
     const tick = (now: number) => {
@@ -177,5 +185,8 @@ export function useParticleAnimation(
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, []);
+    // animationOn 进依赖：关闭动画时循环真正停摆。
+    // .particle-layer 在 styles.css 中已 display:none，此时每帧仍在遍历线缆与粒子写 style，
+    // 纯属浪费（实测动画关仍有 rAF 空转）。
+  }, [state.animationOn]);
 }

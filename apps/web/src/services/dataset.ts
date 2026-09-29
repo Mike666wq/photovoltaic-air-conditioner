@@ -9,10 +9,36 @@ export function parseDatasetTime(raw: string | undefined): number | null {
   const match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+|T)(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (match) {
     const [, year, month, day, hour, minute, second = '0'] = match;
-    return Date.UTC(+year, +month - 1, +day, +hour, +minute, +second) - SHANGHAI_OFFSET_MS;
+    const parts = [+year, +month, +day, +hour, +minute, +second] as const;
+    if (parts[0] < 1900 || parts[0] > 2200 || parts[1] < 1 || parts[1] > 12
+      || parts[2] < 1 || parts[3] < 0 || parts[3] > 23 || parts[4] < 0 || parts[4] > 59
+      || parts[5] < 0 || parts[5] > 59) return null;
+    const localUtc = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]);
+    const check = new Date(localUtc);
+    if (check.getUTCFullYear() !== parts[0] || check.getUTCMonth() !== parts[1] - 1
+      || check.getUTCDate() !== parts[2]) return null;
+    return localUtc - SHANGHAI_OFFSET_MS;
+  }
+  // Excel 1900 日期系统序列值（含小数时间），按北京时间的无时区采样时间解释。
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    const serial = Number(text);
+    if (Number.isFinite(serial) && serial >= 1 && serial <= 100_000) {
+      return Date.UTC(1899, 11, 30) + serial * 86_400_000 - SHANGHAI_OFFSET_MS;
+    }
   }
   const parsed = Date.parse(text);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** 为重复或空表头生成稳定唯一键，避免转换 Record 时静默覆盖列。 */
+export function normalizeDatasetHeaders(rawHeaders: string[]): string[] {
+  const counts = new Map<string, number>();
+  return rawHeaders.map((raw, index) => {
+    const base = raw.trim() || `未命名列_${index + 1}`;
+    const next = (counts.get(base) ?? 0) + 1;
+    counts.set(base, next);
+    return next === 1 ? base : `${base}_${next}`;
+  });
 }
 
 export function detectTimeColumn(

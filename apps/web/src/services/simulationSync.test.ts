@@ -164,4 +164,22 @@ describe('原理图多源真实时间回放', () => {
     expect(state.bat_soc).toBe(80);
     expect(state.playbackSnapshot?.sourceIds).toEqual(['new-thermal', 'new-bms']);
   });
+
+  it('清空显式来源选择后退出回放，且不会继续使用旧数据集', () => {
+    useSimStore.getState().setInjectionDataset({
+      sourceId: 'thermal', sourceFile: 'thermal.xlsx', format: 'xlsx',
+      headers: ['时间', 'T0.PV'], rows: thermalRows,
+      timeColumn: '时间', role: 'thermal-electrical',
+    });
+    useSimStore.getState().setActivePlaybackSourceIds([]);
+    applyTimelineFrame(0);
+
+    const state = useSimStore.getState();
+    expect(state.activePlaybackSourceIds).toEqual([]);
+    expect(state.injectionDataset).toBeNull();
+    expect(state.timelineIndex).toBe(-1);
+    expect(state.timelineCursorMs).toBeNull();
+    expect(state.controlMode).toBe('simulation');
+    expect(state.playbackSnapshot).toBeNull();
+  });
 });

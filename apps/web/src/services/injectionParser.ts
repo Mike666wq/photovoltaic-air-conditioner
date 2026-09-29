@@ -2,11 +2,26 @@
 // M2-α：CSV / Excel / PDF 数据文件解析
 
 import * as XLSX from 'xlsx';
-import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import PdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
 import { FORCE_CONTROL_PDF_HEADERS, isForceControlPdfExport } from '../data/pdfExportSchema';
+import { normalizeDatasetHeaders } from './dataset';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorkerUrl;
+// pdfjs（含 legacy build 约 531 kB）只在真的解析 PDF 时才需要。
+// 早期实验数据均为 XLSX/CSV，若顶层静态引入，每次导入任意格式都会白下载这份体积。
+// 改为在 parsePDF 首次调用时动态加载：worker 仍用 ?url 保持按需拉取。
+let pdfjsReady: Promise<typeof import('pdfjs-dist/legacy/build/pdf.mjs')> | null = null;
+function loadPdfjs() {
+  if (!pdfjsReady) {
+    pdfjsReady = (async () => {
+      const [pdfjsLib, worker] = await Promise.all([
+        import('pdfjs-dist/legacy/build/pdf.mjs'),
+        import('pdfjs-dist/legacy/build/pdf.worker.mjs?url'),
+      ]);
+      pdfjsLib.GlobalWorkerOptions.workerSrc = worker.default;
+      return pdfjsLib;
+    })();
+  }
+  return pdfjsReady;
+}
 
 export interface ParsedData {
   filename: string;
@@ -59,7 +74,7 @@ async function parseXLSX(file: File): Promise<ParsedData> {
       format: 'xlsx',
     };
   }
-  const headers = aoa[0].map((h) => String(h ?? '').trim());
+  const headers = normalizeDatasetHeaders(aoa[0].map((h) => String(h ?? '').trim()));
   const rows: Array<Record<string, string>> = [];
   for (let i = 1; i < aoa.length; i++) {
     const row: Record<string, string> = {};
@@ -78,6 +93,7 @@ async function parseXLSX(file: File): Promise<ParsedData> {
   };
 }
 async function parsePDF(file: File): Promise<ParsedData> {
+  const pdfjsLib = await loadPdfjs();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
   interface Item {
@@ -347,7 +363,7 @@ async function parseCSV(file: File): Promise<ParsedData> {
   }
   // 剥离 UTF-8 BOM（Excel 保存的 CSV 常带 BOM）
   const firstLine = lines[0].replace(/^\uFEFF/, '');
-  const headers = parseCSVLine(firstLine);
+  const headers = normalizeDatasetHeaders(parseCSVLine(firstLine));
   const rows: Array<Record<string, string>> = [];
   for (let i = 1; i < lines.length; i++) {
     const values = parseCSVLine(lines[i]);

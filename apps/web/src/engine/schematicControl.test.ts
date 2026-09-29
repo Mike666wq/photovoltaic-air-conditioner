@@ -1,16 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Cable } from '../data/cables';
-import { useSimStore, type SimulationState } from '../store/simulation';
+import { useSimStore } from '../store/simulation';
 import {
   deriveCableSegmentFlow,
   deriveInverterMode,
   deriveSelectedPcmVisual,
-  deriveSemanticPowerDirection,
   deriveStaticBatteryFlowDirection,
   deriveStaticBatteryMode,
   fanSpeedLabel,
-  isCableEnergized,
-  powerCableBaseFlow,
 } from './schematicControl';
 
 const controlState = {
@@ -21,11 +18,6 @@ const controlState = {
   gs_on: true,
   battery_power_kw: 0,
 } as const;
-
-const powerCable: Cable = {
-  id: 'test-power', kind: 'power', animationEnabled: true, direction: 'forward',
-  segments: [{ fromAnchorId: 'pv-array.right', toAnchorId: 'combiner-box.left' }],
-};
 
 describe('原理图控制派生', () => {
   it('静态 PV 功率与运行开关联动，避免有功率却无线缆动画', () => {
@@ -65,18 +57,6 @@ describe('原理图控制派生', () => {
     expect(deriveSelectedPcmVisual(pcmState, 10).phase).toBe('freezing');
     expect(deriveSelectedPcmVisual(pcmState, 50).phase).toBe('liquid');
   });
-
-  it('电力线受直接连接部件开关门控且零流归零', () => {
-    const state = {
-      ...controlState,
-      load_on: true, hp_on: true, at_mode: 'cool', sac_on: true,
-      load_power_kw: 1, hp_power: 2,
-    } as SimulationState;
-    expect(isCableEnergized(powerCable, state)).toBe(true);
-    expect(powerCableBaseFlow(powerCable, state)).toBeCloseTo(0.5);
-    expect(isCableEnergized(powerCable, { ...state, pv_on: false })).toBe(false);
-    expect(powerCableBaseFlow(powerCable, { ...state, cb_connected: false })).toBe(0);
-  });
 });
 
 describe('逐段线缆流向', () => {
@@ -97,7 +77,7 @@ describe('逐段线缆流向', () => {
     expect(charge.direction).toBe('forward');
   });
 
-  it('人工方向覆盖自动功率方向', () => {
+  it('人工反向设置立即覆盖创建时方向', () => {
     const base = useSimStore.getState();
     const forced = deriveCableSegmentFlow({ ...batteryCable, directionMode: 'reverse' }, 0, {
       ...base, cables: [batteryCable], battery_power_kw: 2, load_power_kw: 2, load_on: true,
@@ -106,19 +86,11 @@ describe('逐段线缆流向', () => {
     expect(forced.direction).toBe('reverse');
   });
 
-  it('自动方向采用设备语义，中间仪表段保持画线方向', () => {
-    const base = { ...useSimStore.getState(), pv_on: true, pv_power: 3, battery_power_kw: -2 };
-    expect(deriveSemanticPowerDirection('pv-array', 'meter-pv', base)).toBe('forward');
-    expect(deriveSemanticPowerDirection('meter-load', 'load', base)).toBe('forward');
-    expect(deriveSemanticPowerDirection('battery', 'meter-battery', base)).toBe('reverse');
-    expect(deriveSemanticPowerDirection('meter-a', 'inverter', base)).toBeNull();
-  });
-
   it('静态仿真中无独立功率测点的仪表到水泵支路仍按电力线流量动画', () => {
     const base = useSimStore.getState();
     const pumpPower: Cable = {
       id: 'pump-power', kind: 'power', animationEnabled: true,
-      direction: 'forward', directionMode: 'auto',
+      direction: 'forward', directionMode: 'forward',
       segments: [{ fromAnchorId: 'meter-pump.right', toAnchorId: 'pump.top' }],
     };
     const flowing = deriveCableSegmentFlow(pumpPower, 0, {
@@ -147,20 +119,6 @@ describe('逐段线缆流向', () => {
     });
     expect(result.active).toBe(true);
     expect(result.reason).toBe('flowing');
-  });
-
-  it('旧自动方向场景迁移前仍沿用其保存方向', () => {
-    const base = useSimStore.getState();
-    const water: Cable = {
-      id: 'water', kind: 'water', animationEnabled: true, direction: 'reverse', directionMode: 'auto',
-      segments: [{ fromAnchorId: 'pump.right', toAnchorId: 'pcm.left' }],
-    };
-    const refrigerant: Cable = {
-      id: 'refrigerant', kind: 'refrigerant', animationEnabled: true, direction: 'reverse', directionMode: 'auto',
-      segments: [{ fromAnchorId: 'tank.left', toAnchorId: 'heat-pump.right' }],
-    };
-    expect(deriveCableSegmentFlow(water, 0, { ...base, cables: [water], pump_on: true, pump_flow: 2 }).direction).toBe('reverse');
-    expect(deriveCableSegmentFlow(refrigerant, 0, { ...base, cables: [refrigerant], hp_on: true, hp_power: 2 }).direction).toBe('reverse');
   });
 
   it('人工动画开启后不再被 PV 自动状态拦截', () => {

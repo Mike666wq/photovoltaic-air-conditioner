@@ -1,5 +1,6 @@
 import { CHART_FIELDS, normalizeChartHeader } from '../data/chartFields';
 import { detectSourceProfile, type SourceProfile } from '../data/sourceProfile';
+import { matchColumnToField, type NumericFieldKey } from './dataMapper';
 import { detectTimeColumn, parseDatasetTime } from './dataset';
 
 export type SourceFormat = 'csv' | 'xlsx' | 'pdf';
@@ -7,7 +8,7 @@ export type SourceFormat = 'csv' | 'xlsx' | 'pdf';
 export interface SourceFieldMapping {
   sourceColumn: string;
   fieldKey: string;
-  confidence: 'exact-alias';
+  confidence: 'exact-alias' | 'fuzzy-alias';
 }
 
 export interface SourceTimeStats {
@@ -29,7 +30,8 @@ export type QualityIssueCode =
   | 'duplicate_timestamp'
   | 'missing_field'
   | 'invalid_number'
-  | 'temperature_voltage_misalignment';
+  | 'temperature_voltage_misalignment'
+  | 'value_out_of_range';
 
 export interface RowQualityIssue {
   code: QualityIssueCode;
@@ -79,6 +81,37 @@ export interface PrepareDataSourceInput {
   timeColumn?: string;
 }
 
+/**
+ * 按物理单位的「绝不可能」硬上限。
+ *
+ * 背景：力控导出会出现整行列左移，某个通道收到另一个通道的值。
+ * 原实现只保护温度通道（|v| >= 150），于是 220.4 落到功率列、215.6 落到电流列时
+ * 无人拦截，会凭空编出光伏/系统发电量。电压列是唯一不能设上限的——
+ * 220V / 380V / 直流母线 1000V 都是合法读数。
+ *
+ * 上限取「本项目额定值的 20 倍」量级：真实运行数据（几 kW、几十 A）永不触发，
+ * 而电压级错位（110 / 220 / 380 / 1569）必然触发。
+ */
+const UNIT_ABS_LIMITS: Record<string, number> = {
+  kW: 200,      // 逆变器额定 10 kW
+  kVar: 200,
+  kVA: 200,
+  A: 500,       // 直流/交流额定 32A / 100A
+  'm³/h': 2000,
+  '℃': 150,     // 与历史阈值一致
+  C: 150,       // 环境温度字段的无单位写法
+};
+
+function readUnitLimit(fieldKey: string): { limit: number; unit: string } | null {
+  const field = CHART_FIELDS.find((candidate) => candidate.key === fieldKey);
+  if (!field) return null;
+  // 累计量（kWh 等）无幅值上限语义，跳过；setpoint 类同理
+  if (field.semantic === 'cumulative' || field.semantic === 'setpoint') return null;
+  const unit = field.unit.trim();
+  const limit = UNIT_ABS_LIMITS[unit];
+  return limit === undefined ? null : { limit, unit: unit || String(fieldKey) };
+}
+
 const TEMPERATURE_KEYS = new Set([
   'pcm_temp_1',
   'pcm_temp_2',
@@ -88,18 +121,72 @@ const TEMPERATURE_KEYS = new Set([
   'return_water_temp',
 ]);
 
+const NUMERIC_FIELD_TO_CHART_FIELD: Partial<Record<NumericFieldKey, string>> = {
+  pv_power: 'pv_power',
+  bat_soc: 'battery_soc',
+  hp_power: 'hp_power',
+  tank_temp: 'tank_temp',
+  load_power_kw: 'system_active_power',
+  tank_flow: 'water_flow',
+  pump_flow: 'water_flow',
+  at_fan_speed: 'fan_speed',
+  pcm_temp: 'pcm_temp_1',
+};
+
 function buildFieldMappings(headers: string[]): SourceFieldMapping[] {
   const result: SourceFieldMapping[] = [];
+  const mappedColumns = new Set<string>();
+  const mappedFields = new Set<string>();
+
+  // 先走大屏字段字典的精确别名，保证 T0/T1、D/DU 与 BMS 通道不会被模糊规则抢占。
   for (const header of headers) {
     const normalizedHeader = normalizeChartHeader(header);
     const field = CHART_FIELDS.find((candidate) =>
       candidate.aliases.some((alias) => normalizeChartHeader(alias) === normalizedHeader),
     );
-    if (field) {
+    if (field && !mappedFields.has(field.key)) {
       result.push({ sourceColumn: header, fieldKey: field.key, confidence: 'exact-alias' });
+      mappedColumns.add(header);
+      mappedFields.add(field.key);
     }
   }
+
+  // 再复用原理图的数据映射规则兜底，并桥接到同一套大屏规范字段。
+  // 一个规范字段只接受一个来源列，避免多个模糊列在回放时相互覆盖。
+  for (const header of headers) {
+    if (mappedColumns.has(header)) continue;
+    const numericField = matchColumnToField(header);
+    const chartField = numericField ? NUMERIC_FIELD_TO_CHART_FIELD[numericField] : undefined;
+    if (!chartField || mappedFields.has(chartField)) continue;
+    result.push({ sourceColumn: header, fieldKey: chartField, confidence: 'fuzzy-alias' });
+    mappedFields.add(chartField);
+  }
   return result;
+}
+
+/** 导入确认前的硬门禁：无时间、无业务字段或无有效行的数据不能进入回放。 */
+export function collectPlaybackImportBlockers(
+  sources: PreparedDataSource[],
+  strictFrameCount: number,
+  toleranceMs = 2_000,
+): string[] {
+  if (!sources.length) return ['尚未选择可用的数据文件'];
+  const blockers: string[] = [];
+  for (const source of sources) {
+    if (!source.timeStats.timeColumn || source.timeStats.validTimestampCount === 0) {
+      blockers.push(`${source.filename}：未识别到有效时间列`);
+    }
+    if (!source.fieldMappings.length) {
+      blockers.push(`${source.filename}：未识别到可回放的业务字段`);
+    }
+    if (source.quality.validRows === 0) {
+      blockers.push(`${source.filename}：没有通过质量检查的有效行`);
+    }
+  }
+  if (sources.length > 1 && strictFrameCount === 0) {
+    blockers.push(`所选数据源在 ±${toleranceMs / 1_000} 秒条件下没有严格同步交集帧`);
+  }
+  return blockers;
 }
 
 function median(values: number[]): number | null {
@@ -202,14 +289,26 @@ function inspectRow(
         field: mapping.sourceColumn,
         message: `温度通道出现电压级数值 ${value}，疑似列结构错位`,
       });
+      continue;
+    }
+
+    // 其余通道：按物理单位做量程兜底，拦截"电压值落到功率/电流列"这类列左移。
+    const unitLimit = readUnitLimit(mapping.fieldKey);
+    if (unitLimit && Math.abs(value) > unitLimit.limit) {
+      addIssue(issues, invalidFields, {
+        code: 'value_out_of_range',
+        field: mapping.sourceColumn,
+        message: `${mapping.fieldKey} 出现 ${value}${unitLimit.unit}，超出合理量程 ±${unitLimit.limit}${unitLimit.unit}，疑似列结构错位`,
+      });
     }
   }
 
-  // 热工/电表表任一已识别通道缺失或发生强错位时，整行不可用于联合注入；
+  // 热工/电导表任一已识别通道缺失或发生强错位（温度电压错位 / 量纲越界）时，整行不可用于联合注入；
   // invalidFields 仍保留字段级原因，原始行也不删除。
   const rowFatal = timestamp == null || issues.some((issue) =>
     issue.code === 'duplicate_timestamp' ||
     issue.code === 'temperature_voltage_misalignment' ||
+    issue.code === 'value_out_of_range' ||
     (profile.kind === 'thermal-electrical' && issue.code === 'missing_field'),
   );
   return {

@@ -1,8 +1,9 @@
 import type { SimulationState } from '../store/simulation';
 import type { MeterBind } from './meters';
+import type { ExperimentBatch } from '../services/experimentSession';
 
-/** v2 固定所有布局坐标为画布世界坐标，并持久化线缆路由/方向控制。 */
-export const PERSIST_SCHEMA_VERSION = 2;
+/** v3 以轻量清单持久化实验会话，原始数据由 IndexedDB 缓存，不写入场景 JSON。 */
+export const PERSIST_SCHEMA_VERSION = 3;
 export const PERSIST_APP_ID = 'photovoltaic-air-conditioner';
 export const PERSIST_FILE_TYPE = 'simulation-state';
 
@@ -58,7 +59,8 @@ export interface PersistedCable {
   floatingTo: { x: number; y: number } | null;
   animationEnabled: boolean;
   direction: 'forward' | 'reverse';
-  directionMode?: 'auto' | 'forward' | 'reverse';
+  /** v1/v2 中的 auto 会在读取时迁移为当时保存的 forward/reverse。 */
+  directionMode?: 'forward' | 'reverse';
   routeMode?: 'straight' | 'orthogonal-auto' | 'orthogonal-manual';
   manualWaypoints?: Array<{ x: number; y: number }>;
 }
@@ -95,10 +97,21 @@ export interface PersistedPreferences {
   smartGuides?: boolean;
 }
 
-export interface PersistedInjectionInfo {
-  sourceFile: string | null;
-  injectedAt: string | null;
-  rowsCount: number | null;
+export interface PersistedSourceReference {
+  sourceId: string;
+  cacheKey: string;
+  sourceFile: string;
+  format: 'csv' | 'xlsx' | 'pdf';
+  role: 'thermal-electrical' | 'battery-bms' | 'mixed' | 'generic';
+  rowsCount: number;
+  timeColumn?: string;
+}
+
+export interface PersistedExperimentSessionManifest {
+  kind: 'experiment-session';
+  activeBatchId: string | null;
+  batches: ExperimentBatch[];
+  sources: PersistedSourceReference[];
 }
 
 export interface PersistedDocument {
@@ -111,7 +124,7 @@ export interface PersistedDocument {
   simulation: PersistedSimulation;
   layout: PersistedLayout;
   preferences: PersistedPreferences;
-  injection: PersistedInjectionInfo | null;
+  injection: PersistedExperimentSessionManifest | null;
 }
 
 export function createEmptyDocument(): PersistedDocument {

@@ -20,10 +20,14 @@ export function fetchSvg(path: string): Promise<Document> {
       })
       .then((text) => {
         const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-        if (!doc.documentElement) throw new Error(`SVG 解析失败: ${path}`);
+        if (!doc.documentElement || doc.querySelector('parsererror')) throw new Error(`SVG 解析失败: ${path}`);
         return doc;
       });
     svgCache.set(path, p);
+    // 失败 Promise 不能永久占据缓存；下次渲染/重挂载应有机会重新请求。
+    void p.catch(() => {
+      if (svgCache.get(path) === p) svgCache.delete(path);
+    });
   }
   return svgCache.get(path)!;
 }
@@ -32,14 +36,30 @@ export function fetchSvg(path: string): Promise<Document> {
  * 文本字段注入：`data-field="xxx"` 匹配 → textContent 替换
  * fields 形如 { pv_power: '3.24 kW', bat_soc: '78%', ... }
  */
+/**
+ * 一次遍历建立 data-field → 节点 的索引，再按需写入。
+ *
+ * 原实现对每个 key 各做一次 querySelectorAll，buildInjectData 产出约 120 个 key，
+ * 19 个插槽每次状态变更就是约 2280 次选择器查询。改成单次 querySelectorAll
+ * 建 Map，复杂度从 O(keys × DOM) 降到 O(DOM + keys)。
+ */
 export function injectFields(svg: SVGElement, fields: Record<string, string>) {
+  const index = new Map<string, HTMLElement[]>();
+  svg.querySelectorAll<HTMLElement>('[data-field]').forEach((node) => {
+    const key = node.getAttribute('data-field');
+    if (!key) return;
+    const bucket = index.get(key);
+    if (bucket) bucket.push(node);
+    else index.set(key, [node]);
+  });
   Object.entries(fields).forEach(([key, value]) => {
-    const nodes = svg.querySelectorAll<HTMLElement>(`[data-field="${key}"]`);
-    nodes.forEach((node) => {
+    const nodes = index.get(key);
+    if (!nodes) return;
+    for (const node of nodes) {
       if (node.tagName === 'text' || node.tagName === 'tspan') {
         node.textContent = String(value);
       }
-    });
+    }
   });
 }
 
@@ -369,13 +389,12 @@ type StateAttrFn = (state: SimulationState) => string;
 type RootAttrMap = Record<string, StateAttrFn>;
 
 function replayFlag(state: SimulationState, key: 'pv_on' | 'cb_connected' | 'gs_on' | 'grid_online' | 'hp_on' | 'pump_on' | 'load_on'): boolean {
-  if (!state.playbackSnapshot) return state[key];
-  return state.playbackSnapshot.statusAvailability[key] === true && state[key];
+  // 回放未提供状态时沿用场景状态；“未知”不能被伪装成明确关闭。
+  return state[key];
 }
 
 function replayAtMode(state: SimulationState): SimulationState['at_mode'] {
-  if (!state.playbackSnapshot) return state.at_mode;
-  return state.playbackSnapshot.statusAvailability.at_mode === true ? state.at_mode : 'off';
+  return state.at_mode;
 }
 
 function replayInverterMode(state: SimulationState) {

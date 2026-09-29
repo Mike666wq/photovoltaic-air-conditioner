@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSimStore } from '../store/simulation';
 import { SaveManager } from './SaveManager';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 export function TopBar() {
   const navigate = useNavigate();
@@ -18,6 +18,7 @@ export function TopBar() {
   const toggleSmartGuides = useSimStore((s) => s.toggleSmartGuides);
   const setGridSize = useSimStore((s) => s.setGridSize);
   const resetCanvasLayout = useSimStore((s) => s.resetCanvasLayout);
+  const clearCanvasLayout = useSimStore((s) => s.clearCanvasLayout);
   const leftPanelOpen = useSimStore((s) => s.leftPanelOpen);
   const rightPanelOpen = useSimStore((s) => s.rightPanelOpen);
   const fullscreen = useSimStore((s) => s.fullscreen);
@@ -43,7 +44,7 @@ export function TopBar() {
     <div className="topbar">
       <div className="topbar-title">
         <svg viewBox="0 0 24 24"><path d="M13 2L3 14h7l-1 8l10-12h-7l1-8z" /></svg>
-        <span>光伏·空调仿真平台 — 原理图页面 (M1)</span>
+        <span>光伏·空调仿真平台 — 原理图</span>
       </div>
 
       <div className="topbar-actions">
@@ -109,13 +110,9 @@ export function TopBar() {
           {fullscreen ? '⛶ 全屏中' : '⛶ 全屏'}
         </button>
         <span className="topbar-divider" />
-        <button
-          className="topbar-btn"
-          onClick={() => navigate('/analysis')}
-          title="进入数据分析大屏"
-        >
+        <Link className="topbar-btn" to="/analysis" title="进入数据分析大屏">
           📊 数据分析
-        </button>
+        </Link>
         <button
           className="topbar-btn"
           onClick={() => setSaveManagerOpen(true)}
@@ -140,9 +137,20 @@ export function TopBar() {
         <button
           className="topbar-btn"
           onClick={() => { resetCanvasLayout(); window.requestAnimationFrame(fitCanvas); }}
-          title="恢复默认部件和预置仪表，并清除用户线缆后回正视图"
+          title="恢复官方标准拓扑、默认部件位置与预置仪表"
         >
-          ↺ 重置布局
+          ↺ 标准拓扑
+        </button>
+        <button
+          className="topbar-btn"
+          onClick={() => {
+            if (!window.confirm('新建空白设计图会清除当前全部线缆与布局调整，是否继续？')) return;
+            clearCanvasLayout();
+            window.requestAnimationFrame(fitCanvas);
+          }}
+          title="清空全部线缆，保留标准部件与预置仪表"
+        >
+          □ 空白图
         </button>
       </div>
 

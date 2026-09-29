@@ -3,7 +3,6 @@ import { CircuitCanvas } from '../components/CircuitCanvas';
 import { ControlPanel } from '../components/ControlPanel';
 import { LogPanel } from '../components/LogPanel';
 import { Tooltip } from '../components/Tooltip';
-import { ToastContainer } from '../components/ToastContainer';
 import { PalettePanel } from '../components/PalettePanel';
 import { TimelineControls } from '../components/TimelineControls';
 import { useSimStore } from '../store/simulation';
@@ -27,7 +26,6 @@ export function SchematicPage() {
       <ControlPanel />
       <LogPanel />
       <Tooltip />
-      <ToastContainer />
     </div>
   );
 }

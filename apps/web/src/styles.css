@@ -61,9 +61,15 @@ html, body, #root {
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-.topbar-title { display: flex; align-items: center; gap: 10px; }
+.topbar-title {
+  display: flex; align-items: center; gap: 10px;
+  white-space: nowrap;
+  /* 标题是装饰性信息，空间不足时省略；按钮与读数才是不可裁的 */
+  flex: 0 1 auto; min-width: 0; overflow: hidden;
+}
+.topbar-title span { overflow: hidden; text-overflow: ellipsis; }
 .topbar-title svg { width: 20px; height: 20px; fill: #FCD34D; }
-.topbar-stats { display: flex; gap: 18px; font-size: 12px; color: #94a3b8; }
+.topbar-stats { display: flex; gap: 18px; font-size: 12px; color: #94a3b8; white-space: nowrap; flex: none; }
 .topbar-stats .stat-value { color: #22c55e; font-weight: bold; }
 
 .topbar-actions { display: flex; gap: 8px; align-items: center; }
@@ -76,6 +82,11 @@ html, body, #root {
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
+  /* 中文可在任意两字间断行：缺 nowrap 时按钮一被 flex 压缩就断成「暂停动/画」，
+     语义已断的按钮极易被误读后点击（含一键清空全部线缆的「空白图」）。 */
+  white-space: nowrap;
+  flex: none;
+  display: inline-flex; align-items: center; text-decoration: none;
 }
 .topbar-btn:hover { background: #334155; }
 .topbar-btn.primary { background: #2563eb; border-color: #2563eb; color: white; }
@@ -218,6 +229,13 @@ html, body, #root {
 .timeline-empty { justify-content: center; gap: 12px; color: #cbd5e1; }
 .timeline-empty button { border: 1px solid #475569; background: #1e293b; color: #e2e8f0; border-radius: 5px; padding: 5px 10px; }
 
+/* 顶栏横向空间不足时的渐进降级。
+   按钮已设 nowrap + flex:none 不再可压缩，剩余空间只能从读数侧让；
+   舍弃顺序：Tank → 时钟 → SOC，PV 始终保留。 */
+@media (max-width: 1460px) { .topbar-stats span:nth-child(3) { display: none; } }
+@media (max-width: 1320px) { .topbar-stats span:nth-child(4) { display: none; } }
+@media (max-width: 1200px) { .topbar-stats span:nth-child(2) { display: none; } }
+
 @media (max-width: 1400px) {
   .topbar { padding: 0 10px; }
   .topbar-actions { gap: 4px; }
@@ -226,6 +244,9 @@ html, body, #root {
   .timeline-file { max-width: 150px; }
   .timeline-slider-wrap > span { display: none; }
   .timeline-sync-info { display: none; }
+  /* 1024 下时间轴 13 个控件仍横向溢出 42px；给出可滚动兜底而不是裁切 */
+  .timeline-controls { overflow-x: auto; overflow-y: hidden; }
+  .timeline-controls > * { flex: none; }
 }
 
 /* === 调色板 === */
@@ -1091,6 +1112,7 @@ input[type=range]::-webkit-slider-thumb {
 }
 .save-manager-modal {
   background: white;
+  color: #1e293b;
   border-radius: 8px;
   padding: 0;
   min-width: 500px;
@@ -1111,6 +1133,7 @@ input[type=range]::-webkit-slider-thumb {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  color: #1e293b;
 }
 .save-manager-header button {
   background: none;
@@ -1198,6 +1221,54 @@ input[type=range]::-webkit-slider-thumb {
   border-radius: 3px;
   font-size: 11px;
 }
+.save-manager-inline-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.save-manager-inline-confirm > span { flex: 1 1 100%; color: #1e3a8a; }
+.save-manager-inline-confirm label {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: #334155;
+  font-size: 12px;
+}
+.save-manager-inline-confirm input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid #94a3b8;
+  border-radius: 3px;
+  background: #fff;
+  color: #1e293b;
+  font: inherit;
+}
+.save-manager-inline-confirm button {
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid #93c5fd;
+  border-radius: 3px;
+  background: #fff;
+  color: #1e3a8a;
+  font: inherit;
+  cursor: pointer;
+}
+.save-manager-inline-confirm button:hover { background: #dbeafe; }
+.save-manager-inline-confirm button:disabled { opacity: .55; cursor: not-allowed; }
+.save-manager-inline-confirm button.danger { border-color: #fecaca; color: #b91c1c; }
 .save-manager-current-dir {
   font-size: 12px;
   color: #475569;

@@ -57,7 +57,6 @@ function fallbackTemp(bind: string | undefined): number {
 
 export function TsPointer({ meter }: TsPointerProps) {
   const cardPositions = useSimStore((s) => s.cardPositions);
-  const animationOn = useSimStore((s) => s.animationOn);
   // 200ms 节流更新指针角度（demo.html 用 200ms；M2 真数据接入后由 store 推 → 可降到 100ms）
   // 归一化：10~100℃ 映射 0~1（fallback 值按绑定类型从 store 实时取）
   const [norm, setNorm] = useState<number>(() => {
@@ -67,14 +66,13 @@ export function TsPointer({ meter }: TsPointerProps) {
   });
 
   useEffect(() => {
-    if (!animationOn) return;
     const id = window.setInterval(() => {
       const live = resolveMeterTemp(meter);
       const v = live ?? fallbackTemp(meter.bind);
       setNorm(Math.max(0, Math.min(1, (v - 10) / 90)));
     }, 200);
     return () => window.clearInterval(id);
-  }, [animationOn, meter.id, meter.bind]);
+  }, [meter.id, meter.bind]);
 
   const card = cardPositions[meter.id];
   if (!card) return null;

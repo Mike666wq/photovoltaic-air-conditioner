@@ -3,7 +3,8 @@
 //
 // 物理背景：
 //   - pcm_temp 0~50℃ 映射到 melt 0~1（0=全固态，1=全液态）
-//   - 25℃ 为相变平台（潜热交换温度不变）
+//   - 温度读数始终显示实测值：相变平台是物理概念，不能用一个常数冒充测量结果
+//   - 状态文字只描述相态（潜热吸收/释放），不断言具体温度
 //   - 过渡时长：泵开 clamp(8/pump_flow, 1.5, 8) 上限 8s；泵停固定 30s（视觉冻结）
 //   - v0.4 色带：紫蓝→紫→紫红→橙→黄→浅黄白（冷→暖，符合"冰↔火"直觉）
 //   - v0.4 6 个 hex 视觉：scale 1→0.5 残影 + opacity 1→0.15 淡出，永远不消失
@@ -17,11 +18,11 @@ export interface PcmVisual {
   melt: number;
   /** 相态：solid 固态 / melting 融化中·蓄热 / liquid 液态 / freezing 凝固中·释热 */
   phase: PcmPhase;
-  /** 温度读数：固态钳 ≤24℃、液态钳 ≥26℃、相变平台期固定 25.0℃ */
+  /** 温度读数：恒为实测 pcm_temp（一位小数 + ℃），不做任何钳位或平台期伪造 */
   tempText: string;
   /** 融化比例读数（百分比整数 + '%'） */
   meltText: string;
-  /** 状态文字：固态 / 蓄热中 / 液态 / 释热中 */
+  /** 状态文字：固态 / 蓄热·相变区 / 液态 / 释热·相变区（只说相态，不报温度） */
   statusText: string;
   /** 状态灯 / 光晕 / 状态文字颜色（v18 反转：solid 橙, melting 蓝, liquid 浅蓝, freezing 暖橙） */
   color: string;
@@ -32,7 +33,6 @@ export interface PcmVisual {
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
 export function derivePcmVisual(input: {
-  tank_temp: number;
   pump_on: boolean;
   pump_flow: number;
   pcm_temp: number;
@@ -49,19 +49,21 @@ export function derivePcmVisual(input: {
     : pcm_temp >= 25 ? 'melting'
     : 'freezing';
 
-  // 温度读数：相变平台期固定 25.0℃（潜热交换温度不变）；纯固/纯液显示真实温度但向平台钳位
-  const tempText =
-    phase === 'solid' ? Math.min(pcm_temp, 24).toFixed(1) + '℃'
-    : phase === 'liquid' ? Math.max(pcm_temp, 26).toFixed(1) + '℃'
-    : '25.0℃';
+  // 温度读数：始终是实测值。
+  // 历史实现把 pcm_temp∈(1,49) 整段当成"相变平台"并恒定输出 25.0℃，
+  // 导致 94% 量程显示同一个假数（实测 8.6/9.8/12.4℃ 也被显示成 25.0℃）。
+  // 平台期是潜热吸收/释放的物理现象，不等于"温度计读数恒为 25℃"；
+  // 若某材料确有恒温平台，应在 melt 映射里体现，而不是篡改读数。
+  const tempText = pcm_temp.toFixed(1) + '℃';
 
   const meltText = Math.round(melt * 100) + '%';
 
+  // 相态文字只描述潜热方向，不掺入具体温度（实测 10℃ 时写"释热·恒温25℃"物理上自相矛盾）
   const statusText =
     phase === 'solid' ? '固态'
-    : phase === 'melting' ? '蓄热·恒温25℃'
+    : phase === 'melting' ? '蓄热·相变区'
     : phase === 'liquid' ? '液态'
-    : '释热·恒温25℃';
+    : '释热·相变区';
 
   const color =
     phase === 'solid' ? '#38BDF8'    // 蓝（冷态）

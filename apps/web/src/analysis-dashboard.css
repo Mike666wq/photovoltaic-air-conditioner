@@ -19,9 +19,9 @@
 .m3-dashboard__header span, .m3-dashboard__header-meta { color: var(--m3-muted); font-size: 12px; }
 .m3-dashboard__header h1 { margin-top: 2px; font-size: clamp(20px, 1.55vw, 30px); letter-spacing: .12em; color: #fff; }
 .m3-dashboard__header-meta, .m3-toolbar__actions, .m3-tabs { display: flex; align-items: center; gap: 8px; }
-.m3-dashboard button { border: 1px solid rgba(71, 137, 172, .7); border-radius: 4px; padding: 6px 10px; color: #d7efff; background: rgba(9, 31, 53, .85); font: inherit; font-size: 12px; cursor: pointer; transition: .15s ease; }
+.m3-dashboard button, .m3-dashboard .m3-linkbtn { border: 1px solid rgba(71, 137, 172, .7); border-radius: 4px; padding: 6px 10px; color: #d7efff; background: rgba(9, 31, 53, .85); font: inherit; font-size: 12px; cursor: pointer; transition: .15s ease; }
 .m3-dashboard select { border: 1px solid rgba(71, 137, 172, .7); border-radius: 4px; padding: 6px 8px; color: #d7efff; background: rgba(9, 31, 53, .95); font: inherit; font-size: 12px; }
-.m3-dashboard button:hover, .m3-dashboard button[data-active="true"], .m3-dashboard .m3-import { border-color: var(--m3-accent); background: rgba(34,211,238,.17); color: #fff; }
+.m3-dashboard button:hover, .m3-dashboard .m3-linkbtn:hover, .m3-dashboard button[data-active="true"], .m3-dashboard .m3-import { border-color: var(--m3-accent); background: rgba(34,211,238,.17); color: #fff; }
 .m3-dashboard button:disabled { cursor: wait; opacity: .62; }
 .m3-dashboard__toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 9px 14px; border: 1px solid var(--m3-border); background: var(--m3-surface); min-width: 0; }
 .m3-source-filters { display: inline-flex; gap: 4px; flex-wrap: wrap; }
@@ -32,20 +32,83 @@
 .m3-import-progress { display: inline-flex; align-items: center; gap: 6px; flex: none; color: #a5f3fc; }
 .m3-import-progress i { width: 11px; height: 11px; flex: none; border: 2px solid rgba(34,211,238,.28); border-top-color: var(--m3-accent); border-radius: 50%; animation: m3-import-spin .8s linear infinite; }
 .m3-import-complete { flex: none; color: #86efac; }
+/* 导入结果三态：全成功绿 / 部分成功琥珀 / 全失败红，避免"全失败仍显绿勾" */
+.m3-import-complete[data-tone="warn"] { color: #fcd34d; }
+.m3-import-complete[data-tone="bad"] { color: #fca5a5; }
 @keyframes m3-import-spin { to { transform: rotate(360deg); } }
 .m3-toolbar__actions { justify-content: flex-end; flex-wrap: wrap; color: var(--m3-muted); }
+/* 中文可在任意两字间断行：工具栏按钮被 flex 压缩后会断成「实时/监测」「诊断/对比」，
+   语义已断的按钮容易被误读。与 .topbar-btn 同款处理。 */
+.m3-dashboard__toolbar button,
+.m3-dashboard__toolbar select,
+.m3-dashboard__toolbar label { white-space: nowrap; }
 .m3-dashboard__view { min-height: 0; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: 100px repeat(2, minmax(260px, 1fr)); gap: clamp(10px, .83vw, 16px); }
 .m3-metric-card { grid-column: span 2; min-width: 0; padding: 16px; border: 1px solid var(--m3-border); border-top: 2px solid var(--m3-accent); background: linear-gradient(145deg, rgba(12,42,70,.84), rgba(5,20,36,.86)); box-shadow: inset 0 1px rgba(255,255,255,.04); }
 .m3-dashboard__view > .m3-metric-card { grid-row: 1; }
 .m3-dashboard__view--energy > .m3-metric-card, .m3-dashboard__view--ratio > .m3-metric-card { grid-column: span 3; }
+.m3-dashboard__view--diagnostics > .m3-metric-card { grid-column: span 3; }
 .m3-metric-card[data-tone="cyan"] { border-top-color: #22d3ee; }.m3-metric-card[data-tone="blue"] { border-top-color: #38bdf8; }.m3-metric-card[data-tone="yellow"] { border-top-color: #facc15; }.m3-metric-card[data-tone="green"] { border-top-color: #22c55e; }.m3-metric-card[data-tone="orange"] { border-top-color: #fb923c; }.m3-metric-card[data-tone="purple"] { border-top-color: #c084fc; }
 .m3-metric-card span { display: block; color: var(--m3-muted); font-size: 12px; }.m3-metric-card strong { margin-top: 8px; display: inline-block; font-family: "SFMono-Regular", Consolas, monospace; font-size: clamp(22px, 1.8vw, 34px); }.m3-metric-card em { margin-left: 5px; color: var(--m3-muted); font-size: 12px; font-style: normal; }
 .m3-chart-panel { grid-column: span 3; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--m3-border); background: var(--m3-surface); box-shadow: 0 0 24px rgba(14,165,233,.06); }.m3-chart-panel--thermal { grid-column: span 6; grid-row: span 2; }.m3-chart-panel--wide { grid-column: span 8; }.m3-chart-panel--summary { grid-column: span 4; }
 .m3-dashboard__view--ratio .m3-chart-panel { grid-column: span 6; }
-.m3-chart-panel__header { height: 38px; padding: 10px 12px 0; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }.m3-chart-panel__header h2 { font-size: 14px; font-weight: 600; }.m3-chart-panel__header span { color: var(--m3-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.m3-chart-panel__body { height: calc(100% - 38px); min-height: 0; }.m3-chart { width: 100%; height: 100%; }.m3-summary { padding: 20px; line-height: 1.8; color: #b8d0e0; font-size: 13px; }.m3-summary p + p { margin-top: 12px; }
+.m3-dashboard__view--diagnostics .m3-diagnostic-events { grid-column: span 12; }.m3-dashboard__view--diagnostics .m3-experiment-compare { grid-column: span 12; }.m3-dashboard__view--diagnostics .m3-diagnostic-summary { grid-column: span 12; }
+.m3-diagnostic-event-list { height: 100%; overflow: auto; padding: 10px 12px; }.m3-diagnostic-event-list article { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(56,189,248,.12); }.m3-diagnostic-event-list article > span { min-width: 38px; height: fit-content; padding: 2px 5px; border-radius: 3px; color: #0b1420; background: #93c5fd; font-size: 10px; font-weight: 700; text-align: center; }.m3-diagnostic-event-list article[data-severity="warning"] > span { background: #facc15; }.m3-diagnostic-event-list article[data-severity="critical"] > span { background: #fb7185; }.m3-diagnostic-event-list strong, .m3-diagnostic-event-list small { display: block; }.m3-diagnostic-event-list strong { color: #d7efff; font-size: 12px; }.m3-diagnostic-event-list small { margin-top: 4px; color: var(--m3-muted); font-size: 10px; }
+.m3-diagnostic-trust-gate { margin: 9px 12px 0; padding: 8px 10px; border: 1px solid rgba(250,204,21,.28); border-radius: 5px; background: rgba(120,53,15,.16); color: #fde68a; font-size: 11px; }
+.m3-diagnostic-trust-gate label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.m3-diagnostic-trust-gate small { display: block; margin-top: 5px; color: #cbd5e1; line-height: 1.4; }
+.m3-experiment-comparison { height: 100%; padding: 10px 12px; overflow: auto; }
+.m3-experiment-compare-controls, .m3-experiment-compare-summary { display: flex; align-items: center; gap: 12px; margin-bottom: 9px; }
+.m3-experiment-compare-controls label { display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 11px; }
+.m3-experiment-compare-controls select { min-width: 190px; border: 1px solid rgba(56,189,248,.3); border-radius: 4px; background: #0f2235; color: #d7efff; padding: 4px 7px; }
+.m3-experiment-compare-summary { justify-content: space-between; color: var(--m3-muted); font-size: 10px; }
+.m3-experiment-compare-note { margin: 8px 0 0; color: #fcd34d; font-size: 10px; }
+.m3-experiment-table-wrap { height: 100%; overflow: auto; padding: 8px; }.m3-experiment-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }.m3-experiment-table th, .m3-experiment-table td { padding: 8px; border-bottom: 1px solid rgba(56,189,248,.12); text-align: left; vertical-align: top; word-break: break-word; }.m3-experiment-table th { color: #a5f3fc; }.m3-experiment-table td { color: #b8d0e0; }.m3-experiment-table td:first-child { width: 22%; }.m3-experiment-table strong, .m3-experiment-table span { display: block; }.m3-experiment-table strong { color: #e6f4ff; }.m3-experiment-table span { margin-top: 3px; color: var(--m3-muted); }
+.m3-chart-panel { display: flex; flex-direction: column; }
+.m3-chart-panel__header { flex: 0 0 auto; min-width: 0; padding: 10px 12px 6px; display: flex; flex-direction: column; align-items: stretch; gap: 3px; }
+.m3-chart-panel__header h2 { min-width: 0; margin: 0; font-size: 14px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.m3-chart-panel__header span { min-width: 0; color: var(--m3-muted); font-size: 11px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m3-chart-panel__body { flex: 1 1 auto; min-height: 0; position: relative; }
+.m3-chart { width: 100%; height: 100%; }.m3-summary { padding: 20px; line-height: 1.8; color: #b8d0e0; font-size: 13px; }.m3-summary p + p { margin-top: 12px; }
 .m3-dashboard__empty { min-height: 360px; display: grid; place-content: center; justify-items: center; gap: 14px; border: 1px dashed var(--m3-border); color: var(--m3-muted); text-align: center; }.m3-dashboard__empty h2 { color: var(--m3-text); font-size: 20px; }.m3-dashboard__empty p { max-width: 500px; line-height: 1.7; }
-.m3-chart-empty { height: 100%; display: grid; place-items: center; padding: 24px; color: var(--m3-muted); text-align: center; line-height: 1.8; font-size: 13px; }.m3-import-error { padding: 8px 12px; border: 1px solid rgba(251,113,133,.7); background: rgba(127,29,29,.28); color: #fecdd3; font-size: 12px; }
+/* 跨页导航改用 <Link> 后需要与 .m3-dashboard button 同款外观，
+   否则「← 原理图」会丢掉按钮样式。 */
+.m3-linkbtn { display: inline-flex; align-items: center; text-decoration: none; white-space: nowrap; }
+/* 空态统一用 position:absolute; inset:0 覆盖在图表之上。
+   必须保证所有可能容纳空态的元素都是定位容器：
+   - .m3-chart-panel__body：除 EChart 外，页面里还有大量手写的
+     <div className="m3-chart-empty">（字段不足时的说明文字），父级就是这个；
+   - .m3-chart-shell：EChart 自身的包裹层。
+   否则绝对定位会逃逸到视口、铺满整屏，既造成文字重叠又会盖住整页导致无法点击。 */
+.m3-chart-shell { position: relative; width: 100%; height: 100%; }
+.m3-chart-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--m3-muted); text-align: center; line-height: 1.8; font-size: 13px; }.m3-import-error { padding: 8px 12px; border: 1px solid rgba(251,113,133,.7); background: rgba(127,29,29,.28); color: #fecdd3; font-size: 12px; }
+.m3-quality-overlay { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 28px; background: rgba(1, 8, 18, .76); backdrop-filter: blur(6px); }
+.m3-quality-dialog { width: min(1180px, 94vw); max-height: 88vh; overflow: hidden; border: 1px solid rgba(34, 211, 238, .5); border-radius: 8px; background: #071b2e; box-shadow: 0 24px 80px rgba(0, 0, 0, .5); }
+.m3-quality-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--m3-border); background: rgba(12, 42, 70, .9); }
+.m3-quality-dialog h2 { margin: 0; font-size: 20px; }.m3-quality-dialog header p { margin: 6px 0 0; color: var(--m3-muted); font-size: 12px; }.m3-quality-dialog header button { padding: 3px 10px; font-size: 20px; }
+.m3-quality-list { max-height: calc(88vh - 82px); overflow: auto; padding: 16px; }
+.m3-quality-list article { margin-bottom: 14px; overflow: hidden; border: 1px solid var(--m3-border); border-radius: 6px; background: rgba(9, 31, 53, .72); }
+.m3-quality-source-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 14px; border-bottom: 1px solid rgba(56, 189, 248, .16); color: var(--m3-muted); font-size: 12px; }.m3-quality-source-head strong { display: block; max-width: 620px; overflow: hidden; color: var(--m3-text); text-overflow: ellipsis; white-space: nowrap; }.m3-quality-source-head span { display: block; margin-top: 3px; }.m3-quality-source-head b { color: #d7efff; }
+.m3-quality-list table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }.m3-quality-list th, .m3-quality-list td { padding: 8px 10px; border-bottom: 1px solid rgba(56, 189, 248, .1); text-align: left; vertical-align: top; word-break: break-word; }.m3-quality-list th { color: #a5f3fc; background: rgba(12, 42, 70, .55); }.m3-quality-list th:nth-child(1) { width: 70px; }.m3-quality-list th:nth-child(2) { width: 170px; }.m3-quality-list th:nth-child(3) { width: 34%; }.m3-quality-list td { color: #b8d0e0; }
+.m3-quality-ok, .m3-quality-more { padding: 16px; color: #86efac; font-size: 12px; }.m3-quality-more { margin: 0; color: var(--m3-muted); }
 .m3-dashboard__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; overflow-x: auto; color: var(--m3-muted); font-size: 11px; white-space: nowrap; }.m3-dashboard__footer button { padding: 2px 5px; margin-left: 4px; font-size: 10px; }.m3-source { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 1439px) { .m3-dashboard__view--realtime .m3-chart-panel { grid-column: span 4; }.m3-dashboard__view--realtime .m3-chart-panel--thermal { grid-column: span 12; grid-row: auto; }.m3-dashboard__view { grid-auto-rows: minmax(250px, auto); }.m3-dashboard__stage { grid-template-rows: 64px auto auto minmax(0, 1fr) 30px; }.m3-dashboard__toolbar { padding: 8px 12px; align-items: flex-start; }.m3-toolbar__actions { justify-content: flex-start; }.m3-dashboard__header-meta { gap: 4px; }.m3-dashboard__header-meta span:first-child { display: none; }.m3-scope-status { flex-wrap: wrap; } }
 @media (max-height: 760px) { .m3-dashboard__view { grid-template-rows: 90px repeat(2, minmax(240px, 1fr)); }.m3-dashboard__stage { height: auto; min-height: 100%; }.m3-dashboard { height: 100vh; } }
 @media (prefers-reduced-motion: reduce) { .m3-dashboard *, .m3-dashboard *::before, .m3-dashboard *::after { transition: none !important; animation: none !important; } }
+
+
+/* === 窄屏适配 ===
+   .m3-dashboard 有 min-width:1180px，且滚动发生在自身 + overflow-x:hidden，
+   导致 1024 视口下 documentElement.scrollWidth === clientWidth（表面无溢出），
+   实则右侧 156px 内容在视口外被裁掉。改为真正响应式。 */
+@media (max-width: 1179px) {
+  .m3-dashboard { min-width: 0; }
+  .m3-dashboard__view { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .m3-chart-panel { grid-column: span 3; }
+  .m3-dashboard__view--realtime .m3-chart-panel--thermal,
+  .m3-dashboard__view--realtime .m3-chart-panel { grid-column: span 6; }
+  .m3-dashboard__view--ratio .m3-chart-panel,
+  .m3-dashboard__view--diagnostics .m3-chart-panel { grid-column: span 6; }
+}
+
+.m3-dash-speeds { display: inline-flex; gap: 2px; }
+.m3-dash-speeds button { padding: 4px 6px; font-size: 11px; }

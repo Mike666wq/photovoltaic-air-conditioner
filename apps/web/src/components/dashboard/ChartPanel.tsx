@@ -12,7 +12,7 @@ export function ChartPanel({ title, subtitle, children, className = '' }: Props)
     <section className={`m3-chart-panel ${className}`}>
       <header className="m3-chart-panel__header">
         <h2>{title}</h2>
-        {subtitle && <span>{subtitle}</span>}
+        {subtitle && <span title={subtitle}>{subtitle}</span>}
       </header>
       <div className="m3-chart-panel__body">{children}</div>
     </section>

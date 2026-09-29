@@ -32,7 +32,8 @@ export interface MeterInstance {
   anchorId?: string;
   /** 自由 / 当前位置（绝对画布像素坐标） */
   position: { x: number; y: number };
-  /** 预置仪表：viewBox 逻辑坐标（渲染时按 canvas 缩放）；用户手动拖动后清除 */
+  /** 预置仪表的**世界坐标 px**。字段名沿用 presetVb，但已无 viewBox 语义、也不乘任何 scale
+   *  （画布缩放由 world-layer 的 transform: scale() 统一处理）；用户手动拖动后清除。 */
   presetVb?: { x: number; y: number };
 }
 

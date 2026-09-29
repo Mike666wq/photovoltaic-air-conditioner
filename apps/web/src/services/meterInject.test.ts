@@ -14,4 +14,13 @@ describe('仪表注入', () => {
     };
     expect(buildMeterInjectData(state, meter).fields.ts_value).toBe('19.0');
   });
+
+  it('未绑定功率表显示明确空态而不是静默读取电表D', () => {
+    const meter: MeterInstance = {
+      id: 'pm-unbound', type: 'power-meter', mount: 'free', position: { x: 0, y: 0 },
+    };
+    const data = buildMeterInjectData(useSimStore.getState(), meter);
+    expect(data.fields).toMatchObject({ pm_id: '未绑定', pm_l1_value: '—', pm_l3_value: '—' });
+    expect(data.animations.pm_pulse_speed).toBe(0);
+  });
 });

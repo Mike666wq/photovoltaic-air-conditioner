@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { useSimStore } from '../store/simulation';
 import { ImportDataDialog } from './ImportDataDialog';
-import { readCell, buildPcmInjectData } from '../services/meterInject';
+import { readCell, buildMeterInjectData, buildPcmInjectData } from '../services/meterInject';
 import { PCM_COLUMNS } from '../services/pdfFieldMap';
 import { useAnalysisStore } from '../store/analysis';
 import { deriveInverterMode, deriveStaticBatteryMode } from '../engine/schematicControl';
+import { METER_BIND_LABELS } from '../data/meters';
 
 /**
  * 数据报表（M2-A）：展示已导入数据集的摘要 + 前 5 行原始数据
@@ -66,6 +68,7 @@ function DatasetReport() {
 
 interface Props {
   compId: string | null;
+  meterId?: string | null;
   onClose: () => void;
 }
 
@@ -97,25 +100,25 @@ function typeColor(type: string): string {
   return TYPE_COLOR[type] ?? '#3B82F6';
 }
 
-export function ComponentDetail({ compId, onClose }: Props) {
+export function ComponentDetail({ compId, meterId = null, onClose }: Props) {
+  // 本组件在 CircuitCanvas 里常驻挂载、内部 return null，open 必须传真实状态，
+  // 否则 effect 只在应用启动时执行一次（那时弹窗尚未渲染），之后永不重跑。
+  const modalRef = useModalA11y(Boolean(compId), onClose);
   const [currentId, setCurrentId] = useState(compId);
+  const [currentMeterId, setCurrentMeterId] = useState<string | null>(meterId);
   const [importOpen, setImportOpen] = useState(false);
+  const currentMeter = useSimStore((state) => currentMeterId
+    ? state.meters.find((meter) => meter.id === currentMeterId) ?? null
+    : null);
 
   useEffect(() => {
-    if (compId) setCurrentId(compId);
-  }, [compId]);
+    if (compId) {
+      setCurrentId(compId);
+      setCurrentMeterId(meterId);
+    }
+  }, [compId, meterId]);
 
-  useEffect(() => {
-    if (!compId) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [compId, onClose]);
+  // Esc 由 useModalA11y 统一处理（原先这里的 window 监听已移除，避免双重触发）
 
   if (!compId || !currentId) return null;
 
@@ -123,17 +126,17 @@ export function ComponentDetail({ compId, onClose }: Props) {
 
   return (
     <div className="component-detail-overlay" onClick={onClose}>
-      <div className="component-detail-modal" onClick={(e) => e.stopPropagation()}>
+      <div ref={modalRef} className="component-detail-modal" role="dialog" aria-modal="true" aria-labelledby="component-detail-title" onClick={(e) => e.stopPropagation()}>
         <button className="component-detail-close" onClick={onClose} aria-label="关闭">×</button>
         <div className="component-detail-body">
           <aside className="component-detail-sidebar">
-            <h3>部件列表</h3>
+            <h3 id="component-detail-title">部件列表</h3>
             <ul>
               {Object.entries(COMPONENT_LABELS).map(([id, l]) => (
                 <li
                   key={id}
                   className={id === currentId ? 'active' : ''}
-                  onClick={() => setCurrentId(id)}
+                  onClick={() => { setCurrentId(id); setCurrentMeterId(null); }}
                 >
                   <span className="dot" style={{ background: typeColor(l.type) }} />
                   <span>{l.name}</span>
@@ -144,13 +147,13 @@ export function ComponentDetail({ compId, onClose }: Props) {
           </aside>
           <main className="component-detail-main">
             <div className="component-detail-header">
-              <h2>{comp?.name ?? currentId}</h2>
-              <span className="component-detail-id">{currentId}</span>
+              <h2>{currentMeter?.bind ? METER_BIND_LABELS[currentMeter.bind] : (comp?.name ?? currentId)}</h2>
+              <span className="component-detail-id">{currentMeter?.id ?? currentId}</span>
             </div>
             <div className="component-detail-section">
               <h4>当前状态</h4>
               <div className="component-detail-stats">
-                <ComponentStats compId={currentId} />
+                <ComponentStats compId={currentId} meterId={currentMeter?.id ?? null} />
               </div>
             </div>
             <div className="component-detail-section">
@@ -178,7 +181,7 @@ export function ComponentDetail({ compId, onClose }: Props) {
   );
 }
 
-function ComponentStats({ compId }: { compId: string }) {
+function ComponentStats({ compId, meterId }: { compId: string; meterId: string | null }) {
   // 订阅 store，让 stats 随滑块/开关变化实时更新
   const s = useSimStore();
   const hasDataSession = s.controlMode === 'replay' && s.playbackSnapshot != null;
@@ -192,6 +195,7 @@ function ComponentStats({ compId }: { compId: string }) {
       : (s[field] ? yes : no);
   const currentConvention = useAnalysisStore((state) => state.batteryCurrentConvention);
   const stats: Array<{ label: string; value: string }> = [];
+  const meter = meterId ? s.meters.find((item) => item.id === meterId) : null;
 
   switch (compId) {
     case 'pv-array':
@@ -285,12 +289,26 @@ function ComponentStats({ compId }: { compId: string }) {
       stats.push({ label: '供电', value: '逆变器输出侧并联' });
       break;
     case 'power-meter':
-      stats.push({ label: 'PM 值', value: sampled('pv_power', s.pv_power.toFixed(2) + ' kW') });
-      stats.push({ label: '三相电流', value: sampled('pv_power', (s.pv_power / 0.38 / 3).toFixed(2) + ' A') });
+      if (meter) {
+        const fields = buildMeterInjectData(s, meter).fields;
+        stats.push({ label: '绑定', value: fields.pm_id });
+        stats.push({ label: '电压', value: `${fields.pm_l1_value} V` });
+        stats.push({ label: '电流', value: `${fields.pm_l2_value} A` });
+        stats.push({ label: '有功功率', value: `${fields.pm_l3_value} kW` });
+        stats.push({ label: '功率因数', value: fields.pm_total });
+      } else {
+        stats.push({ label: '状态', value: '请选择或双击一个具体功率检测器' });
+      }
       break;
     case 'temp-sensor':
-      stats.push({ label: 'TS 值', value: sampled('tank_temp', s.tank_temp.toFixed(0) + '℃') });
-      stats.push({ label: '标签', value: '水箱温度' });
+      if (meter) {
+        const fields = buildMeterInjectData(s, meter).fields;
+        stats.push({ label: '绑定', value: fields.ts_label });
+        stats.push({ label: '温度', value: `${fields.ts_value}${fields.ts_unit}` });
+        stats.push({ label: '采集点', value: fields.ts_id });
+      } else {
+        stats.push({ label: '状态', value: '请选择或双击一个具体温度检测器' });
+      }
       break;
   }
 

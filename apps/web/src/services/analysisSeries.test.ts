@@ -9,6 +9,8 @@ import {
   findNearestAnalysisPoint,
   getDerivedSeries,
   indexAnalysisPointsBySource,
+  selectPrimarySourceSeries,
+  splitSeriesBySource,
   type AnalysisPoint,
 } from './analysisSeries';
 import { parseDatasetTime } from './dataset';
@@ -129,5 +131,31 @@ describe('M3 图表字段与能量统计', () => {
     expect(sampled[0]).toEqual(series[0]);
     expect(sampled[sampled.length - 1]).toEqual(series[series.length - 1]);
     expect(sampled.some((point) => point.timestamp === 5_432 && point.value === 999)).toBe(true);
+  });
+
+  it('多来源同字段按来源拆线，不再形成 A/B/A/B 单点碎段', () => {
+    const grouped = splitSeriesBySource([
+      { timestamp: 1, value: 1, sourceId: 'a' },
+      { timestamp: 1, value: 10, sourceId: 'b' },
+      { timestamp: 2, value: 2, sourceId: 'a' },
+      { timestamp: 2, value: 20, sourceId: 'b' },
+    ]);
+    expect(grouped.map((group) => [group.sourceId, group.points.map((point) => point.value)])).toEqual([
+      ['a', [1, 2]],
+      ['b', [10, 20]],
+    ]);
+  });
+
+  it('多来源同字段统计采用有效点最多的单一主来源，既不归零也不重复相加', () => {
+    const start = new Date('2026-07-14T10:00:00+08:00').getTime();
+    const interleaved = [
+      { timestamp: start, value: 2, sourceId: 'primary' },
+      { timestamp: start, value: 9, sourceId: 'secondary' },
+      { timestamp: start + 30 * 60_000, value: 2, sourceId: 'primary' },
+      { timestamp: start + 60 * 60_000, value: 2, sourceId: 'primary' },
+      { timestamp: start + 60 * 60_000, value: 9, sourceId: 'secondary' },
+    ];
+    expect(selectPrimarySourceSeries(interleaved).every((point) => point.sourceId === 'primary')).toBe(true);
+    expect(aggregatePowerEnergy(interleaved, 'hour')[0].value).toBeCloseTo(2, 8);
   });
 });

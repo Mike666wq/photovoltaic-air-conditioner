@@ -1,6 +1,5 @@
 import { LINE_COLORS, type Cable } from '../data/cables';
 import { useSimStore } from '../store/simulation';
-import { deriveCableSegmentFlow } from '../engine/schematicControl';
 
 interface Props {
   cable: Cable;
@@ -30,14 +29,6 @@ const sideMap: Record<string, string> = {
   right: '右',
 };
 
-const flowReasonLabel = {
-  flowing: '正在流动',
-  disabled: '动画已关闭',
-  'status-off': '支路设备停机',
-  'data-unavailable': '当前帧无状态数据',
-  'zero-flow': '当前流量为 0',
-} as const;
-
 function humanizeAnchor(anchorId: string): string {
   if (!anchorId) return '浮动端点';
   if (anchorId.startsWith('cable:')) {
@@ -63,12 +54,15 @@ export function CableControlDetail({ cable }: Props) {
   const setCableAnimation = useSimStore((s) => s.setCableAnimation);
   const setCableDirectionMode = useSimStore((s) => s.setCableDirectionMode);
   const meters = useSimStore((s) => s.meters);
-  const state = useSimStore();
   const attachedMeters = meters.filter((m) => m.cableId === cable.id);
-  const segmentFlows = cable.segments.map((_, index) => deriveCableSegmentFlow(cable, index, state));
-  const flowSummary = segmentFlows.every((flow) => flow.reason === 'flowing')
-    ? '正在流动'
-    : [...new Set(segmentFlows.filter((flow) => flow.reason !== 'flowing').map((flow) => flowReasonLabel[flow.reason]))].join('、');
+  const hasMissingEnd = cable.segments.some((segment, index, segments) =>
+    (!segment.fromAnchorId && !(index === 0 && cable.floatingFrom))
+    || (!segment.toAnchorId && !(index === segments.length - 1 && cable.floatingTo))
+  );
+  const hasFloatingEnd = Boolean(cable.floatingFrom || cable.floatingTo);
+  const flowSummary = hasMissingEnd ? '端点缺失，无法显示'
+    : hasFloatingEnd ? '端点未吸附'
+    : animEnabled ? '动画已开启' : '动画已关闭';
 
   const firstSeg = cable.segments[0];
   const lastSeg = cable.segments[cable.segments.length - 1];

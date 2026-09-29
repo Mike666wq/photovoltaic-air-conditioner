@@ -23,7 +23,7 @@ describe('analysis store 多来源筛选', () => {
 
     expect(state.selectedSourceIds).toEqual([process.id, bms.id]);
     expect(state.singleSourceId).toBe(process.id);
-    expect(state.analysisMode).toBe('intersection');
+    expect(state.analysisMode).toBe('union');
   });
 
   it('批量提交共享整理结果且只保留同一份行数据', () => {
@@ -43,7 +43,7 @@ describe('analysis store 多来源筛选', () => {
     expect(added[0].prepared).toBe(prepared[0]);
     expect(added[0].rows).toBe(prepared[0].rows);
     expect(added[0].processedRows).toBe(prepared[0].processedRows);
-    expect(useAnalysisStore.getState().analysisMode).toBe('intersection');
+    expect(useAnalysisStore.getState().analysisMode).toBe('union');
 
     const replacement = prepareDataSource({
       id: prepared[0].id,
@@ -80,10 +80,10 @@ describe('analysis store 多来源筛选', () => {
     expect(useAnalysisStore.getState().batteryCurrentConvention).toBe('positive-discharge');
   });
 
-  it('首次形成双源组合后默认同步交集，之后不会覆盖用户的手动切换', () => {
+  it('形成双源组合后仍保持并集，严格交集只由用户显式选择', () => {
     useAnalysisStore.getState().addSource(source('process.xlsx', ['时间', 'T4.PV']));
     useAnalysisStore.getState().addSource(source('bms.xlsx', ['时间', 'SOC(%)']));
-    expect(useAnalysisStore.getState().analysisMode).toBe('intersection');
+    expect(useAnalysisStore.getState().analysisMode).toBe('union');
 
     useAnalysisStore.getState().setAnalysisMode('union');
     useAnalysisStore.getState().addSource(source('other.xlsx', ['时间', 'T5.PV']));

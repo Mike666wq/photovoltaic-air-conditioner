@@ -40,6 +40,13 @@ export function useTransientSpark(
       el.style.display = 'none';
     }, durationMs);
 
-    return () => clearTimeout(id);
+    // 必须同时复位 display：只 clearTimeout 会让火花永久停在显示态。
+    // 触发路径：切换 gs_on/cb_connected 后 800ms 内再点一次动画开关 →
+    // cleanup 清掉定时器 → 新 effect 首行 early-return → display 永远是 block，
+    // 且 injectAll 不覆盖 inline style，只能靠重新 clone SVG 才恢复。
+    return () => {
+      clearTimeout(id);
+      el.style.display = 'none';
+    };
   }, [flag, svgRef, selector, durationMs, animationOn]);
 }

@@ -1,11 +1,10 @@
 # base-elements · 立体草图库
 
 > 项目代号：Photovoltaic‑Air‑Conditioner Sim Platform
-> 阶段：阶段 1 · 静态可视化 + 动画版
-> 文档版本：v0.2（新增 §6 动画接入规范 + §7 部件动画钩子清单 + §8 性能与可访问性约束）
-> 编写日期：2026‑07‑14
-> 编写人：Mavis
-> 关联文档：`../需求文档.md`、`../功能需求.md`、`../电路实现逻辑.md`、`数据字段映射.md`
+> 阶段：M1 视觉规范（应用已演进到 M3，SVG 规范本身仍适用）
+> 文档版本：v0.3（文件清单与实际引用情况对齐）
+> 最后核对：2026‑09‑28
+> 关联文档：[`../AGENTS.md`](../AGENTS.md)、`../电路实现逻辑.md`、`数据字段映射.md`
 
 ---
 
@@ -99,25 +98,30 @@ import Inverter from '@/base-elements/inverter.svg?react';
 <img src="/base-elements/heat-pump.svg" alt="热泵机组" />
 ```
 
-## 5. 文件清单（共 18 个 SVG）
+## 5. 文件清单
 
-- 14 个部件 SVG
-- 3 种线缆 SVG
-- 1 个总览图 `circuit-overview.svg`
+**实际被 React 应用引用：15 个 SVG**
 
-> 后续阶段：
-> - 阶段 2：给部件添加 `data-*` 属性 + 状态文本插槽。
-> - 阶段 3：把 SVG 切换到 Konva/Canvas 时，本目录作为视觉参考。
-> - 阶段 4：在 SVG 上添加 `cursor: pointer` 与点击热区（`data-click-id`）。
+- 13 个部件：`pv-array` / `combiner-box` / `grid` / `grid-switch` / `inverter` / `battery` / `load` /
+  `heat-pump` / `tank` / `pump` / `pcm` / `air-terminal` / `solar-air-cooler`
+- 2 个仪表：`power-meter` / `temp-sensor`
+
+**未被应用引用（保留作为视觉参考，删除前需确认无外部依赖）：**
+
+- `power-line.svg` / `refrigerant-line.svg` / `water-line.svg` — 线缆早期实现，
+  已被 `useParticleAnimation` 的 SVG `<circle>` 粒子方案取代；`src/` 内零引用
+  （仅 `injector.ts:385` 的注释提到）
+- `circuit-overview.svg` — 全系统总览参考图
+- `index.html` — 旧版单文件演示页（已弃用，保留作 SVG 测试参考）
 
 ---
 
 ## 4. 跨平台与部署
 
-**当前阶段**：直接用浏览器打开 `base-elements/demo.html`，或通过 Vite dev server 访问 http://localhost:5173。
+**当前阶段**：通过 Vite dev server 访问 http://localhost:5173（`base-elements/` 由 `vite-svg-plugin` 在 dev 下服务，build 时由 `scripts/copy-svgs.mjs` 拷贝到 `dist/`）。
 
-**最终交付**（M3 完成后再决定）：
-- **桌面应用**：Tauri 2.0（推荐，详见 `../功能需求.md §1.4`）
+**可能的进一步交付方向**（尚未决策）：
+- **桌面应用**：Tauri 2.0（构建产物是纯静态文件，技术上无障碍）
 - **Web 部署**：Nginx 静态托管 / Vercel
 - **移动端**：M1 不支持
 

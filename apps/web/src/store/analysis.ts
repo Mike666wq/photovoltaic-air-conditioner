@@ -6,8 +6,9 @@ import {
   type ProcessedSourceRow,
   type SourceQualityReport,
 } from '../services/dataSourcePipeline';
+import type { ExperimentBatch } from '../services/experimentSession';
 
-export type DashboardView = 'realtime' | 'energy' | 'ratio';
+export type DashboardView = 'realtime' | 'energy' | 'ratio' | 'diagnostics';
 export type EnergyGranularity = 'hour' | 'day';
 export type AnalysisMode = 'union' | 'intersection' | 'single';
 export type BatteryCurrentConvention = 'unknown' | 'positive-charge' | 'positive-discharge';
@@ -41,6 +42,8 @@ type NewAnalysisSource = Omit<
 
 interface AnalysisState {
   sources: AnalysisSource[];
+  experimentBatches: ExperimentBatch[];
+  activeExperimentBatchId: string | null;
   activeView: DashboardView;
   granularity: EnergyGranularity;
   range: [number, number] | null;
@@ -56,6 +59,9 @@ interface AnalysisState {
   addPreparedSources: (sources: PreparedDataSource[]) => AnalysisSource[];
   removeSource: (id: string) => void;
   clearSources: () => void;
+  upsertExperimentBatch: (batch: ExperimentBatch) => void;
+  removeExperimentBatch: (id: string) => void;
+  setActiveExperimentBatch: (id: string | null) => void;
   setActiveView: (view: DashboardView) => void;
   setGranularity: (value: EnergyGranularity) => void;
   setRange: (range: [number, number] | null) => void;
@@ -68,12 +74,6 @@ interface AnalysisState {
 
 function createId() {
   return `analysis-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function hasSeparateThermalAndBmsSources(sources: AnalysisSource[]): boolean {
-  const thermalSources = sources.filter((source) => source.profile.kind === 'thermal-electrical' || source.profile.kind === 'mixed');
-  const bmsSources = sources.filter((source) => source.profile.kind === 'battery-bms' || source.profile.kind === 'mixed');
-  return thermalSources.some((thermal) => bmsSources.some((bms) => bms.id !== thermal.id));
 }
 
 function toAnalysisSource(prepared: PreparedDataSource, importedAt = new Date().toISOString()): AnalysisSource {
@@ -97,21 +97,19 @@ function appendSources(state: AnalysisState, added: AnalysisSource[]): Partial<A
   const addedIds = new Set(added.map((source) => source.id));
   // 同一文件（稳定 source id）再次导入时更新它，不把相同万级数据重复堆入内存。
   const sources = [...state.sources.filter((source) => !addedIds.has(source.id)), ...added];
-  // 仅在“首次形成双源组合”时自动切换。之后用户手动选择的并集/单源模式
-  // 不会因继续导入其他来源而被覆盖。
-  const shouldDefaultToIntersection = !state.analysisModeTouched
-    && !hasSeparateThermalAndBmsSources(state.sources)
-    && hasSeparateThermalAndBmsSources(sources);
   return {
     sources,
     selectedSourceIds: [...new Set([...state.selectedSourceIds, ...added.map((source) => source.id)])],
     singleSourceId: state.singleSourceId ?? added[0].id,
-    analysisMode: shouldDefaultToIntersection ? 'intersection' : state.analysisMode,
+    // 导入只登记来源，不擅自触发昂贵的严格交集；由用户在大屏明确选择模式。
+    analysisMode: state.analysisMode,
   };
 }
 
 export const useAnalysisStore = create<AnalysisState>((set) => ({
   sources: [],
+  experimentBatches: [],
+  activeExperimentBatchId: null,
   activeView: 'realtime',
   granularity: 'hour',
   range: null,
@@ -143,14 +141,30 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   },
   removeSource: (id) => set((state) => {
     const sources = state.sources.filter((source) => source.id !== id);
+    const experimentBatches = state.experimentBatches.flatMap((batch) => {
+      const sourceIds = batch.sourceIds.filter((sourceId) => sourceId !== id);
+      if (!sourceIds.length) return [];
+      return [{
+        ...batch,
+        sourceIds,
+        anchorSourceId: sourceIds.includes(batch.anchorSourceId) ? batch.anchorSourceId : sourceIds[0],
+        updatedAt: new Date().toISOString(),
+      }];
+    });
     return {
       sources,
+      experimentBatches,
+      activeExperimentBatchId: experimentBatches.some((batch) => batch.id === state.activeExperimentBatchId)
+        ? state.activeExperimentBatchId
+        : experimentBatches[0]?.id ?? null,
       selectedSourceIds: state.selectedSourceIds.filter((sourceId) => sourceId !== id),
       singleSourceId: state.singleSourceId === id ? sources[0]?.id ?? null : state.singleSourceId,
     };
   }),
   clearSources: () => set({
     sources: [],
+    experimentBatches: [],
+    activeExperimentBatchId: null,
     range: null,
     analysisMode: 'union',
     analysisModeTouched: false,
@@ -158,6 +172,25 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
     singleSourceId: null,
     batteryCurrentConvention: DEFAULT_BATTERY_CURRENT_CONVENTION,
   }),
+  upsertExperimentBatch: (batch) => set((state) => ({
+    experimentBatches: [...state.experimentBatches.filter((item) => item.id !== batch.id), batch],
+    activeExperimentBatchId: batch.id,
+  })),
+  removeExperimentBatch: (id) => set((state) => {
+    const experimentBatches = state.experimentBatches.filter((batch) => batch.id !== id);
+    return {
+      experimentBatches,
+      activeExperimentBatchId: state.activeExperimentBatchId === id
+        ? experimentBatches[0]?.id ?? null
+        : state.activeExperimentBatchId,
+    };
+  }),
+  setActiveExperimentBatch: (activeExperimentBatchId) => set((state) => ({
+    activeExperimentBatchId: activeExperimentBatchId
+      && state.experimentBatches.some((batch) => batch.id === activeExperimentBatchId)
+      ? activeExperimentBatchId
+      : null,
+  })),
   setActiveView: (activeView) => set({ activeView }),
   setGranularity: (granularity) => set({ granularity }),
   setRange: (range) => set({ range }),

@@ -29,7 +29,7 @@ export function LogPanel() {
 
   return (
     <div className="log-panel" ref={logRef}>
-      <div>[系统就绪] M1 原理图页面启动成功 · 12 部件（2×6）+ 线缆 + Canvas 粒子层</div>
+      <div>[系统就绪] 原理图页面启动成功 · 13 部件 + 标准拓扑 + Canvas 粒子层</div>
       <div>[提示] 按 Cmd+Shift+R 硬刷新避免 SVG 缓存</div>
     </div>
   );

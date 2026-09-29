@@ -165,6 +165,18 @@ function buildMeterInject(
   state: SimulationState,
   meter: MeterInstance,
 ): MeterInjectData {
+  if (meter.bind !== 'meter-d' && meter.bind !== 'meter-du') {
+    return {
+      fields: {
+        pm_id: '未绑定',
+        pm_l1_value: '—',
+        pm_l2_value: '—',
+        pm_l3_value: '—',
+        pm_total: '—',
+      },
+      animations: { pm_pulse_speed: 0 },
+    };
+  }
   const bind = meter.bind === 'meter-du' ? 'meter-du' : 'meter-d';
   const cols = METER_BIND_COLUMNS[bind];
   const v = readCell(state, cols.voltage);

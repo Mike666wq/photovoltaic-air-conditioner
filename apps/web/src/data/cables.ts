@@ -3,9 +3,9 @@
 
 export type CableKind = 'power' | 'refrigerant' | 'water';
 
-/** 粒子流动方向（M1.5 Round 9 新增） */
+/** 粒子流动方向：只接受用户明确指定的正向或反向。 */
 export type CableDirection = 'forward' | 'reverse';
-export type CableDirectionMode = 'auto' | CableDirection;
+export type CableDirectionMode = CableDirection;
 export type CableRoutingMode = 'straight' | 'orthogonal-auto' | 'orthogonal-manual';
 
 /** 直线段（端点必须是锚点 id：组件锚点 "comp.side"） */
@@ -28,7 +28,7 @@ export interface Cable {
   animationEnabled: boolean;
   /** M1.5 Round 9 新增：粒子流动方向 */
   direction: CableDirection;
-  /** 缺失时按 auto 兼容旧场景；forward/reverse 表示人工强制覆盖。 */
+  /** 与 direction 同步保存；保留字段名是为了兼容 v1/v2 场景。 */
   directionMode?: CableDirectionMode;
   /** 缺失时按 orthogonal-auto 处理，兼容旧场景。 */
   routeMode?: CableRoutingMode;
@@ -53,8 +53,45 @@ export interface Cable {
 //   pcm.left (820, 834)  pcm.right (988, 834)
 //   air-terminal.left (1060, 816)
 
-// 默认不预连线缆：避免新部件干扰用户已保存的场景拓扑。
-export const CABLES: Cable[] = [];
+function standardCable(
+  id: string,
+  kind: CableKind,
+  fromAnchorId: string,
+  toAnchorId: string,
+  direction: CableDirection = 'forward',
+): Cable {
+  return {
+    id,
+    kind,
+    segments: [{ fromAnchorId, toAnchorId }],
+    floatingFrom: null,
+    floatingTo: null,
+    animationEnabled: true,
+    direction,
+    directionMode: direction,
+    routeMode: 'orthogonal-auto',
+  };
+}
+
+/**
+ * 官方基准拓扑。
+ *
+ * 新建页面和“恢复标准拓扑”都从这里深克隆，空白设计图由 store 的独立 action 创建。
+ * 每条逻辑线缆只描述真实设备端点；横平竖直与避障交给 orthogonalRouter，避免同时维护坐标副本。
+ */
+export const CABLES: Cable[] = [
+  standardCable('standard-power-pv-combiner', 'power', 'pv-array.right', 'combiner-box.left'),
+  standardCable('standard-power-combiner-inverter', 'power', 'combiner-box.right', 'inverter.left'),
+  standardCable('standard-power-grid-switch', 'power', 'grid.right', 'grid-switch.left'),
+  standardCable('standard-power-switch-inverter', 'power', 'grid-switch.right', 'inverter.top'),
+  standardCable('standard-power-inverter-battery', 'power', 'inverter.right', 'battery.left'),
+  standardCable('standard-power-battery-load', 'power', 'battery.right', 'load.left'),
+  standardCable('standard-power-inverter-heat-pump', 'power', 'inverter.bottom', 'heat-pump.top'),
+  standardCable('standard-refrigerant-heat-pump-tank', 'refrigerant', 'heat-pump.right', 'tank.left'),
+  standardCable('standard-water-tank-pump', 'water', 'tank.right', 'pump.left'),
+  standardCable('standard-water-pump-pcm', 'water', 'pump.right', 'pcm.left'),
+  standardCable('standard-water-pcm-terminal', 'water', 'pcm.right', 'air-terminal.left'),
+];
 
 // 线缆颜色（视觉规范）
 export const LINE_COLORS: Record<CableKind, string> = {

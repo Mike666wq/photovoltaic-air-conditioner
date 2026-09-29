@@ -34,6 +34,23 @@ export function buildAnalysisPoints(sources: AnalysisSource[]): AnalysisPoint[] 
   const points: AnalysisPoint[] = [];
   for (const source of sources) {
     if (!source.timeColumn) continue;
+    // 新导入来源已经在 prepareDataSource 阶段完成时间解析、质量判断和字段映射。
+    // 直接复用这些结果，避免进入大屏时再次遍历每行的全部列并重复匹配别名。
+    if (source.processedRows.length && source.prepared.fieldMappings.length) {
+      for (const processed of source.processedRows) {
+        if (!processed.valid || processed.timestamp == null) continue;
+        const values: Record<string, number> = {};
+        for (const mapping of source.prepared.fieldMappings) {
+          const value = Number.parseFloat(String(processed.raw[mapping.sourceColumn] ?? '').trim());
+          if (Number.isFinite(value)) values[mapping.fieldKey] = value;
+        }
+        if (Object.keys(values).length > 0) {
+          points.push({ timestamp: processed.timestamp, sourceId: source.id, values });
+        }
+      }
+      continue;
+    }
+    // 兼容旧状态文件中没有 prepared 索引的来源。
     for (const row of source.rows) {
       const timestamp = parseDatasetTime(row[source.timeColumn]);
       if (timestamp == null) continue;
@@ -127,6 +144,33 @@ export function buildSeries(points: AnalysisPoint[], fieldKey: string): SeriesPo
     const value = point.values[fieldKey];
     return Number.isFinite(value) ? [{ timestamp: point.timestamp, value, sourceId: point.sourceId }] : [];
   });
+}
+
+/** 同一业务字段按数据来源拆线，避免 A/B/A/B 交错后每段只剩一个不可见点。 */
+export function splitSeriesBySource(series: SeriesPoint[]): Array<{ sourceId: string; points: SeriesPoint[] }> {
+  const groups = new Map<string, SeriesPoint[]>();
+  for (const point of series) {
+    const sourceId = point.sourceId ?? '未标识来源';
+    const group = groups.get(sourceId);
+    if (group) group.push(point);
+    else groups.set(sourceId, [point]);
+  }
+  return [...groups.entries()].map(([sourceId, points]) => ({
+    sourceId,
+    points: [...points].sort((left, right) => left.timestamp - right.timestamp),
+  }));
+}
+
+/**
+ * 统计默认采用有效点最多的单一主来源，数量相同时保持来源首次出现顺序。
+ * 这比把两个可能重复的测点直接相加更安全，且不会因交错排序导致积分归零。
+ */
+export function selectPrimarySourceSeries(series: SeriesPoint[]): SeriesPoint[] {
+  const groups = splitSeriesBySource(series);
+  if (groups.length <= 1) return groups[0]?.points ?? [];
+  return groups.reduce((primary, candidate) =>
+    candidate.points.length > primary.points.length ? candidate : primary,
+  ).points;
 }
 
 /**
@@ -232,6 +276,8 @@ function getBucket(buckets: Map<number, number>, start: number): void {
 
 /** 对瞬时功率（kW）按真实时间戳进行梯形积分，并精确拆分至逐时/逐日桶。 */
 export function aggregatePowerEnergy(series: SeriesPoint[], granularity: EnergyGranularity): EnergyBucket[] {
+  const primarySeries = selectPrimarySourceSeries(series);
+  if (primarySeries.length !== series.length) return aggregatePowerEnergy(primarySeries, granularity);
   const buckets = new Map<number, number>();
   const gapLimit = Math.max(MAX_GAP_MS, medianInterval(series) * 3);
   for (let index = 1; index < series.length; index++) {
@@ -265,6 +311,10 @@ export function aggregateSignedPowerEnergy(
   direction: 'positive' | 'negative',
   granularity: EnergyGranularity,
 ): EnergyBucket[] {
+  const primarySeries = selectPrimarySourceSeries(series);
+  if (primarySeries.length !== series.length) {
+    return aggregateSignedPowerEnergy(primarySeries, direction, granularity);
+  }
   const split: SeriesPoint[] = [];
   for (let index = 0; index < series.length; index++) {
     const current = series[index];
@@ -289,6 +339,8 @@ export function aggregateSignedPowerEnergy(
  * 遇到不同来源、长断档或表计回绕/清零时不跨越计量，避免把缺失期能耗误归入后一桶。
  */
 export function aggregateCumulativeEnergy(series: SeriesPoint[], granularity: EnergyGranularity): EnergyBucket[] {
+  const primarySeries = selectPrimarySourceSeries(series);
+  if (primarySeries.length !== series.length) return aggregateCumulativeEnergy(primarySeries, granularity);
   const buckets = new Map<number, number>();
   const gapLimit = Math.max(MAX_GAP_MS, medianInterval(series) * 3);
   for (let index = 1; index < series.length; index++) {
@@ -328,6 +380,8 @@ export function aggregateLastValue(points: AnalysisPoint[], fieldKey: string, gr
 
 /** 对任意时点量（SOC、BMS 剩余能量等）取每个自然桶的末值，不参与求和。 */
 export function aggregateLastSeriesValue(series: SeriesPoint[], granularity: EnergyGranularity): EnergyBucket[] {
+  const primarySeries = selectPrimarySourceSeries(series);
+  if (primarySeries.length !== series.length) return aggregateLastSeriesValue(primarySeries, granularity);
   const buckets = new Map<number, number>();
   for (const point of series) {
     const value = point.value;

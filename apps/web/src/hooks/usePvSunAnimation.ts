@@ -9,6 +9,8 @@ interface PanelGroups {
 }
 
 interface Nodes {
+  /** pv-array 的 <g> 根；缓存它是为了避免每帧对整棵子树做 querySelector。 */
+  root: SVGGElement | null;
   sun: SVGGElement | null;
   cone: SVGPolygonElement | null;
   groups: PanelGroups;
@@ -18,6 +20,7 @@ interface Nodes {
 const SUN_RADIANS_PER_SECOND = 0.012 * 60;
 
 const EMPTY_NODES: Nodes = {
+  root: null,
   sun: null,
   cone: null,
   groups: { left: null, mid: null, right: null },
@@ -37,10 +40,27 @@ const EMPTY_NODES: Nodes = {
 export function usePvSunAnimation(
   svgRef: RefObject<SVGSVGElement>,
   state: SimulationState,
+  /**
+   * 是否为本 PV 槽位。
+   *
+   * 此前本 hook 在每个 ComponentSlot 各调一次（13 个槽 = 13 条常驻 rAF），
+   * 其中 12 条每帧对整棵子树 querySelector('[data-component-id="pv-array"]')
+   * 后 return —— 实测动画开启且画面完全静止时主线程仍有 44% 占用、每秒 60 次 style+layout。
+   * 现在非 PV 槽位根本不注册循环。
+   */
+  enabled: boolean = true,
 ) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const nodesRef = useRef<Nodes>(EMPTY_NODES);
+  /**
+   * 上次写入 DOM 的值。
+   *
+   * 光伏不发电时每帧都会把同一组 opacity/filter/data-sun-illuminated 再写一遍
+   * （27 次/帧组的无效写），白白触发 style/layout 重算 —— 实测占主线程 46%、
+   * 每秒 60 次 StyleRecalc+Layout。值没变就不写。
+   */
+  const lastWrittenRef = useRef<Record<string, string>>({});
 
   // 缓存 SVG 节点：mount/卸载时刷新一次（svgRef.current 引用变化触发）
   useEffect(() => {
@@ -55,6 +75,7 @@ export function usePvSunAnimation(
       return;
     }
     nodesRef.current = {
+      root,
       sun: root.querySelector<SVGGElement>('#pv-sun'),
       cone: root.querySelector<SVGPolygonElement>('#pv-light-cone'),
       groups: {
@@ -66,7 +87,9 @@ export function usePvSunAnimation(
   }, [svgRef.current]);
 
   // RAF 循环（镜像 useParticleAnimation.ts:106-161 的生命周期）
+  // 依赖里带上 animationOn：关闭时循环真正停摆，重新打开时重启。
   useEffect(() => {
+    if (!enabled || !stateRef.current.animationOn) return;
     let rafId: number;
     let sunAngle = 0;
     let previousTime: number | null = null;
@@ -76,13 +99,35 @@ export function usePvSunAnimation(
       const deltaSeconds = previousTime == null ? 0 : Math.min(0.1, Math.max(0, (now - previousTime) / 1000));
       previousTime = now;
 
-      // 动画关闭：提前 return（节省 CPU）
+      // 动画关闭：正常情况下 effect 已停摆；这里兜底处理运行中被翻转的情况。
       if (!s.animationOn) {
         rafId = requestAnimationFrame(tick);
         return;
       }
 
-      const root = svgRef.current?.querySelector<SVGGElement>('[data-component-id="pv-array"]');
+      // 复用缓存的 root，避免每帧对整棵子树 querySelector。
+      // 但必须保留"缓存为空时重新发现"的兜底：SVG 是异步 fetch 后才挂载的，
+      // 而上面的节点缓存 effect 依赖 [svgRef.current] —— ref 变化不触发重渲染，
+      // 缓存可能一直是空的。只在缓存为空时兜底查一次，命中后即永久走缓存。
+      let root = nodesRef.current.root;
+      if (!root) {
+        const svg = svgRef.current;
+        const found = svg?.querySelector<SVGGElement>('[data-component-id="pv-array"]') ?? null;
+        if (found) {
+          root = found;
+          nodesRef.current = {
+            root,
+            sun: found.querySelector<SVGGElement>('#pv-sun'),
+            cone: found.querySelector<SVGPolygonElement>('#pv-light-cone'),
+            groups: {
+              left: found.querySelector<SVGGElement>('.anim-panel-group-left'),
+              mid: found.querySelector<SVGGElement>('.anim-panel-group-mid'),
+              right: found.querySelector<SVGGElement>('.anim-panel-group-right'),
+            },
+          };
+          lastWrittenRef.current = {};
+        }
+      }
       if (!root) {
         rafId = requestAnimationFrame(tick);
         return;
@@ -99,7 +144,10 @@ export function usePvSunAnimation(
           mid: root.querySelector<SVGGElement>('.anim-panel-group-mid') ?? null,
           right: root.querySelector<SVGGElement>('.anim-panel-group-right') ?? null,
         };
-        nodesRef.current = { sun, cone, groups };
+        nodesRef.current = { root, sun, cone, groups };
+        // 节点刚被重建，新节点上没有任何内联样式；必须清空写入缓存，
+        // 否则会把"已写过"误判成"值相同"而跳过首次写入，光照/光锥停留在旧状态。
+        lastWrittenRef.current = {};
       }
 
       if (!sun) {
@@ -120,13 +168,26 @@ export function usePvSunAnimation(
         : Math.max(0, Math.min(1, s.pv_sun));
 
       if (!pvRunning || effectiveSun <= 0) {
-        if (cone) cone.style.opacity = '0';
+        const last = lastWrittenRef.current;
+        if (cone && last.cone !== '0') {
+          cone.style.opacity = '0';
+          last.cone = '0';
+        }
         (['left', 'mid', 'right'] as const).forEach((key) => {
           const group = groups[key];
           if (!group) return;
-          group.style.opacity = '0.15';
-          group.style.filter = 'none';
-          group.setAttribute('data-sun-illuminated', 'false');
+          if (last[`op_${key}`] !== '0.15') {
+            group.style.opacity = '0.15';
+            last[`op_${key}`] = '0.15';
+          }
+          if (last[`fl_${key}`] !== 'none') {
+            group.style.filter = 'none';
+            last[`fl_${key}`] = 'none';
+          }
+          if (last[`il_${key}`] !== 'false') {
+            group.setAttribute('data-sun-illuminated', 'false');
+            last[`il_${key}`] = 'false';
+          }
         });
         rafId = requestAnimationFrame(tick);
         return;
@@ -149,13 +210,19 @@ export function usePvSunAnimation(
       if (cone) {
         const coneTopLeft = x - 30;
         const coneTopRight = x + 30;
-        cone.setAttribute(
-          'points',
-          `${coneTopLeft.toFixed(1)},${(y + 20).toFixed(1)} ${coneTopRight.toFixed(1)},${(y + 20).toFixed(1)} 200,200 40,200`,
-        );
-        // 光锥透明度随太阳高度变化
+        const nextPoints = `${coneTopLeft.toFixed(1)},${(y + 20).toFixed(1)} ${coneTopRight.toFixed(1)},${(y + 20).toFixed(1)} 200,200 40,200`;
         const heightFactor = 1 - (y - 30) / 170;
-        cone.style.opacity = (0.1 + heightFactor * 0.3).toFixed(2);
+        const nextConeOpacity = (0.1 + heightFactor * 0.3).toFixed(2);
+        const last = lastWrittenRef.current;
+        if (last.conePoints !== nextPoints) {
+          cone.setAttribute('points', nextPoints);
+          last.conePoints = nextPoints;
+        }
+        // 光锥透明度随太阳高度变化
+        if (last.coneOpacity !== nextConeOpacity) {
+          cone.style.opacity = nextConeOpacity;
+          last.coneOpacity = nextConeOpacity;
+        }
       }
 
       // 3. 面板亮度 + 照射状态
@@ -169,16 +236,25 @@ export function usePvSunAnimation(
         const glowIntensity = Math.max(0, (1 - dist / maxDist) * 0.8);
         const illuminated = dist < 80; // 距离太阳 < 80px 时被照射
 
-        g.style.opacity = brightness.toFixed(2);
-        g.style.filter = glowIntensity > 0.1
+        const last = lastWrittenRef.current;
+        const nextOpacity = brightness.toFixed(2);
+        const nextFilter = glowIntensity > 0.1
           ? `drop-shadow(0 0 ${(glowIntensity * 8).toFixed(1)}px rgba(252, 211, 77, ${glowIntensity.toFixed(2)}))`
           : 'none';
-        g.setAttribute('data-sun-illuminated', illuminated ? 'true' : 'false');
+        const nextLit = illuminated ? 'true' : 'false';
+        if (last[`op_${key}`] !== nextOpacity) { g.style.opacity = nextOpacity; last[`op_${key}`] = nextOpacity; }
+        if (last[`fl_${key}`] !== nextFilter) { g.style.filter = nextFilter; last[`fl_${key}`] = nextFilter; }
+        if (last[`il_${key}`] !== nextLit) {
+          g.setAttribute('data-sun-illuminated', nextLit);
+          last[`il_${key}`] = nextLit;
+        }
       });
 
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, []);
+    // animationOn 进依赖：关闭动画时循环真正停摆（而不是每帧空转续命），
+    // 重新打开时重启。仅依赖布尔值，state 每帧变化不会导致 effect 重跑。
+  }, [state.animationOn]);
 }

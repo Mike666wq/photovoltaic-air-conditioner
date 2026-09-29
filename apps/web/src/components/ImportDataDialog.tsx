@@ -1,13 +1,17 @@
 import { useMemo, useRef, useState } from 'react';
+import { useModalA11y } from '../hooks/useModalA11y';
 import { findChartField } from '../data/chartFields';
-import { useSimStore } from '../store/simulation';
 import {
   prepareFileForImport,
   type ImportPreparationStage,
 } from '../services/preparedImport';
-import type { PreparedDataSource } from '../services/dataSourcePipeline';
-import { buildPlaybackSession } from '../services/playbackSession';
-import { applyTimelineFrame } from './TimelineControls';
+import {
+  type PreparedDataSource,
+} from '../services/dataSourcePipeline';
+import {
+  commitPreparedExperiment,
+  previewExperimentSession,
+} from '../services/sessionCoordinator';
 
 interface Props {
   compId: string | null;
@@ -63,27 +67,36 @@ function canonicalFields(source: PreparedDataSource) {
 }
 
 export function ImportDataDialog({ compId, open, onClose }: Props) {
+  const modalRef = useModalA11y(open, onClose);
   const [step, setStep] = useState<Step>('select');
   const [preparedSources, setPreparedSources] = useState<PreparedDataSource[]>([]);
+  const [anchorSourceId, setAnchorSourceId] = useState('');
+  const [toleranceMs, setToleranceMs] = useState(2_000);
+  // 默认勾选。持久化来源只有分析库（serializeState 只从 experimentBatches 取数据源），
+  // 不发布就等于"原理图在回放但场景文件里什么都没有"：保存后重开数据源静默清空、
+  // controlMode 退回 simulation，且无任何警告。两个入口必须产生一致的副作用。
+  const [publishToAnalysis, setPublishToAnalysis] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const strictSession = useMemo(() => {
-    if (!preparedSources.length) return null;
-    const anchor = preparedSources.find((source) =>
-      source.profile.kind === 'thermal-electrical' || source.profile.kind === 'mixed',
-    ) ?? preparedSources[0];
-    return buildPlaybackSession({ sources: preparedSources, anchorSourceId: anchor.id, toleranceMs: 2_000 });
-  }, [preparedSources]);
+  const sessionPreview = useMemo(
+    () => previewExperimentSession(preparedSources, { anchorSourceId, toleranceMs }),
+    [anchorSourceId, preparedSources, toleranceMs],
+  );
+  const strictSession = sessionPreview.session;
   const timedSourceCount = preparedSources.filter((source) =>
     source.timeStats.start != null && source.timeStats.end != null,
   ).length;
+  const commitBlockers = sessionPreview.blockers;
 
   if (!open) return null;
 
   const resetState = () => {
     setStep('select');
     setPreparedSources([]);
+    setAnchorSourceId('');
+    setToleranceMs(2_000);
+    setPublishToAnalysis(true);
     setError(null);
     setProgress(null);
   };
@@ -125,6 +138,10 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
       }
 
       setPreparedSources(prepared);
+      const defaultAnchor = prepared.find((source) =>
+        source.profile.kind === 'thermal-electrical' || source.profile.kind === 'mixed',
+      ) ?? prepared[0];
+      setAnchorSourceId(defaultAnchor?.id ?? '');
       setError(errors.length ? `部分文件未能导入：${errors.join('；')}` : null);
       if (prepared.length) setStep('preview');
       else setError(errors.length ? `没有可用的数据文件。${errors.join('；')}` : '没有可用的数据文件。');
@@ -135,41 +152,14 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
   };
 
   const handleCommit = () => {
-    if (!preparedSources.length || progress) return;
-
-    const sim = useSimStore.getState();
-    for (const prepared of preparedSources) {
-      sim.setInjectionDataset({
-        sourceId: prepared.id,
-        sourceFile: prepared.filename,
-        format: prepared.format,
-        headers: prepared.headers,
-        rows: prepared.rows,
-        timeColumn: prepared.timeStats.timeColumn,
-        role: prepared.profile.kind,
-        prepared,
-      });
+    if (!preparedSources.length || progress || commitBlockers.length) return;
+    try {
+      commitPreparedExperiment(preparedSources, { anchorSourceId, toleranceMs, publishToAnalysis });
+      resetState();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '无法建立实验批次');
     }
-    useSimStore.getState().setActivePlaybackSourceIds(preparedSources.map((source) => source.id));
-
-    const next = useSimStore.getState();
-    const hasThermal = preparedSources.some((source) =>
-      source.profile.kind === 'thermal-electrical' || source.profile.kind === 'mixed',
-    );
-    const hasBms = preparedSources.some((source) =>
-      source.profile.kind === 'battery-bms' || source.profile.kind === 'mixed',
-    );
-    if (hasThermal && hasBms) next.setTimelineMode('combined');
-    applyTimelineFrame(0);
-    useSimStore.getState().applyInjection({
-      sourceFile: preparedSources.length === 1
-        ? preparedSources[0].filename
-        : `${preparedSources.length} 个文件`,
-      rowsCount: preparedSources.reduce((sum, source) => sum + source.rows.length, 0),
-    });
-
-    resetState();
-    onClose();
   };
 
   return (
@@ -181,12 +171,16 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
       }}
     >
       <div
+        ref={modalRef}
         className="import-data-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-data-title"
         aria-busy={Boolean(progress)}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="import-data-header">
-          <h3>导入时序数据 — {compId ?? '原理图'}</h3>
+          <h3 id="import-data-title">导入时序数据 — {compId ?? '原理图'}</h3>
           <button onClick={handleCancel} disabled={Boolean(progress)} aria-label="关闭">×</button>
         </div>
 
@@ -241,6 +235,10 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
                       : '无可同步帧'}
                   </span>
                 )}
+                {preparedSources.length > 1 && <label>主时间轴<select aria-label="导入主时间轴" value={sessionPreview.anchorSourceId ?? ''} onChange={(event) => setAnchorSourceId(event.target.value)}>{preparedSources.map((source) => <option key={source.id} value={source.id}>{source.filename}</option>)}</select></label>}
+                {preparedSources.length > 1 && <label>同步容差<select aria-label="导入同步容差" value={toleranceMs} onChange={(event) => setToleranceMs(Number(event.target.value))}>{[500, 1_000, 2_000, 5_000, 10_000, 30_000, 60_000].map((value) => <option key={value} value={value}>±{value / 1_000} 秒</option>)}</select></label>}
+                <label title="数据源需登记到分析库，场景文件才能保存并在下次打开时恢复"><input type="checkbox" checked={publishToAnalysis} onChange={(event) => setPublishToAnalysis(event.target.checked)} /> 同时加入数据分析（场景保存依赖此项）</label>
+                {!publishToAnalysis && <span className="import-data-selection-note" role="status">未加入分析库的数据不会写入场景文件，打开场景时无法恢复这批数据。</span>}
               </div>
 
               <div className="import-data-source-list">
@@ -295,6 +293,12 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
                   );
                 })}
               </div>
+
+              {commitBlockers.length > 0 && (
+                <div className="import-data-error" role="alert">
+                  暂不能进入回放：{commitBlockers.join('；')}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -307,9 +311,15 @@ export function ImportDataDialog({ compId, open, onClose }: Props) {
               <button onClick={() => {
                 setStep('select');
                 setPreparedSources([]);
+                setAnchorSourceId('');
                 setError(null);
               }}>重新选择</button>
-              <button onClick={handleCommit} className="primary" disabled={!preparedSources.length}>
+              <button
+                onClick={handleCommit}
+                className="primary"
+                disabled={!preparedSources.length || Boolean(progress) || commitBlockers.length > 0}
+                title={commitBlockers[0] ?? ''}
+              >
                 确认导入并定位首帧
               </button>
             </>

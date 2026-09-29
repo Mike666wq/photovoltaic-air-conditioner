@@ -1,3 +1,5 @@
+import { toSchematicBatteryPowerKw } from '../services/batteryConvention';
+import { DEFAULT_BATTERY_CURRENT_CONVENTION, type BatteryCurrentConvention } from '../store/analysis';
 import type { Cable } from '../data/cables';
 import type { SimulationState } from '../store/simulation';
 
@@ -69,7 +71,11 @@ function enabledComponent(id: string, state: SimulationState): boolean | null {
   return true;
 }
 
-function injectionFor(id: string, state: SimulationState): number | null {
+function injectionFor(
+  id: string,
+  state: SimulationState,
+  batteryConvention: BatteryCurrentConvention = DEFAULT_BATTERY_CURRENT_CONVENTION,
+): number | null {
   const replay = state.controlMode === 'replay';
   const values = state.playbackSnapshot?.values;
   if (id === 'pv-array') {
@@ -85,9 +91,10 @@ function injectionFor(id: string, state: SimulationState): number | null {
   }
   if (id === 'battery') {
     if (!replay) return state.battery_power_kw;
-    return values?.battery_voltage != null && values?.battery_current != null
-      ? -(values.battery_voltage * values.battery_current) / 1000
-      : null;
+    // 与 schematicFrame 走同一换算：用户口径 → 原理图内部口径（正=放电）
+    return toSchematicBatteryPowerKw(
+      values?.battery_voltage, values?.battery_current, batteryConvention,
+    );
   }
   if (id === 'load') {
     if (!state.load_on) return 0;
@@ -124,7 +131,12 @@ function solveLinearSystem(matrix: number[][], vector: number[]): number[] | nul
 }
 
 /** 基于节点注入功率和 KCL 求解每一段功率流；等效单位阻抗使闭环也有稳定唯一解。 */
-export function solvePowerSegment(cable: Cable, segmentIndex: number, state: SimulationState): SolvedPowerEdge {
+export function solvePowerSegment(
+  cable: Cable,
+  segmentIndex: number,
+  state: SimulationState,
+  batteryConvention: BatteryCurrentConvention = DEFAULT_BATTERY_CURRENT_CONVENTION,
+): SolvedPowerEdge {
   const edges: Edge[] = [];
   for (const item of state.cables) {
     if (item.kind !== 'power') continue;
@@ -177,7 +189,7 @@ export function solvePowerSegment(cable: Cable, segmentIndex: number, state: Sim
   const componentIds = componentNodes.map((node) => node.slice('component:'.length));
   const injections = new Map<string, number>();
   for (const id of componentIds) {
-    const injection = injectionFor(id, state);
+    const injection = injectionFor(id, state, batteryConvention);
     if (injection == null) {
       return { magnitudeKw: 0, direction: cable.direction, reason: 'data-unavailable' };
     }

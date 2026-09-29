@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { prepareDataSource, type PreparedDataSource } from '../services/dataSourcePipeline';
+import { normalizeDatasetHeaders } from '../services/dataset';
 
 interface ImportWorkerRequest {
   id: string;
@@ -31,7 +32,7 @@ function parseWorkbook(request: ImportWorkerRequest): PreparedDataSource {
   });
   if (!aoa.length) throw new Error(`工作表“${sheetName}”没有数据`);
 
-  const headers = aoa[0].map((cell) => String(cell ?? '').trim());
+  const headers = normalizeDatasetHeaders(aoa[0].map((cell) => String(cell ?? '').trim()));
   const rows: Array<Record<string, string>> = new Array(Math.max(0, aoa.length - 1));
   for (let rowIndex = 1; rowIndex < aoa.length; rowIndex++) {
     const sourceRow = aoa[rowIndex];

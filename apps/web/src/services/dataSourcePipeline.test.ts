@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { prepareDataSource } from './dataSourcePipeline';
+import { collectPlaybackImportBlockers, prepareDataSource } from './dataSourcePipeline';
 
 const thermalHeaders = [
   '采样时刻', 'T0.PV', 'T1.PV', 'T2.PV', 'T3.PV', 'T4.PV', 'T5.PV',
@@ -57,5 +57,30 @@ describe('数据源整理与质量报告', () => {
     expect(source.processedRows[0].invalidFields).toEqual(['电流(A)']);
     expect(source.quality.invalidRows).toBe(0);
   });
-});
 
+  it('复用原理图模糊别名并桥接为大屏规范字段', () => {
+    const source = prepareDataSource({
+      id: 'generic', filename: 'generic.csv', format: 'csv',
+      headers: ['采样时间', 'SOC percent', '循环水流量 (m³/h)'],
+      rows: [{ 采样时间: '2026-07-17 08:00:00', 'SOC percent': '55', '循环水流量 (m³/h)': '1.2' }],
+    });
+    expect(source.fieldMappings).toEqual(expect.arrayContaining([
+      { sourceColumn: 'SOC percent', fieldKey: 'battery_soc', confidence: 'fuzzy-alias' },
+      { sourceColumn: '循环水流量 (m³/h)', fieldKey: 'water_flow', confidence: 'fuzzy-alias' },
+    ]));
+  });
+
+  it('导入门禁拒绝缺时间、缺业务字段以及多源无交集', () => {
+    const noTime = prepareDataSource({
+      id: 'no-time', filename: 'no-time.csv', format: 'csv',
+      headers: ['SOC(%)'], rows: [{ 'SOC(%)': '50' }],
+    });
+    const noField = prepareDataSource({
+      id: 'no-field', filename: 'no-field.csv', format: 'csv',
+      headers: ['时间', '备注'], rows: [{ 时间: '2026-07-17 08:00:00', 备注: '正常' }],
+    });
+    expect(collectPlaybackImportBlockers([noTime], 0)).toContain('no-time.csv：未识别到有效时间列');
+    expect(collectPlaybackImportBlockers([noField], 0)).toContain('no-field.csv：未识别到可回放的业务字段');
+    expect(collectPlaybackImportBlockers([noTime, noField], 0)).toContain('所选数据源在 ±2 秒条件下没有严格同步交集帧');
+  });
+});

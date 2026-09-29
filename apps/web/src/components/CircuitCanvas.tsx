@@ -25,7 +25,6 @@ import {
 } from '../engine/canvasGeometry';
 import {
   deriveInverterMode,
-  deriveCableSegmentFlow,
   deriveSelectedPcmVisual,
   deriveStaticBatteryMode,
   fanSpeedLabel,
@@ -104,14 +103,15 @@ function buildInjectData(rawState: SimulationState) {
     pump_flow: sampledNumber('pump_flow'), at_temp: sampledNumber('at_temp'), at_fan_speed: sampledNumber('at_fan_speed'),
     pcm_temp: sampledNumber('pcm_temp'), load_power_kw: sampledNumber('load_power_kw'), battery_power_kw: sampledNumber('battery_power_kw'),
     pl_flow: sampledNumber('pl_flow'), rl_flow: sampledNumber('rl_flow'), wl_flow: sampledNumber('wl_flow'),
-    pv_on: statusUnavailable('pv_on') ? false : rawState.pv_on,
-    cb_connected: statusUnavailable('cb_connected') ? false : rawState.cb_connected,
-    gs_on: statusUnavailable('gs_on') ? false : rawState.gs_on,
-    grid_online: statusUnavailable('grid_online') ? false : rawState.grid_online,
-    hp_on: statusUnavailable('hp_on') ? false : rawState.hp_on,
-    pump_on: statusUnavailable('pump_on') ? false : rawState.pump_on,
-    load_on: statusUnavailable('load_on') ? false : rawState.load_on,
-    at_mode: statusUnavailable('at_mode') ? 'off' : rawState.at_mode,
+    // 未采集状态不等于明确关闭：保留场景状态，文字通道继续显示“数据未提供”。
+    pv_on: rawState.pv_on,
+    cb_connected: rawState.cb_connected,
+    gs_on: rawState.gs_on,
+    grid_online: rawState.grid_online,
+    hp_on: rawState.hp_on,
+    pump_on: rawState.pump_on,
+    load_on: rawState.load_on,
+    at_mode: rawState.at_mode,
   } : rawState;
   const effectivePvOn = state.controlMode === 'replay' ? state.pv_on : state.pv_on || state.pv_power > 0.01;
   const isUnavailable = (key: keyof typeof rawState.injectionFieldAvailability) =>
@@ -212,7 +212,8 @@ function buildInjectData(rawState: SimulationState) {
     pump_flow: isUnavailable('pump_flow') ? '—' : state.pump_flow.toFixed(1) + ' m³/h',
     pump_status_text: isUnavailable('pump_flow') ? '数据不可用' : state.pump_on ? '运行' : '停机',
     pump_capacity: capOf('pump'),
-    pump_power: isUnavailable('pump_flow') ? '—' : state.pump_flow.toFixed(2),
+    // 当前数据源没有独立水泵电功率测点，按流量显示估算值并明确标记。
+    pump_power: isUnavailable('pump_flow') ? '—' : state.pump_on ? `≈${(0.18 + state.pump_flow * 0.08).toFixed(2)}` : '0.00',
     pump_head: 'H=3m',
     pump_flow_label: isUnavailable('pump_flow') ? '—' : state.pump_flow.toFixed(1),
     // === AT ===
@@ -246,7 +247,7 @@ function buildInjectData(rawState: SimulationState) {
       };
     })(),
     // === Load ===
-    load_summary: isUnavailable('load_power_kw') ? '数据不可用' : state.at_mode === 'off' ? '待机 0.0 kW' : `${state.load_power_kw.toFixed(2)} kW · 客厅`,
+    load_summary: isUnavailable('load_power_kw') ? '数据不可用' : !state.load_on ? '待机 0.0 kW' : `${state.load_power_kw.toFixed(2)} kW · 客厅`,
     load_room: '客厅 · 14㎡',
     load_weather: '晴 26℃',
     // 实时时钟字段：在 buildInjectData 中**不**写入 fields — 由 ComponentSlot 的
@@ -486,8 +487,10 @@ function ComponentSlot({ comp, state, onClick, onDoubleClick, svgRef }: Componen
     return () => window.clearInterval(id);
   }, [comp.id, state.animationOn, state.load_on, state.controlMode, state.playbackSnapshot?.timestamp]);
 
-  // PV 太阳 RAF 动画（非 PV 部件槽位 hook 内部 early-return，无副作用）
-  usePvSunAnimation(ref, state);
+  // PV 太阳 RAF 动画：只有 pv-array 槽位注册循环。
+  // 此前 13 个槽各起一条 rAF，其中 12 条每帧做一次注定落空的全子树 querySelector，
+  // 实测画面完全静止时主线程仍占 44%。
+  usePvSunAnimation(ref, state, comp.id === 'pv-array');
 
   // M1.5 Step 5: 点击瞬时电火花
   // - grid-switch: SVG 内 gs_anim_spark 默认 display:none → 切换时点亮 800ms
@@ -738,16 +741,15 @@ export function CircuitCanvas() {
   const setCableAnimation = useSimStore((s) => s.setCableAnimation);
   const setCableDirectionMode = useSimStore((s) => s.setCableDirectionMode);
   const selectedCableForToolbar = state.cables.find((cable) => cable.id === selectedCable);
-  const selectedFlowReasons = selectedCableForToolbar?.segments.map((_, index) =>
-    deriveCableSegmentFlow(selectedCableForToolbar, index, state).reason
-  ) ?? [];
-  const selectedFlowLabel = selectedFlowReasons.every((reason) => reason === 'flowing')
-    ? '流动中'
-    : selectedFlowReasons.includes('data-unavailable') ? '拓扑/数据不可用'
-    : selectedFlowReasons.includes('status-off') ? '设备已断开'
-    : selectedFlowReasons.includes('zero-flow') ? '功率为 0'
-    : selectedFlowReasons.includes('disabled') ? '动画已关闭'
-    : '等待计算';
+  const selectedCableHasMissingEnd = selectedCableForToolbar?.segments.some((segment, index, segments) =>
+    (!segment.fromAnchorId && !(index === 0 && selectedCableForToolbar.floatingFrom))
+    || (!segment.toAnchorId && !(index === segments.length - 1 && selectedCableForToolbar.floatingTo))
+  ) ?? false;
+  const selectedCableHasFloatingEnd = Boolean(selectedCableForToolbar?.floatingFrom || selectedCableForToolbar?.floatingTo);
+  const selectedFlowLabel = selectedCableHasMissingEnd ? '端点缺失'
+    : selectedCableHasFloatingEnd ? '端点未吸附'
+    : selectedCableForToolbar?.animationEnabled === false ? '动画已关闭'
+    : '动画已开启';
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const cableOverlayRef = useRef<SVGSVGElement | null>(null);
@@ -768,6 +770,7 @@ export function CircuitCanvas() {
   const [alignUndoSnapshot, setAlignUndoSnapshot] = useState<AlignUndoSnapshot | null>(null);
   // M1.5 Round 13: 部件详情弹窗（双击部件触发）
   const [detailCompId, setDetailCompId] = useState<string | null>(null);
+  const [detailMeterId, setDetailMeterId] = useState<string | null>(null);
   // I2: Esc 取消拖动。当前活跃拖动回调（startDragCard / startDragEnd 设置自身 cancel 函数）
   const cancelDragRef = useRef<(() => void) | null>(null);
 
@@ -935,6 +938,16 @@ export function CircuitCanvas() {
   // 两次 click 各自翻转 hp_on（净效果 = 原状态，但会让制冷剂短暂启停）→ 同样延后执行。
   const hpClickTimerRef = useRef<{ id: ReturnType<typeof setTimeout> | null }>({ id: null });
 
+  // 缩放必须走非 passive 的原生监听，理由见 handleWheel 上方注释。
+  // handleWheel 只读 canvasRef / viewRef 与 setView，引用稳定，无需进依赖数组。
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     return () => {
       if (atClickTimerRef.current.id !== null) {
@@ -1002,6 +1015,7 @@ export function CircuitCanvas() {
    */
   const handleSvgDoubleClick = (compId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    setDetailMeterId(null);
     setDetailCompId(compId);
   };
 
@@ -1291,7 +1305,11 @@ export function CircuitCanvas() {
     window.addEventListener('mouseup', onUp);
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
+  // 用原生 WheelEvent 而非 React.WheelEvent：React 17+ 把 wheel 以 passive 挂在 root 上，
+  // 其中的 preventDefault() 直接失效（控制台报 "Unable to preventDefault inside passive
+  // event listener invocation"），结果浏览器原生缩放/滚动没有被阻止，
+  // 触控板双指缩放会连页面一起缩。
+  const handleWheel = (e: WheelEvent) => {
     e.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1351,9 +1369,22 @@ export function CircuitCanvas() {
           ...live.positions,
           ...Object.fromEntries(Object.entries(updates).filter(([id]) => !meterIds.has(id))),
         },
-        meters: live.meters.map((meter) => updates[meter.id]
-          ? { ...meter, position: updates[meter.id], presetVb: undefined }
-          : meter),
+        // 拖动过的预置仪表 presetVb 已清除，若 autoAlignRects 没给它结果就会原地保留，
+        // 与同排其它仪表错开（实测 820,980 vs 910,960 两行都歪）。
+        // 这里兜底做网格对齐，保证"一键整理"后所有仪表至少落在栅格上。
+        meters: live.meters.map((meter) => {
+          if (updates[meter.id]) {
+            return { ...meter, position: updates[meter.id], presetVb: undefined };
+          }
+          const pos = meter.position;
+          const snapped = {
+            x: Math.round(pos.x / current.gridSize) * current.gridSize,
+            y: Math.round(pos.y / current.gridSize) * current.gridSize,
+          };
+          return snapped.x === pos.x && snapped.y === pos.y
+            ? meter
+            : { ...meter, position: snapped, presetVb: undefined };
+        }),
         cables: safeLayout.cables,
       }));
     };
@@ -1398,7 +1429,6 @@ export function CircuitCanvas() {
       onClick={handleCanvasClick}
       onMouseDown={startPan}
       onDoubleClick={(e) => { if ((e.target as HTMLElement).classList.contains('canvas-area') || (e.target as HTMLElement).classList.contains('canvas-bg')) fitView(); }}
-      onWheel={handleWheel}
     >
       <div className="canvas-bg" style={state.showGrid ? { backgroundSize: `${state.gridSize * 5 * view.zoom}px ${state.gridSize * 5 * view.zoom}px, ${state.gridSize * 5 * view.zoom}px ${state.gridSize * 5 * view.zoom}px, ${state.gridSize * view.zoom}px ${state.gridSize * view.zoom}px, ${state.gridSize * view.zoom}px ${state.gridSize * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : undefined} />
       <div className="world-layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
@@ -1450,7 +1480,7 @@ export function CircuitCanvas() {
       {meters.map((m) => {
         const meta = METER_PALETTE.find((p) => p.type === m.type);
         const isSelected = selectedMeter === m.id;
-        // - 预置仪表：m.presetVb 有值（viewBox 1800×1100）→ × scaleX/scaleY
+        // - 预置仪表：m.presetVb 有值时直接用其世界坐标（字段名里的 Vb/scale 是历史遗留，实际不乘任何 scale）
         // - 用户拖出：m.presetVb 为 undefined（moveMeter 已清），m.position 是 CSS px
         const pos = m.presetVb ?? m.position;
         return (
@@ -1479,7 +1509,8 @@ export function CircuitCanvas() {
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
-              // 预置/拖出仪表：打开对应仪表类型详情（m.type → 'power-meter'/'temp-sensor'）
+              // 保留具体仪表 id，详情页按该实例的数据源绑定读取真实值。
+              setDetailMeterId(m.id);
               setDetailCompId(m.type);
             }}
             data-component-id={m.id}
@@ -1560,7 +1591,7 @@ export function CircuitCanvas() {
       {selectedCable && (
         <div className="cable-editor-toolbar" onMouseDown={(event) => event.stopPropagation()}>
           <span>线缆</span>
-          <span className={`cable-flow-status ${selectedFlowReasons.every((reason) => reason === 'flowing') ? 'running' : ''}`}>{selectedFlowLabel}</span>
+          <span className={`cable-flow-status ${selectedCableForToolbar?.animationEnabled !== false && !selectedCableHasMissingEnd ? 'running' : ''}`}>{selectedFlowLabel}</span>
           <button className={(state.cables.find((cable) => cable.id === selectedCable)?.animationEnabled ?? true) ? 'active' : ''}
             onClick={() => {
               const cable = state.cables.find((item) => item.id === selectedCable);
@@ -1604,7 +1635,11 @@ export function CircuitCanvas() {
         <button type="button" onClick={() => zoomAtCenter(1.2)} title="放大">+</button>
         <button type="button" className="fit" onClick={fitView} title="居中并适配全部内容">⌖</button>
       </div>
-      <ComponentDetail compId={detailCompId} onClose={() => setDetailCompId(null)} />
+      <ComponentDetail
+        compId={detailCompId}
+        meterId={detailMeterId}
+        onClose={() => { setDetailCompId(null); setDetailMeterId(null); }}
+      />
     </div>
   );
 }
