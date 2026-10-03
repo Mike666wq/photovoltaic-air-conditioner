@@ -52,6 +52,9 @@ jobs:
       - name: Unit tests
         run: pnpm --filter web test
 
+      - name: BMS realtime API tests
+        run: pnpm --filter web test:realtime
+
       - name: Build
         run: pnpm --filter web build
 

@@ -2,6 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRealtimeApi } from './realtime/routes.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.resolve(__dirname, '../dist');
@@ -10,6 +11,7 @@ const SCENARIOS_DIR = process.env.SCENARIOS_DIR
   ? path.resolve(process.env.SCENARIOS_DIR)
   : path.resolve(__dirname, '../../../scenarios');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 80;
+const HOST = process.env.HOST || '0.0.0.0';
 const PREFIX = '/scenarios/';
 const MAX_BODY = 10 * 1024 * 1024; // 10MB
 
@@ -189,8 +191,10 @@ function handleScenarios(req, res) {
   return sendJson(res, 405, { error: 'Method Not Allowed' });
 }
 
-const server = http.createServer((req, res) => {
+const realtime = createRealtimeApi();
+const server = http.createServer(async (req, res) => {
   const url = req.url || '/';
+  if (await realtime.handle(req, res)) return;
   if (url === '/health') {
     res.statusCode = 200;
     res.end('ok');
@@ -202,9 +206,10 @@ const server = http.createServer((req, res) => {
     serveStatic(req, res);
   }
 });
+server.on('close', () => realtime.close());
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[pv-ac-sim] 生产服务器已启动: http://0.0.0.0:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`[pv-ac-sim] 生产服务器已启动: http://${HOST}:${PORT}`);
   console.log(`[pv-ac-sim] 静态目录: ${DIST_DIR}`);
   console.log(`[pv-ac-sim] 场景目录: ${SCENARIOS_DIR}`);
 });

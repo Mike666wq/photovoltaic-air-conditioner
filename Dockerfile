@@ -27,11 +27,13 @@ WORKDIR /app
 # 拷贝构建产物 + 生产服务器脚本
 COPY --from=builder /build/apps/web/dist ./dist
 COPY --from=builder /build/apps/web/scripts/serve-prod.mjs ./scripts/serve-prod.mjs
+COPY --from=builder /build/apps/web/scripts/realtime/contract.mjs /build/apps/web/scripts/realtime/auth.mjs /build/apps/web/scripts/realtime/state.mjs /build/apps/web/scripts/realtime/routes.mjs ./scripts/realtime/
 
 # 场景目录（挂 volume 持久化）；使用内置 node 用户运行，避免 root 写宿主机。
 RUN mkdir -p /app/scenarios && chown node:node /app/scenarios
 ENV SCENARIOS_DIR=/app/scenarios
 ENV PORT=8080
+ENV NODE_ENV=production
 
 # 暴露非特权端口
 EXPOSE 8080

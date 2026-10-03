@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { serveBaseElements } from './vite-svg-plugin';
 import { serveScenarios } from './vite-scenarios-plugin';
+import { serveRealtime } from './vite-realtime-plugin';
 
 // 思路：
 //   - `base-elements/` 在项目根（apps/web 的上一级的上一级），Vite 默认 publicDir 不允许指向项目外
@@ -11,7 +12,7 @@ import { serveScenarios } from './vite-scenarios-plugin';
 //   - 这样 React 组件可以直接 fetch('/base-elements/pv-array.svg')，dev + build 都通
 //   - `scenarios/` 同样在项目根，由 `serveScenarios` 在 middleware 中提供 GET/POST/DELETE/list
 export default defineConfig({
-  plugins: [react(), serveBaseElements(), serveScenarios()],
+  plugins: [react(), serveRealtime(), serveBaseElements(), serveScenarios()],
   server: {
     port: 5173,
     host: true,

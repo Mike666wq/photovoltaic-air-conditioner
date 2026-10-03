@@ -1,7 +1,7 @@
 # AGENTS.md — 光伏·空调仿真平台
 
 > 面向 AI 编码助手的工程规约。**与代码冲突时以代码为准，并顺手修正本文档。**
-> 最后核对：2026-09-29（对应 `apps/web` 现状）
+> 最后核对：2026-10-03（对应 `apps/web` 现状）
 
 ## 0. 三条最容易踩的坑（先看这里）
 
@@ -19,7 +19,7 @@
 | 项 | 实际值 |
 |---|---|
 | 阶段 | M1 原理图 / M1.5 动画 / M2 数据读入 / **M3 数据大屏均已完成** |
-| 路由 | `/`（原理图）、`/analysis`（数据大屏，懒加载） |
+| 路由 | `/`（原理图）、`/analysis`（数据大屏，懒加载）、`/bms/realtime`（独立BMS实时页，懒加载） |
 | 部件 | **13** 个（`data/components.ts`） |
 | 预设 | **9** 个 + 🎲 随机扰动（`data/presets.ts`） |
 | 控制面板滑块 | **21** 个 |
@@ -27,8 +27,9 @@
 | 默认回放 | 一个实验批次内的多数据源共享严格同步时间轴；大屏单源模式同步切换回放来源 |
 | 验收夹具 | 测试现场生成同构数据，不读取被忽略的 `data/` |
 | 源码头 | 124 个 action（`store/simulation.ts`） |
-| 代码量 | 源码 ~14.5k 行 / 测试 ~2.6k 行 / **30 个测试文件** |
-| 测试 | `vitest run` 全部通过才算完成 |
+| 代码量 | TS/TSX源码 ~14.9k 行 / Vitest测试 ~2.7k 行、**31 个文件**；另有独立Node实时API测试 |
+| 测试 | `vitest run` 与 `node --test scripts/realtime/*.test.mjs` 均通过才算完成 |
+| BMS实时页 | v1只读接口；设备Bearer与独立观看Cookie；45秒观看租约；每Pack最多600点/10分钟短趋势；不接入仿真/分析store |
 | 大屏布局 | 桌面 12 列；窄屏 6 列并按断点调整指标卡和图表跨度，不生成隐式列；舞台内容超高时纵向滚动；实时折线图共享可滚动图例和防重叠时间轴 |
 
 ## 2. 常用命令
@@ -36,7 +37,8 @@
 ```bash
 cd apps/web
 ./node_modules/.bin/tsc --noEmit        # 类型检查
-./node_modules/.bin/vitest run          # 全部测试
+./node_modules/.bin/vitest run          # 前端/原有业务测试
+node --test scripts/realtime/*.test.mjs # 实时API集成测试（临时loopback端口）
 ./node_modules/.bin/vitest run src/xxx  # 单文件
 ./node_modules/.bin/vite                # dev server → http://127.0.0.1:5173
 ./node_modules/.bin/vite build          # 生产构建（build 脚本还会跑 tsc -b + copy-svgs）
@@ -57,12 +59,13 @@ cd apps/web
 
 ```
 apps/web/src/
-├─ pages/          SchematicPage（原理图）、AnalysisDashboardPage（大屏，883 行，最大页面）
+├─ pages/          SchematicPage（原理图）、AnalysisDashboardPage（大屏）、BmsRealtimePage（独立实时页）
 ├─ components/     TopBar / TimelineControls / CircuitCanvas(1998行) / ControlPanel /
 │                  PalettePanel / ComponentDetail / ImportDataDialog / SaveManager /
 │                  LogPanel / Tooltip / ToastContainer / TsPointer / GridPattern /
 │                  CableControlDetail / CableControlItem
-│                  └─ dashboard/  ChartPanel / EChart / MetricCard
+│                  ├─ dashboard/  ChartPanel / EChart / MetricCard
+│                  └─ bmsRealtime/ BmsTrendChart（独立实例/单位/缩放）
 ├─ hooks/          useParticleAnimation / usePvSunAnimation / useTransientSpark /
 │                  useModalA11y / useTimelinePlayback
 ├─ engine/         canvasGeometry / orthogonalRouter / particleMotion / powerFlow /
@@ -71,8 +74,8 @@ apps/web/src/
 ├─ services/       数据管线：injectionParser / dataSourcePipeline / playbackSession /
 │                  playbackController / schematicFrame / meterInject / analysisSeries /
 │                  operationalDiagnostics / sessionCoordinator / sourceCache / experiment* /
-│                  stateSerializer / dataset / batteryConvention / preparedImport
-├─ store/          simulation（主状态）、analysis（数据源/批次/口径）、toast
+│                  stateSerializer / dataset / batteryConvention / preparedImport / bmsRealtime*
+├─ store/          simulation（主状态）、analysis（数据源/批次/口径）、toast、bmsRealtime（隔离实时态）
 ├─ workers/        dataImportWorker（XLSX 解析，主线程不阻塞）
 ├─ data/           components / cables / meters / presets / chartFields / sourceProfile /
 │                  pdfFieldMap / saveSchema / palettes
@@ -121,6 +124,8 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 |---|---|---|
 | `pv_on === derivePvOn(pv_power)` | `store/simulation.ts` | **`pv_power` 是权威，`pv_on` 是派生量**。UI 只有功率滑块，没有 pv_on 开关；`schematicFrame` 也由功率派生。所有写 `pv_power` 的路径必须同步派生 |
 | PCM 温度恒显实测值 | `engine/pcm.ts` | 曾把 1~49℃ 整段当"相变平台"恒显 `25.0℃`，已修。**不要用常数冒充测量读数** |
+| BMS实时隔离与口径 | `bmsRealtime*` / `scripts/realtime/` | v1保持centiV/centiA/centiAh与原始温度；只标电流正负；不解码未知告警，不读写simulation/analysis/injector；未观看不上传，心跳不代表串口采集；租约TTL用服务端单调时钟 |
+| BMS缓存/部署 | `scripts/realtime/state.mjs` / `routes.mjs` | 每Pack最多600点且10分钟；去重按会话和序号、各通道水位；SSE授权和缓冲有界；当前仅单Node进程，K8s单副本Recreate；多实例须共享状态；凭据仅Secret/外部文件 |
 | 电池符号唯一入口 | `services/batteryConvention.ts` | 用户口径（analysis store）→ 原理图内部口径（正=放电），三处调用统一走它，`unknown` 返回 null 不猜方向 |
 | 导入三态反馈 | `AnalysisDashboardPage` | 全成功✓ / 部分⚠ / 全失败✕，**不要无条件加绿勾** |
 | 弹窗无障碍 | `hooks/useModalA11y.ts` | Esc/Tab 只由最上层弹窗处理；关闭子层恢复父层触发按钮焦点。`ComponentDetail` 是**常驻挂载内部 return null**，`open` 必须传真实状态 |
@@ -150,9 +155,10 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 ## 7. 部署 / CI-CD
 
 - GitHub Actions：`ci.yml`（verify）与 `release.yml`（verify → publish-image）
-  都跑 typecheck → **unit tests** → build → 产物检查
+  都跑 typecheck → **unit tests + BMS Node API tests** → build；CI继续产物/镜像检查
 - 旧 Docker Compose + SCP/SSH 自动部署已在 `release.yml` 中整体注释；`deploy/deploy.sh` 保留但不被调用
 - 生产运行在 Kubernetes，镜像推 GHCR 后由运维手动 `kubectl set image`
+- BMS模块默认关闭；启用需设备/观看凭据文件与PUBLIC_ORIGIN，开发与生产共用API模块；详见部署README的BMS独立实时模块章节
 - 详见 [`deploy/README.md`](./deploy/README.md) 与 [`CICD持续集成部署.md`](./CICD持续集成部署.md)
 
 ## 8. 约定

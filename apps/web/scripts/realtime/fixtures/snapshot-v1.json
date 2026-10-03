@@ -1,0 +1,5 @@
+{
+  "schemaVersion":1,"deviceId":"lab-bms-01","connectionSessionId":"fixture-session-01","sequence":12,"acquisitionRound":8,"periodSeconds":2,"capturedUtc":"2026-10-02T08:00:00.123Z","source":"serial","address":1,"pack":1,
+  "voltageCentivolts":5331,"currentCentiamps":-102,"socPercent":88,"sohPercent":100,"remainingCentiAh":8878,"totalCentiAh":10000,"cycles":92,"humidityPercent":0,
+  "cellsMillivolts":[3331,3332,3332,3332,3332,3332,3332,3332,3332,3332,3332,3332,3332,3332,3332,3332],"temperaturesCelsius":[30,31,31,31,30,30],"alarmObservationAvailable":false,"alarmObservation":null
+}

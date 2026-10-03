@@ -893,7 +893,7 @@ export function AnalysisDashboardPage() {
       <div ref={stageRef} className="m3-dashboard__stage">
         <header className="m3-dashboard__header">
           <div><span>光伏·空调仿真平台</span><h1>数据分析大屏</h1></div>
-          <div className="m3-dashboard__header-meta"><span>{sources.length} 个数据源 · {points.length} 条有效记录</span><span>{currentTimestamp ? new Date(currentTimestamp).toLocaleString('zh-CN') : '未定位当前帧'}</span><Link className="m3-linkbtn" to="/">← 原理图</Link><button onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void stageRef.current?.requestFullscreen(); }}>{isFullscreen ? '退出全屏' : '展示全屏'}</button></div>
+          <div className="m3-dashboard__header-meta"><span>{sources.length} 个数据源 · {points.length} 条有效记录</span><span>{currentTimestamp ? new Date(currentTimestamp).toLocaleString('zh-CN') : '未定位当前帧'}</span><Link className="m3-linkbtn" to="/bms/realtime">BMS 实时</Link><Link className="m3-linkbtn" to="/">← 原理图</Link><button onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void stageRef.current?.requestFullscreen(); }}>{isFullscreen ? '退出全屏' : '展示全屏'}</button></div>
         </header>
         <section className="m3-dashboard__toolbar">
           <div className="m3-tabs">{(['realtime', 'energy', 'ratio', 'diagnostics'] as const).map((view) => <button key={view} data-active={activeView === view} onClick={() => setActiveView(view)}>{view === 'realtime' ? '实时监测' : view === 'energy' ? '能量统计' : view === 'ratio' ? '占比分析' : '诊断对比'}</button>)}</div>
