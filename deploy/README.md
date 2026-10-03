@@ -109,7 +109,7 @@ Windows客户端继续使用域名根 `https://pv-ac.bbben.xyz`，设备Bearer�
 
 ### 注册与凭据
 
-入口 `/bms/manage`（实时页顶部“设备注册与接入”），包括首次管理员初始化、设备注册、观看账户创建、令牌轮换，以及 Windows 本地接入指南。模块仍默认关闭，不内置生产账户，也不开放匿名自动注册。
+入口 `/bms/manage`（实时页顶部“设备注册与接入”），包括首次管理员初始化、设备注册、观看账户创建、令牌轮换、设备删除，以及 Windows 本地接入指南。模块仍默认关闭，不内置生产账户，也不开放匿名自动注册。
 
 推荐网页注册流程：
 
@@ -122,7 +122,7 @@ Windows客户端继续使用域名根 `https://pv-ac.bbben.xyz`，设备Bearer�
 
 注册结果保存于 `BMS_REALTIME_REGISTRY_DIR/registry.json`：随机salt+scrypt密码散列、SHA-256设备令牌散列与权限。写入通过串行队列、0600临时文件、fsync、原子重命名实现，落盘成功后更新内存；重启恢复账户和设备，但不恢复登录、租约或短趋势。注册目录必须独立于公开 `dist` 和 `scenarios`；本模块启动会拒绝这些目录。备份这个文件时按私密凭据管理，不能提交仓库。
 
-接口：公开只读 `GET /api/realtime/setup/status` 返回是否启用、是否初始化及服务根地址；关闭模块时这个状态接口仍为200，其余模块接口503。`POST /setup/bootstrap` 须初始化密钥、同源Cookie/CSRF；`GET /admin/registry`、`POST /admin/devices`、`POST /admin/users`、`POST /admin/devices/:deviceId/token` 均须管理员会话，写操作须同源CSRF。读取注册列表不返回令牌或散列；设备注册/轮换响应仅向管理员一次性返回新令牌。令牌不进入localStorage或Vite环境变量。
+接口：公开只读 `GET /api/realtime/setup/status` 返回是否启用、是否初始化及服务根地址；关闭模块时这个状态接口仍为200，其余模块接口503。`POST /setup/bootstrap` 须初始化密钥、同源Cookie/CSRF；`GET /admin/registry`、`POST /admin/devices`、`POST /admin/users`、`POST /admin/devices/:deviceId/token` 均须管理员会话，写操作须同源CSRF。读取注册列表不返回令牌或散列；设备注册/轮换响应仅向管理员一次性返回新令牌。令牌不进入localStorage或Vite环境变量。管理员可 `DELETE /admin/devices/:deviceId`（正文 `confirmDeviceId`，同源CSRF）删除设备；删除会持久移除设备及所有用户对应授权，并撤销令牌、结束观看、清除运行态，不删除本地记录。同编号重新注册不会自动恢复旧观看用户权限。
 
 旧 CLI `admin.mjs`、`BMS_DEVICES_FILE` / `BMS_VIEWER_CREDENTIALS_FILE` 仍兼容：只设置旧文件时注册页面只读；同时配置空注册目录时首次从旧文件加载，第一次网页修改后写入新注册存储，以后以持久文件为准。已有观看角色不会自动升级管理员；迁移前需确认旧配置含管理员。不要覆盖已有文件或删除持久卷来“重新初始化”。
 
@@ -223,6 +223,12 @@ PORT=8080 node scripts/serve-prod.mjs
 
 协议夹具位于 `apps/web/scripts/realtime/fixtures/snapshot-v1.json`，明确为接口示例；测试不读取忽略的data/文件。Node测试用动态loopback端口，Vitest仅收集src测试；两者均已加入CI/release verify。
 
-本次本机验收：32个Vitest文件、168项测试；20项Node协议/状态/SSE/注册测试；类型检查及生产构建通过。浏览器验证未观看/离线/等待采样、模拟标识、53.31V/−1.02A/88.78Ah、负温度、三个独立单位趋势、缩放后新采样不重置观察窗口、返回最新、390px无横向溢出及断开后无上传租约。另用生产serve-prod验证SPA/API/health。本机未安装Docker，镜像构建留待CI确认。此处是生成夹具验收，**尚无Windows真实客户端与正式HTTPS成功联调证据**。
+本次本机验收：32个Vitest文件、168项测试；21项Node协议/状态/SSE/注册测试；类型检查及生产构建通过。浏览器验证未观看/离线/等待采样、模拟标识、53.31V/−1.02A/88.78Ah、负温度、三个独立单位趋势、缩放后新采样不重置观察窗口、返回最新、390px无横向溢出及断开后无上传租约。另用生产serve-prod验证SPA/API/health。本机未安装Docker，镜像构建留待CI确认。此处是生成夹具验收，**尚无Windows真实客户端与正式HTTPS成功联调证据**。
 
 联调时回传：实际HTTPS根地址、注册deviceId及address/Pack、安全交付设备token的方式、观看登录方式、API v1响应样例、单副本/Recreate与Ingress配置、Windows回归结果。不要把设备token贴到聊天或公开日志。上线前完成这项联合验收；失败时可将BMS_REALTIME_ENABLED改为0关闭模块，或回滚镜像，原有页面仍可使用。
+
+### 账户与登录状态保存位置
+
+当前未接入SQLite/PostgreSQL等数据库。账户、scrypt密码散列、设备令牌SHA-256散列及设备授权存于服务器独立PVC上的 `registry.json`，仅服务器运行用户读写；浏览器没有密码散列，也不通过localStorage保存认证令牌。普通观看账户由管理员创建，不开放自助注册或默认授权实验设备。
+
+登录会话是服务器内存Map：随机会话ID对应用户与CSRF nonce，最长8小时。浏览器持有HttpOnly/Secure/SameSite=Strict Cookie，Cookie内容仅会话ID；每个API请求在服务器校验会话与当前设备权限。登录时更换会话ID，退出时撤销服务器会话及观看。服务重启保留账户、清除会话，用户需重新登录。这是文件持久化注册加服务器会话实现，不能称为已接入账户数据库。

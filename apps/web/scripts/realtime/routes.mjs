@@ -1,6 +1,6 @@
 import { loadConfig, validateConfig, tokenHash, equal, opaque, verifyPassword, passwordHash } from './auth.mjs';
 import { RegistryStore } from './registry.mjs';
-import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice } from './registration.mjs';
+import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice, deleteDevice } from './registration.mjs';
 import { RealtimeState } from './state.mjs';
 import { ApiError, assert, object, identifier, packs, validateSnapshot } from './contract.mjs';
 
@@ -159,9 +159,14 @@ export function createRealtimeApi(options = {}) {
       for (const stream of streams) if (stream.owner === s.id) endStream(stream);
       cookie(res, '', 0); return json(res, 204);
     }
-    if (['/admin/registry', '/admin/devices', '/admin/users'].includes(pathname) || /^\/admin\/devices\/[^/]+\/token$/.test(pathname)) {
+    if (['/admin/registry', '/admin/devices', '/admin/users'].includes(pathname) || /^\/admin\/devices\/[^/]+(?:\/token)?$/.test(pathname)) {
       const s = session(req); assert(s.user.role === 'admin', 403, 'ADMIN_REQUIRED', '设备和账户注册需要管理员权限'); rate(`admin:${s.user.username}`, 20);
       if (pathname === '/admin/registry' && req.method === 'GET') return json(res, 200, { writable: registry.writable, devices: config.devices.map((d) => state.info(state.device(d.deviceId))), users: config.users.map((u) => ({ username: u.username, role: u.role ?? 'viewer', devices: u.devices })) });
+      const deleteMatch = pathname.match(/^\/admin\/devices\/([^/]+)$/);
+      if (deleteMatch && req.method === 'DELETE') {
+        mutation(req, s); const b = await readJson(req);
+        await deleteDevice(registry, deleteMatch[1], b); return json(res, 204);
+      }
       assert(req.method === 'POST', 405, 'METHOD_NOT_ALLOWED'); mutation(req, s); const b = await readJson(req);
       if (pathname === '/admin/devices') { const result = await registerDevice(registry, b); return json(res, 201, { device: state.info(state.device(result.deviceId)), deviceToken: result.deviceToken }); }
       if (pathname === '/admin/users') {

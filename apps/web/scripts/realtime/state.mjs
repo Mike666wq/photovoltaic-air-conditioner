@@ -13,6 +13,12 @@ export class RealtimeState {
     this.syncRegistrations(config.devices);
   }
   syncRegistrations(registrations) {
+    const ids = new Set(registrations.map((d) => d.deviceId));
+    for (const id of this.devices.keys()) if (!ids.has(id)) {
+      // 先通知并结束所有观看（含已过期但尚未清理的租约），再移除设备。
+      for (const viewer of [...this.viewers.values()]) if (viewer.deviceId === id) this.release(viewer.viewerId, viewer.owner);
+      this.devices.delete(id);
+    }
     for (const registration of registrations) {
       const old = this.devices.get(registration.deviceId);
       if (old && old.registration.deviceTokenHash === registration.deviceTokenHash) { old.registration = registration; continue; }

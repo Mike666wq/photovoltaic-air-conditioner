@@ -30,6 +30,7 @@ export const bmsApi = {
   registry: () => request<BmsRegistry>('/admin/registry'),
   registerDevice: (device: { deviceId: string; alias: string; allowedPacks: number[]; allowedAddresses: number[]; allowSimulation: boolean }) => request<BmsDeviceCredential>('/admin/devices', 'POST', device),
   registerUser: (username: string, password: string, devices: string[]) => request('/admin/users', 'POST', { username, password, devices }),
+  deleteDevice: (id: string) => request<void>(`/admin/devices/${encodeURIComponent(id)}`, 'DELETE', { confirmDeviceId: id }),
   rotateDevice: (id: string) => request<BmsDeviceCredential>(`/admin/devices/${encodeURIComponent(id)}/token`, 'POST', { confirmDeviceId: id }),
   async session() { const res = await request<{ user: BmsIdentity | null; csrfToken: string }>('/auth/session'); csrfToken = res.csrfToken; return res.user; },
   async login(username: string, password: string) { const res = await request<{ user: BmsIdentity; csrfToken: string }>('/auth/login', 'POST', { username, password }); csrfToken = res.csrfToken; return res.user; },

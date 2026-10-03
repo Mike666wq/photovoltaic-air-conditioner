@@ -48,3 +48,12 @@ export function rotateDevice(registry, deviceId, body) {
     device.deviceTokenHash = tokenHash(deviceToken); return { deviceId, deviceToken };
   });
 }
+
+export function deleteDevice(registry, deviceId, body) {
+  assert(body.confirmDeviceId === deviceId, 400, 'CONFIRMATION_REQUIRED', '请确认需要删除的设备编号');
+  return registry.mutate((next) => {
+    assert(next.devices.some((d) => d.deviceId === deviceId), 404, 'DEVICE_NOT_FOUND', '设备不存在');
+    next.devices = next.devices.filter((d) => d.deviceId !== deviceId);
+    for (const user of next.users) user.devices = user.devices.filter((id) => id !== deviceId);
+  });
+}

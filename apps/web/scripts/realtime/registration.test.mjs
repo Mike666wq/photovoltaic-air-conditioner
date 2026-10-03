@@ -97,3 +97,27 @@ test('旧只读注册文件仍可登录和观看，网页写入明确要求持�
   const h=await harness(t,{BMS_REALTIME_REGISTRY_DIR:undefined},initial);const admin=await h.login('fixture-admin');
   assert.equal((await h.call('/setup/status')).body.writable,false);assert.equal((await admin.call('/admin/devices','POST',deviceInput)).body.error.code,'REGISTRY_READ_ONLY');
 });
+
+test('仅管理员可确认删除设备；撤销令牌、观看、缓存和全部授权，重启不恢复', async(t)=>{
+  const h=await harness(t); const admin=await h.setup();
+  const created=(await admin.call('/admin/devices','POST',deviceInput)).body;
+  await admin.call('/admin/users','POST',{username:'fixture-viewer',password,devices:[deviceInput.deviceId]});
+  const viewer=await h.login('fixture-viewer');
+  const lease=(await viewer.call('/viewers','POST',{deviceId:deviceInput.deviceId,packs:[1]})).body;
+  const path='/admin/devices/'+deviceInput.deviceId;
+  const confirmation={confirmDeviceId:deviceInput.deviceId};
+  assert.equal((await viewer.call(path,'DELETE',confirmation)).status,403);
+  assert.equal((await h.call(path,'DELETE',confirmation,{...admin.headers,'X-Bms-Csrf':'invalid'})).status,403);
+  assert.equal((await admin.call(path,'DELETE',{})).status,400);
+  assert.equal((await admin.call(path,'DELETE',confirmation)).status,204);
+  assert.equal((await h.call('/heartbeat','POST',{deviceId:deviceInput.deviceId,alias:'fixture'},{Authorization:'Bearer '+created.deviceToken})).status,401);
+  assert.equal((await viewer.call('/viewers/'+lease.viewerId,'PUT',{packs:[1]})).status,410);
+  assert.equal((await viewer.call('/devices')).body.devices.length,0);
+  assert.equal((await admin.call('/devices')).body.devices.length,0);
+  assert(!h.api.state.devices.has(deviceInput.deviceId));
+  const restored=loadConfig(h.env); assert.equal(restored.devices.length,0); assert(restored.users.every(u=>u.devices.length===0));
+  assert.equal((await admin.call(path,'DELETE',confirmation)).status,404);
+  const recreated=(await admin.call('/admin/devices','POST',deviceInput)).body;
+  assert.notEqual(recreated.deviceToken,created.deviceToken);
+  assert.equal((await viewer.call('/devices')).body.devices.length,0); // 同编号重建不自动恢复旧观看用户权限。
+});

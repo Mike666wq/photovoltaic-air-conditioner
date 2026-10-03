@@ -27,10 +27,10 @@
 | 默认回放 | 一个实验批次内的多数据源共享严格同步时间轴；大屏单源模式同步切换回放来源 |
 | 验收夹具 | 测试现场生成同构数据，不读取被忽略的 `data/` |
 | 源码头 | 124 个 action（`store/simulation.ts`） |
-| 代码量 | TS/TSX源码 ~15.1k 行 / Vitest测试 ~2.7k 行、**32 个文件 / 168项**；另有**20项**独立Node实时API测试 |
+| 代码量 | TS/TSX源码 ~15.1k 行 / Vitest测试 ~2.7k 行、**32 个文件 / 168项**；另有**21项**独立Node实时API测试 |
 | 测试 | `vitest run` 与 `node --test scripts/realtime/*.test.mjs` 均通过才算完成 |
 | BMS实时页 | v1只读接口；设备Bearer与独立观看Cookie；45秒观看租约；每Pack最多600点/10分钟短趋势；不接入仿真/分析store |
-| BMS注册与接入 | 初始化密钥创建首个管理员；管理员网页注册设备/观看账户；PVC原子保存散列；一次性令牌下载Windows配置说明 |
+| BMS注册与接入 | 初始化密钥创建首个管理员；管理员网页注册/删除设备及创建观看账户；PVC原子保存散列；一次性令牌下载Windows配置说明 |
 | 大屏布局 | 桌面 12 列；窄屏 6 列并按断点调整指标卡和图表跨度，不生成隐式列；舞台内容超高时纵向滚动；实时折线图共享可滚动图例和防重叠时间轴 |
 
 ## 2. 常用命令
@@ -127,7 +127,7 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 | PCM 温度恒显实测值 | `engine/pcm.ts` | 曾把 1~49℃ 整段当"相变平台"恒显 `25.0℃`，已修。**不要用常数冒充测量读数** |
 | BMS实时隔离与口径 | `bmsRealtime*` / `scripts/realtime/` | v1保持centiV/centiA/centiAh与原始温度；只标电流正负；不解码未知告警，不读写simulation/analysis/injector；未观看不上传，心跳不代表串口采集；租约TTL用服务端单调时钟 |
 | BMS缓存/部署 | `scripts/realtime/state.mjs` / `routes.mjs` | 每Pack最多600点且10分钟；去重按会话和序号、各通道水位；SSE授权和缓冲有界；当前仅单Node进程，K8s单副本Recreate；多实例须共享状态；注册散列存独立PVC，初始化密钥存Secret；旧只读配置兼容 |
-| BMS网页注册 | `registration.mjs` / `registry.mjs` | 首个管理员须初始化密钥+同源CSRF且仅允许一次；设备/观看账户仅管理员创建；落盘成功才更新运行态；令牌只在注册/轮换成功时显示，文件仅存散列，不能放入公开scenarios/dist；轮换立即撤销旧令牌/租约并清缓存 |
+| BMS网页注册 | `registration.mjs` / `registry.mjs` | 首个管理员须初始化密钥+同源CSRF且仅允许一次；设备/观看账户仅管理员创建；落盘成功才更新运行态；令牌只在注册/轮换成功时显示，文件仅存散列，不能放入公开scenarios/dist；轮换立即撤销旧令牌/租约并清缓存；删除设备须管理员同源确认，持久移除全部授权，结束观看并移除运行态，本地记录保留 |
 | 电池符号唯一入口 | `services/batteryConvention.ts` | 用户口径（analysis store）→ 原理图内部口径（正=放电），三处调用统一走它，`unknown` 返回 null 不猜方向 |
 | 导入三态反馈 | `AnalysisDashboardPage` | 全成功✓ / 部分⚠ / 全失败✕，**不要无条件加绿勾** |
 | 弹窗无障碍 | `hooks/useModalA11y.ts` | Esc/Tab 只由最上层弹窗处理；关闭子层恢复父层触发按钮焦点。`ComponentDetail` 是**常驻挂载内部 return null**，`open` 必须传真实状态 |
