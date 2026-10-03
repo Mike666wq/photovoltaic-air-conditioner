@@ -28,6 +28,7 @@ WORKDIR /app
 COPY --from=builder /build/apps/web/dist ./dist
 COPY --from=builder /build/apps/web/scripts/serve-prod.mjs ./scripts/serve-prod.mjs
 COPY --from=builder /build/apps/web/scripts/realtime/contract.mjs /build/apps/web/scripts/realtime/auth.mjs /build/apps/web/scripts/realtime/state.mjs /build/apps/web/scripts/realtime/routes.mjs ./scripts/realtime/
+COPY --from=builder /build/apps/web/scripts/realtime/registry.mjs /build/apps/web/scripts/realtime/registration.mjs ./scripts/realtime/
 
 # 场景目录（挂 volume 持久化）；使用内置 node 用户运行，避免 root 写宿主机。
 RUN mkdir -p /app/scenarios && chown node:node /app/scenarios

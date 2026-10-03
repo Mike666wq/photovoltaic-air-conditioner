@@ -8,14 +8,24 @@ export class RealtimeState {
     this.config = { cacheMs: 600000, maxPoints: 600, viewerMs: 45000, maxViewers: 4, ...config };
     this.now = clocks.now ?? (() => performance.now());
     this.wall = clocks.wall ?? (() => Date.now());
-    this.devices = new Map(config.devices.map((d) => [d.deviceId, { registration: d, heartbeat: -Infinity, lastHeartbeatAt: null, lease: null, currentSession: null, sessionSeen: -Infinity, retired: new Map(), sequences: new Set(), latest: new Map(), rings: new Map(), watermarks: new Map() }]));
+    this.devices = new Map();
     this.viewers = new Map(); this.listeners = new Set();
+    this.syncRegistrations(config.devices);
+  }
+  syncRegistrations(registrations) {
+    for (const registration of registrations) {
+      const old = this.devices.get(registration.deviceId);
+      if (old && old.registration.deviceTokenHash === registration.deviceTokenHash) { old.registration = registration; continue; }
+      for (const viewer of this.active(registration.deviceId)) this.release(viewer.viewerId, viewer.owner);
+      this.devices.set(registration.deviceId, { registration, heartbeat: -Infinity, lastHeartbeatAt: null, lease: null, currentSession: null, sessionSeen: -Infinity, retired: new Map(), sequences: new Set(), latest: new Map(), rings: new Map(), watermarks: new Map() });
+      if (old) this.emit('cache-cleared', registration.deviceId, { deviceId: registration.deviceId, reason: 'token-rotated' });
+    }
   }
   iso(ms = 0) { return new Date(this.wall() + ms).toISOString(); }
   emit(type, deviceId, payload) { for (const f of this.listeners) f(type, deviceId, payload); }
   device(id) { const d = this.devices.get(id); assert(d, 404, 'DEVICE_NOT_FOUND', '设备不存在'); return d; }
   online(d) { return this.now() - d.heartbeat < 45000; }
-  info(d) { return { deviceId: d.registration.deviceId, alias: d.registration.alias, allowedPacks: d.registration.allowedPacks, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt }; }
+  info(d) { return { deviceId: d.registration.deviceId, alias: d.registration.alias, allowedPacks: d.registration.allowedPacks, allowedAddresses: d.registration.allowedAddresses, allowSimulation: d.registration.allowSimulation, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt }; }
   active(id) { return [...this.viewers.values()].filter((v) => v.deviceId === id && v.until > this.now()); }
   requested(id) { return [...new Set(this.active(id).flatMap((v) => v.packs))].sort((a, b) => a - b); }
   sweep() {

@@ -8,6 +8,7 @@ const AnalysisDashboardPage = lazy(async () => ({
   default: (await loadAnalysisDashboard()).AnalysisDashboardPage,
 }));
 const BmsRealtimePage = lazy(async () => ({ default: (await import('./pages/BmsRealtimePage')).BmsRealtimePage }));
+const BmsManagePage = lazy(async () => ({ default: (await import('./pages/BmsManagePage')).BmsManagePage }));
 
 export function App() {
   useEffect(() => {
@@ -28,6 +29,7 @@ export function App() {
         <Route path="/" element={<SchematicPage />} />
         <Route path="/analysis" element={<Suspense fallback={<div className="app-loading">正在加载数据分析大屏…</div>}><AnalysisDashboardPage /></Suspense>} />
         <Route path="/bms/realtime" element={<Suspense fallback={<div className="app-loading">正在加载BMS实时监测…</div>}><BmsRealtimePage /></Suspense>} />
+        <Route path="/bms/manage" element={<Suspense fallback={<div className="app-loading">正在加载设备注册与接入…</div>}><BmsManagePage /></Suspense>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {/* ToastContainer 提到路由外层：此前只挂在原理图页，大屏调用 useToastStore 会静默无效 */}

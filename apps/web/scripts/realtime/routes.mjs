@@ -1,4 +1,6 @@
-import { loadConfig, validateConfig, tokenHash, equal, opaque, verifyPassword } from './auth.mjs';
+import { loadConfig, validateConfig, tokenHash, equal, opaque, verifyPassword, passwordHash } from './auth.mjs';
+import { RegistryStore } from './registry.mjs';
+import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice } from './registration.mjs';
 import { RealtimeState } from './state.mjs';
 import { ApiError, assert, object, identifier, packs, validateSnapshot } from './contract.mjs';
 
@@ -43,9 +45,10 @@ async function readJson(req) {
 }
 export function createRealtimeApi(options = {}) {
   const config = options.config ?? loadConfig();
-  if (!config.enabled) return { handle: async (req, res) => { if (!(req.url === PREFIX || req.url?.startsWith(`${PREFIX}/`) || req.url?.startsWith(`${PREFIX}?`))) return false; json(res, 503, { error: { code: 'MODULE_DISABLED', message: '实时数据模块尚未启用，请联系管理员' } }); return true; }, close() {} };
+  if (!config.enabled) return { handle: async (req, res) => { if (!(req.url === PREFIX || req.url?.startsWith(`${PREFIX}/`) || req.url?.startsWith(`${PREFIX}?`))) return false; if (req.url === `${PREFIX}/setup/status` && req.method === 'GET') json(res, 200, setupStatus(config)); else json(res, 503, { error: { code: 'MODULE_DISABLED', message: '实时数据模块尚未启用，请联系管理员' } }); return true; }, close() {} };
   validateConfig(config);
   const state = new RealtimeState(config, options.clocks);
+  const registry = new RegistryStore(config, (devices) => state.syncRegistrations(devices));
   const sessions = new Map(); const rates = new Map(); const streams = new Set(); let loginBusy = 0;
   function rate(key, maximum) {
     const now = state.now(); const entry = rates.get(key);
@@ -60,13 +63,18 @@ export function createRealtimeApi(options = {}) {
   }
   function session(req, requireUser = true) {
     const id = (req.headers.cookie ?? '').split(';').map((v) => v.trim()).find((v) => v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
-    const s = sessions.get(id);
-    assert(s && s.until > state.now() && (!requireUser || s.user), 401, 'AUTH_REQUIRED', '请登录观看账户'); return { ...s, id };
+    const s = sessions.get(id); const user = s?.user ? config.users.find((u) => u.username === s.user.username) : null;
+    assert(s && s.until > state.now() && (!requireUser || user), 401, 'AUTH_REQUIRED', '请登录观看账户'); return { ...s, user, id };
   }
   function sameOrigin(req) {
     assert(req.headers.origin === config.publicOrigin && !['cross-site', 'none'].includes(req.headers['sec-fetch-site']), 403, 'ORIGIN_FORBIDDEN', '只允许网站同源操作');
   }
   function mutation(req, s) { sameOrigin(req); assert(equal(req.headers['x-bms-csrf'], s.csrf), 403, 'CSRF_INVALID', '请求验证失效，请刷新登录'); }
+  function loggedResponse(res, s, user, status = 200) {
+    for (const v of [...state.viewers.values()]) if (v.owner === s.id) state.release(v.viewerId, s.id);
+    sessions.delete(s.id); const id = opaque(); const logged = { user, csrf: opaque(), until: state.now() + 28800000 }; sessions.set(id, logged); cookie(res, id);
+    return json(res, status, { user: { username: user.username, role: user.role ?? 'viewer' }, csrfToken: logged.csrf });
+  }
   function authorized(s, id) { assert(s.user.devices.includes(id), 403, 'DEVICE_FORBIDDEN', '没有此设备的观看权限'); return state.device(id).registration; }
   function deviceAuth(req) {
     const header = req.headers.authorization ?? '';
@@ -103,15 +111,29 @@ export function createRealtimeApi(options = {}) {
 
   async function route(req, res) {
     const url = new URL(req.url, 'http://internal'); const pathname = url.pathname.slice(PREFIX.length);
+    if (pathname === '/setup/status' && req.method === 'GET') { rate(`setup-status:${req.socket.remoteAddress}`, 120); return json(res, 200, setupStatus(config)); }
+    if (pathname === '/setup/bootstrap' && req.method === 'POST') {
+      const s = session(req, false); mutation(req, s); rate(`bootstrap:${req.socket.remoteAddress}`, 5);
+      assert(!config.users.length, 409, 'ALREADY_INITIALIZED', '管理员已初始化，请使用账户登录');
+      assert(registry.writable && config.bootstrapHash, 503, 'BOOTSTRAP_UNAVAILABLE', '请站点管理员配置持久化存储和初始化密钥');
+      const b = await readJson(req); accountInput(b);
+      assert(typeof b.bootstrapToken === 'string' && b.bootstrapToken.length <= 256 && equal(tokenHash(b.bootstrapToken), config.bootstrapHash), 403, 'BOOTSTRAP_INVALID', '初始化密钥不正确');
+      assert(loginBusy < 4, 429, 'LOGIN_BUSY', '请稍后再试');
+      let user; loginBusy++;
+      try { const hash = await passwordHash(b.password); user = await registry.mutate((next) => { assert(!next.users.length, 409, 'ALREADY_INITIALIZED', '管理员已初始化'); const u = { username: b.username, passwordHash: hash, role: 'admin', devices: [] }; next.users.push(u); return u; }); }
+      finally { loginBusy--; }
+      return loggedResponse(res, s, user, 201);
+    }
     if (pathname === '/heartbeat' && req.method === 'POST') {
       const d = deviceAuth(req); rate(`heartbeat:${d.deviceId}`, 30); const b = await readJson(req);
+      deviceAuth(req); // 等待正文期间若令牌轮换，不接受旧身份。
       assert(b.deviceId === d.deviceId, 403, 'DEVICE_MISMATCH', '设备身份不匹配');
       assert(typeof b.alias === 'string' && b.alias.length <= 128);
       return json(res, 200, state.heartbeat(d.deviceId));
     }
     if (pathname === '/snapshots' && req.method === 'POST') {
       const d = deviceAuth(req); rate(`snapshots:${d.deviceId}`, 1800); const b = await readJson(req);
-      const snapshot = validateSnapshot(b, d); return json(res, 200, state.accept(d.deviceId, b.subscriptionId, snapshot));
+      const snapshot = validateSnapshot(b, deviceAuth(req)); return json(res, 200, state.accept(d.deviceId, b.subscriptionId, snapshot));
     }
     if (pathname === '/auth/session' && req.method === 'GET') {
       rate(`session:${req.socket.remoteAddress}`, 120);
@@ -127,17 +149,28 @@ export function createRealtimeApi(options = {}) {
       const b = await readJson(req); assert(typeof b.username === 'string' && b.username.length <= 80 && typeof b.password === 'string' && b.password.length <= 256);
       assert(loginBusy < 4, 429, 'LOGIN_BUSY', '请稍后再登录');
       const user = config.users.find((u) => u.username === b.username); let ok;
-      loginBusy++; try { ok = await verifyPassword(b.password, (user ?? config.users[0]).passwordHash); } finally { loginBusy--; }
+      loginBusy++; try { ok = await verifyPassword(b.password, (user ?? config.users[0])?.passwordHash ?? `scrypt$${'0'.repeat(32)}$${'0'.repeat(128)}`); } finally { loginBusy--; }
       assert(user && ok, 401, 'LOGIN_FAILED', '用户名或密码不正确');
-      for (const v of [...state.viewers.values()]) if (v.owner === s.id) state.release(v.viewerId, s.id);
-      sessions.delete(s.id); const id = opaque(); const logged = { user, csrf: opaque(), until: state.now() + 28800000 }; sessions.set(id, logged); cookie(res, id);
-      return json(res, 200, { user: { username: user.username, role: user.role ?? 'viewer' }, csrfToken: logged.csrf });
+      return loggedResponse(res, s, user);
     }
     if (pathname === '/auth/logout' && req.method === 'POST') {
       const s = session(req); mutation(req, s); sessions.delete(s.id);
       for (const v of [...state.viewers.values()]) if (v.owner === s.id) state.release(v.viewerId, s.id);
       for (const stream of streams) if (stream.owner === s.id) endStream(stream);
       cookie(res, '', 0); return json(res, 204);
+    }
+    if (['/admin/registry', '/admin/devices', '/admin/users'].includes(pathname) || /^\/admin\/devices\/[^/]+\/token$/.test(pathname)) {
+      const s = session(req); assert(s.user.role === 'admin', 403, 'ADMIN_REQUIRED', '设备和账户注册需要管理员权限'); rate(`admin:${s.user.username}`, 20);
+      if (pathname === '/admin/registry' && req.method === 'GET') return json(res, 200, { writable: registry.writable, devices: config.devices.map((d) => state.info(state.device(d.deviceId))), users: config.users.map((u) => ({ username: u.username, role: u.role ?? 'viewer', devices: u.devices })) });
+      assert(req.method === 'POST', 405, 'METHOD_NOT_ALLOWED'); mutation(req, s); const b = await readJson(req);
+      if (pathname === '/admin/devices') { const result = await registerDevice(registry, b); return json(res, 201, { device: state.info(state.device(result.deviceId)), deviceToken: result.deviceToken }); }
+      if (pathname === '/admin/users') {
+        assert(loginBusy < 4, 429, 'LOGIN_BUSY', '请稍后再试'); loginBusy++;
+        try { return json(res, 201, { user: await registerUser(registry, b) }); } finally { loginBusy--; }
+      }
+      const m = pathname.match(/^\/admin\/devices\/([^/]+)\/token$/);
+      if (m) { const result = await rotateDevice(registry, m[1], b); return json(res, 200, { device: state.info(state.device(result.deviceId)), deviceToken: result.deviceToken }); }
+      throw new ApiError(405, 'METHOD_NOT_ALLOWED');
     }
     // 未知API永远返回JSON，不交给SPA fallback（也不重定向到登录页）。
     if (!['/devices', '/viewers', '/events'].includes(pathname) && !/^\/(?:viewers\/[^/]+|devices\/[^/]+\/(?:latest|trend|cache))$/.test(pathname)) throw new ApiError(404, 'NOT_FOUND', '实时接口不存在');

@@ -1,4 +1,4 @@
-import type { BmsDevice, BmsIdentity, BmsSample, BmsMetric, TrendPoint, ViewerLease } from './bmsRealtimeTypes';
+import type { BmsDevice, BmsIdentity, BmsSample, BmsMetric, TrendPoint, ViewerLease, BmsSetupStatus, BmsRegistry, BmsDeviceCredential } from './bmsRealtimeTypes';
 
 export class BmsApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -25,6 +25,12 @@ async function request<T>(path: string, method = 'GET', body?: unknown, signal?:
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
 export const bmsApi = {
+  setupStatus: () => request<BmsSetupStatus>('/setup/status'),
+  async bootstrap(username: string, password: string, bootstrapToken: string) { const res = await request<{ user: BmsIdentity; csrfToken: string }>('/setup/bootstrap', 'POST', { username, password, bootstrapToken }); csrfToken = res.csrfToken; return res.user; },
+  registry: () => request<BmsRegistry>('/admin/registry'),
+  registerDevice: (device: { deviceId: string; alias: string; allowedPacks: number[]; allowedAddresses: number[]; allowSimulation: boolean }) => request<BmsDeviceCredential>('/admin/devices', 'POST', device),
+  registerUser: (username: string, password: string, devices: string[]) => request('/admin/users', 'POST', { username, password, devices }),
+  rotateDevice: (id: string) => request<BmsDeviceCredential>(`/admin/devices/${encodeURIComponent(id)}/token`, 'POST', { confirmDeviceId: id }),
   async session() { const res = await request<{ user: BmsIdentity | null; csrfToken: string }>('/auth/session'); csrfToken = res.csrfToken; return res.user; },
   async login(username: string, password: string) { const res = await request<{ user: BmsIdentity; csrfToken: string }>('/auth/login', 'POST', { username, password }); csrfToken = res.csrfToken; return res.user; },
   async logout() { await request('/auth/logout', 'POST'); csrfToken = ''; },

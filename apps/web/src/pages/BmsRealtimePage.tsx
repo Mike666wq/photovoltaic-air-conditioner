@@ -5,6 +5,7 @@ import { BmsRealtimeController } from '../services/bmsRealtimeController';
 import { bmsTime, bmsNumber, clockSkew, sampleKey, sampleStale, sampleExpired } from '../services/bmsRealtimeTypes';
 import { useBmsRealtimeStore } from '../store/bmsRealtime';
 import { BmsTrendChart } from '../components/bmsRealtime/BmsTrendChart';
+import type { BmsSetupStatus } from '../services/bmsRealtimeTypes';
 import './bms-realtime.css';
 
 export function BmsRealtimePage() {
@@ -14,6 +15,7 @@ export function BmsRealtimePage() {
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [clearing, setClearing] = useState(false);
+  const [setup, setSetup] = useState<BmsSetupStatus | null>(null);
   const device = state.devices.find((d) => d.deviceId === state.deviceId);
   const heartbeatOnline = !!device?.online && !!device.lastHeartbeatAt && now - Date.parse(device.lastHeartbeatAt) < 45000;
   const cachedSample = state.samples.find((s) => sampleKey(s.snapshot) === state.channel);
@@ -36,7 +38,7 @@ export function BmsRealtimePage() {
     let alive = true;
     const previousTitle = document.title; document.title = 'BMS 本地实时监测 · 光伏空调实验平台';
     void (async () => {
-      try { const identity = await bmsApi.session(); if (!alive) return; set({ identity }); if (identity) await loadDevices(); }
+      try { const status = await bmsApi.setupStatus(); if (!alive) return; setSetup(status); if (!status.enabled || !status.initialized) return; const identity = await bmsApi.session(); if (!alive) return; set({ identity }); if (identity) await loadDevices(); }
       catch (e) { if (alive) set({ error: e instanceof Error ? e.message : '服务连接失败' }); }
       finally { if (alive) setReady(true); }
     })();
@@ -65,11 +67,11 @@ export function BmsRealtimePage() {
   ];
   const channelPoints = (metric: 'voltage' | 'current' | 'soc') => state.trends[metric].filter((p) => `${p.source}/${p.address}/${state.pack}` === state.channel && Date.parse(p.receivedAt) > now - 600000);
   return <main className="bms-page">
-    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>BMS 本地实时监测</h1></div><nav aria-label="页面导航"><Link to="/">原理图</Link><Link to="/analysis">数据分析</Link>{state.identity && <><span>{state.identity.username}</span><button disabled={busy} onClick={() => void logout()}>退出观看登录</button></>}</nav></header>
+    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>BMS 本地实时监测</h1></div><nav aria-label="页面导航"><Link to="/bms/manage">设备注册与接入</Link><Link to="/">原理图</Link><Link to="/analysis">数据分析</Link>{state.identity && <><span>{state.identity.username}</span><button disabled={busy} onClick={() => void logout()}>退出观看登录</button></>}</nav></header>
     <div className="bms-content">
       <div className="bms-intro"><div><h2>连接实验室，查看当前采样</h2><p>本地程序负责采集和记录。这里查看实时值与短趋势；时间统一为中国标准时间（Asia/Shanghai）。</p></div><span className="bms-readonly">只读监测</span></div>
       {state.error && <div className="bms-error" role="alert">{state.error}<button onClick={() => set({ error: '' })} aria-label="关闭提示">×</button></div>}
-      {!ready ? <div className="bms-login">正在检查观看登录…</div> : !state.identity ? <section className="bms-login"><h2>观看账户登录</h2><p>使用管理员提供的观看账户。设备上传令牌由本地程序保管。</p><form onSubmit={(e) => { e.preventDefault(); void login(e.currentTarget); }}><label>用户名<input name="username" autoComplete="username" required maxLength={80} /></label><label>密码<input name="password" type="password" autoComplete="current-password" required maxLength={256} /></label><button className="bms-primary" disabled={busy}>{busy ? '正在登录…' : '登录'}</button></form></section> : <>
+      {!ready ? <div className="bms-login">正在检查观看登录…</div> : setup && (!setup.enabled || !setup.initialized) ? <section className="bms-login"><h2>{setup.enabled ? '先完成管理员与设备注册' : '实时接入尚未启用'}</h2><p>{setup.enabled ? '站点管理员需先初始化账户、注册本地设备并生成上传令牌，再开始网页观看。' : '站点管理员需配置注册存储与初始化密钥，完成后即可在网页注册设备。'}</p><Link to="/bms/manage">前往设备注册与 Windows 接入指南 →</Link></section> : !state.identity ? <section className="bms-login"><h2>观看账户登录</h2><p>使用管理员提供的观看账户。设备上传令牌由本地程序保管。</p><p><Link to="/bms/manage">注册设备、创建观看账户或查看 Windows 配置步骤 →</Link></p><form onSubmit={(e) => { e.preventDefault(); void login(e.currentTarget); }}><label>用户名<input name="username" autoComplete="username" required maxLength={80} /></label><label>密码<input name="password" type="password" autoComplete="current-password" required maxLength={256} /></label><button className="bms-primary" disabled={busy}>{busy ? '正在登录…' : '登录'}</button></form></section> : <>
         <section className="bms-toolbar" aria-label="观看设置"><label>实验设备<select value={state.deviceId} disabled={state.phase === 'connecting'} onChange={(e) => selectDevice(e.target.value)}>{!state.devices.length && <option value="">暂无授权设备</option>}{state.devices.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.alias} · {d.deviceId}</option>)}</select></label><label>Pack<select value={state.pack} onChange={(e) => { controller.current.stop(); set({ pack: Number(e.target.value) }); }}>{(device?.allowedPacks ?? [1]).map((p) => <option key={p} value={p}>Pack {p}</option>)}</select></label><div className="bms-toolbar-actions">{watching ? <button onClick={() => controller.current.stop()}>断开观看</button> : <button className="bms-primary" disabled={!state.deviceId} onClick={() => void controller.current.start()}>连接本地数据源</button>}<button disabled={watching || busy} onClick={() => void loadDevices().catch((e: Error) => set({ error: e.message }))}>刷新设备</button></div></section>
         <section className={`bms-status ${fresh ? 'is-fresh' : ''}`} aria-live="polite"><div className="bms-status-title"><span className="bms-dot" /><strong>{status}</strong>{snapshot?.source === 'simulation' && <span className="bms-simulation">模拟数据</span>}</div><p>开始上传通常等待本地下一次心跳，约15秒内加网络耗时。心跳在线不代表串口已连接或正在采集。</p><div className="bms-status-grid"><div><span>网站数据连接</span><b>{state.websiteConnected ? '已连通' : watching ? '正在连接' : '未观看'}</b></div><div><span>客户端心跳</span><b>{heartbeatOnline ? '在线' : '未在线'}</b><small>{bmsTime(device?.lastHeartbeatAt)}</small></div><div><span>观看租约</span><b>{state.lease ? '已建立' : '未建立'}</b><small>{state.lease ? `有效至 ${bmsTime(state.lease.expiresAt)}` : '连接后才请求上传'}</small></div><div><span>最后采样时间</span><b>{bmsTime(snapshot?.capturedUtc)}</b><small>{sample ? `已接收 ${Math.max(0, Math.floor((now - Date.parse(sample.receivedAt)) / 1000))} 秒 · ${snapshot?.periodSeconds ? `采集间隔 ${snapshot.periodSeconds} 秒` : '采集间隔未知'}` : '尚未收到采样'}</small></div></div></section>
         {sample && clockSkew(sample) && <p className="bms-warning" role="status">采集机时间可能有偏差，采样时间与服务器接收时间相差超过1分钟。</p>}

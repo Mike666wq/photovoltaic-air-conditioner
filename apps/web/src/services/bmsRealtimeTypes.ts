@@ -23,7 +23,11 @@ export interface BmsSnapshot {
   alarmObservation: { observedUtc: string; acquisitionRound: number; pack: number; payloadHex: string } | null;
 }
 export interface BmsSample { snapshot: BmsSnapshot; receivedAt: string; stale: boolean }
-export interface BmsDevice { deviceId: string; alias: string; allowedPacks: number[]; online: boolean; lastHeartbeatAt: string | null }
+export interface BmsDevice { deviceId: string; alias: string; allowedPacks: number[]; allowedAddresses?: number[]; allowSimulation?: boolean; online: boolean; lastHeartbeatAt: string | null }
+export interface BmsSetupStatus { enabled: boolean; initialized: boolean; writable: boolean; bootstrapAvailable: boolean; serviceRoot: string | null }
+export interface BmsRegisteredUser { username: string; role: 'viewer' | 'admin'; devices: string[] }
+export interface BmsRegistry { writable: boolean; devices: BmsDevice[]; users: BmsRegisteredUser[] }
+export interface BmsDeviceCredential { device: BmsDevice; deviceToken: string }
 export interface BmsIdentity { username: string; role: 'viewer' | 'admin' }
 export interface ViewerLease { viewerId: string; expiresAt: string; renewAfterSeconds: number }
 export interface TrendPoint { capturedUtc: string; receivedAt: string; sequence: number; connectionSessionId: string; value: number; source: BmsSnapshot['source']; address: number }

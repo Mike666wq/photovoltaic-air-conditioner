@@ -1,6 +1,8 @@
 import { createHash, randomBytes, scrypt as derive, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve, join, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { assert } from './contract.mjs';
 
 const scrypt = promisify(derive);
@@ -27,14 +29,32 @@ function setting(env, key, fallback, max) {
 export function loadConfig(env = process.env) {
   const enabled = env.BMS_REALTIME_ENABLED === '1';
   if (!enabled) return { enabled: false };
-  const devices = JSON.parse(readFileSync(env.BMS_DEVICES_FILE, 'utf8')).devices;
-  const users = JSON.parse(readFileSync(env.BMS_VIEWER_CREDENTIALS_FILE, 'utf8')).users;
+  const registryDir = env.BMS_REALTIME_REGISTRY_DIR ? resolve(env.BMS_REALTIME_REGISTRY_DIR) : undefined;
+  if (registryDir) {
+    const publicDirectories = [fileURLToPath(new URL('../../dist', import.meta.url)), env.SCENARIOS_DIR ? resolve(env.SCENARIOS_DIR) : fileURLToPath(new URL('../../../../scenarios', import.meta.url))];
+    assert(publicDirectories.every((dir) => registryDir !== dir && !registryDir.startsWith(dir + sep)), 503, 'CONFIG_INVALID', '注册存储必须独立于公开静态目录及场景目录');
+  }
+  let devices = [], users = [];
+  if (registryDir && existsSync(join(registryDir, 'registry.json'))) {
+    const data = JSON.parse(readFileSync(join(registryDir, 'registry.json'), 'utf8'));
+    assert(data.version === 1, 503, 'CONFIG_INVALID', '注册存储版本无效');
+    ({ devices, users } = data);
+  } else if (env.BMS_DEVICES_FILE && env.BMS_VIEWER_CREDENTIALS_FILE) {
+    devices = JSON.parse(readFileSync(env.BMS_DEVICES_FILE, 'utf8')).devices;
+    users = JSON.parse(readFileSync(env.BMS_VIEWER_CREDENTIALS_FILE, 'utf8')).users;
+  } else assert(registryDir, 503, 'CONFIG_INVALID', '需要注册存储目录或现有注册文件');
+  let bootstrapHash;
+  if (env.BMS_REALTIME_BOOTSTRAP_TOKEN_FILE) {
+    const token = readFileSync(env.BMS_REALTIME_BOOTSTRAP_TOKEN_FILE, 'utf8').trim();
+    assert(/^[a-zA-Z0-9_-]{32,256}$/.test(token), 503, 'CONFIG_INVALID', '初始化密钥无效');
+    bootstrapHash = tokenHash(token);
+  }
   const publicOrigin = env.BMS_REALTIME_PUBLIC_ORIGIN;
   const devHttp = env.BMS_REALTIME_DEV_HTTP === '1' && env.NODE_ENV !== 'production';
   const url = new URL(publicOrigin);
   assert(url.origin === publicOrigin && (url.protocol === 'https:' || (devHttp && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))), 503, 'CONFIG_INVALID', '必须配置HTTPS网站根Origin');
   return {
-    enabled, devices, users, publicOrigin, devHttp,
+    enabled, devices, users, publicOrigin, devHttp, registryDir, bootstrapHash,
     cacheMs: setting(env, 'BMS_REALTIME_CACHE_TTL_SECONDS', 600, 600) * 1000,
     maxPoints: setting(env, 'BMS_REALTIME_MAX_POINTS', 600, 600),
     viewerMs: setting(env, 'BMS_REALTIME_VIEWER_TTL_SECONDS', 45, 45) * 1000,
@@ -53,7 +73,7 @@ export function validateConfig(config) {
     assert(Array.isArray(d.allowedAddresses) && d.allowedAddresses.length > 0 && d.allowedAddresses.length <= 16 && d.allowedAddresses.every((a) => Number.isInteger(a) && a >= 1 && a <= 255), 503, 'CONFIG_INVALID');
     assert(typeof d.allowSimulation === 'boolean' && (d.displayTimeZone == null || d.displayTimeZone === 'Asia/Shanghai'), 503, 'CONFIG_INVALID');
   }
-  assert(Array.isArray(config.users) && config.users.length > 0 && config.users.length <= 100, 503, 'CONFIG_INVALID');
+  assert(Array.isArray(config.users) && config.users.length <= 100 && (config.users.length > 0 || (config.registryDir && config.devices.length === 0)), 503, 'CONFIG_INVALID');
   const names = new Set();
   for (const u of config.users) {
     assert(typeof u.username === 'string' && u.username.length > 0 && u.username.length <= 80 && !names.has(u.username), 503, 'CONFIG_INVALID'); names.add(u.username);

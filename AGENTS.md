@@ -19,7 +19,7 @@
 | 项 | 实际值 |
 |---|---|
 | 阶段 | M1 原理图 / M1.5 动画 / M2 数据读入 / **M3 数据大屏均已完成** |
-| 路由 | `/`（原理图）、`/analysis`（数据大屏，懒加载）、`/bms/realtime`（独立BMS实时页，懒加载） |
+| 路由 | `/`（原理图）、`/analysis`（数据大屏，懒加载）、`/bms/realtime`（独立BMS实时页，懒加载）、`/bms/manage`（注册与本地接入，懒加载） |
 | 部件 | **13** 个（`data/components.ts`） |
 | 预设 | **9** 个 + 🎲 随机扰动（`data/presets.ts`） |
 | 控制面板滑块 | **21** 个 |
@@ -27,9 +27,10 @@
 | 默认回放 | 一个实验批次内的多数据源共享严格同步时间轴；大屏单源模式同步切换回放来源 |
 | 验收夹具 | 测试现场生成同构数据，不读取被忽略的 `data/` |
 | 源码头 | 124 个 action（`store/simulation.ts`） |
-| 代码量 | TS/TSX源码 ~14.9k 行 / Vitest测试 ~2.7k 行、**31 个文件**；另有独立Node实时API测试 |
+| 代码量 | TS/TSX源码 ~15.1k 行 / Vitest测试 ~2.7k 行、**32 个文件 / 168项**；另有**20项**独立Node实时API测试 |
 | 测试 | `vitest run` 与 `node --test scripts/realtime/*.test.mjs` 均通过才算完成 |
 | BMS实时页 | v1只读接口；设备Bearer与独立观看Cookie；45秒观看租约；每Pack最多600点/10分钟短趋势；不接入仿真/分析store |
+| BMS注册与接入 | 初始化密钥创建首个管理员；管理员网页注册设备/观看账户；PVC原子保存散列；一次性令牌下载Windows配置说明 |
 | 大屏布局 | 桌面 12 列；窄屏 6 列并按断点调整指标卡和图表跨度，不生成隐式列；舞台内容超高时纵向滚动；实时折线图共享可滚动图例和防重叠时间轴 |
 
 ## 2. 常用命令
@@ -59,7 +60,7 @@ node --test scripts/realtime/*.test.mjs # 实时API集成测试（临时loopback
 
 ```
 apps/web/src/
-├─ pages/          SchematicPage（原理图）、AnalysisDashboardPage（大屏）、BmsRealtimePage（独立实时页）
+├─ pages/          SchematicPage（原理图）、AnalysisDashboardPage（大屏）、BmsRealtimePage（独立实时页）、BmsManagePage（注册与接入）
 ├─ components/     TopBar / TimelineControls / CircuitCanvas(1998行) / ControlPanel /
 │                  PalettePanel / ComponentDetail / ImportDataDialog / SaveManager /
 │                  LogPanel / Tooltip / ToastContainer / TsPointer / GridPattern /
@@ -125,7 +126,8 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 | `pv_on === derivePvOn(pv_power)` | `store/simulation.ts` | **`pv_power` 是权威，`pv_on` 是派生量**。UI 只有功率滑块，没有 pv_on 开关；`schematicFrame` 也由功率派生。所有写 `pv_power` 的路径必须同步派生 |
 | PCM 温度恒显实测值 | `engine/pcm.ts` | 曾把 1~49℃ 整段当"相变平台"恒显 `25.0℃`，已修。**不要用常数冒充测量读数** |
 | BMS实时隔离与口径 | `bmsRealtime*` / `scripts/realtime/` | v1保持centiV/centiA/centiAh与原始温度；只标电流正负；不解码未知告警，不读写simulation/analysis/injector；未观看不上传，心跳不代表串口采集；租约TTL用服务端单调时钟 |
-| BMS缓存/部署 | `scripts/realtime/state.mjs` / `routes.mjs` | 每Pack最多600点且10分钟；去重按会话和序号、各通道水位；SSE授权和缓冲有界；当前仅单Node进程，K8s单副本Recreate；多实例须共享状态；凭据仅Secret/外部文件 |
+| BMS缓存/部署 | `scripts/realtime/state.mjs` / `routes.mjs` | 每Pack最多600点且10分钟；去重按会话和序号、各通道水位；SSE授权和缓冲有界；当前仅单Node进程，K8s单副本Recreate；多实例须共享状态；注册散列存独立PVC，初始化密钥存Secret；旧只读配置兼容 |
+| BMS网页注册 | `registration.mjs` / `registry.mjs` | 首个管理员须初始化密钥+同源CSRF且仅允许一次；设备/观看账户仅管理员创建；落盘成功才更新运行态；令牌只在注册/轮换成功时显示，文件仅存散列，不能放入公开scenarios/dist；轮换立即撤销旧令牌/租约并清缓存 |
 | 电池符号唯一入口 | `services/batteryConvention.ts` | 用户口径（analysis store）→ 原理图内部口径（正=放电），三处调用统一走它，`unknown` 返回 null 不猜方向 |
 | 导入三态反馈 | `AnalysisDashboardPage` | 全成功✓ / 部分⚠ / 全失败✕，**不要无条件加绿勾** |
 | 弹窗无障碍 | `hooks/useModalA11y.ts` | Esc/Tab 只由最上层弹窗处理；关闭子层恢复父层触发按钮焦点。`ComponentDetail` 是**常驻挂载内部 return null**，`open` 必须传真实状态 |
@@ -158,7 +160,7 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
   都跑 typecheck → **unit tests + BMS Node API tests** → build；CI继续产物/镜像检查
 - 旧 Docker Compose + SCP/SSH 自动部署已在 `release.yml` 中整体注释；`deploy/deploy.sh` 保留但不被调用
 - 生产运行在 Kubernetes，镜像推 GHCR 后由运维手动 `kubectl set image`
-- BMS模块默认关闭；启用需设备/观看凭据文件与PUBLIC_ORIGIN，开发与生产共用API模块；详见部署README的BMS独立实时模块章节
+- BMS模块默认关闭；网页注册启用需独立持久注册目录、初始化密钥文件与PUBLIC_ORIGIN；旧设备/观看只读凭据文件仍兼容，开发与生产共用API模块；详见部署README的BMS独立实时模块章节
 - 详见 [`deploy/README.md`](./deploy/README.md) 与 [`CICD持续集成部署.md`](./CICD持续集成部署.md)
 
 ## 8. 约定

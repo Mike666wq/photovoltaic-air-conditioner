@@ -1,0 +1,30 @@
+.bms-onboarding-steps { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 24px; }
+.bms-onboarding-steps span { padding: 14px 18px; border: 1px solid #dfe7f1; border-radius: 10px; background: white; font-size: 13px; color: #52647b; }
+.bms-admin-card, .bms-guide, .bms-credential { background: white; border: 1px solid #dfe7f1; border-radius: 14px; padding: 24px; margin-bottom: 24px; min-width: 0; }
+.bms-admin-card h2, .bms-guide h2, .bms-credential h2 { font-size: 18px; margin-bottom: 12px; }
+.bms-admin-card p, .bms-guide p, .bms-guide li, .bms-credential p { color: #52647b; font-size: 13px; line-height: 1.9; margin: 10px 0; }
+.bms-admin-card form { display: grid; gap: 18px; margin-top: 20px; }
+.bms-first-admin { max-width: 640px; margin-left: auto; margin-right: auto; }
+.bms-admin-forms { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+.bms-admin-card fieldset { border: 1px solid #dfe7f1; border-radius: 8px; padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.bms-admin-card legend { font-size: 13px; color: #52647b; padding: 0 6px; }
+.bms-management label.bms-checkbox { display: flex; align-items: start; gap: 9px; line-height: 1.7; overflow-wrap: anywhere; }
+.bms-management .bms-checkbox input { width: auto; flex: none; margin-top: 4px; }
+.bms-notice { padding: 14px 18px; border: 1px solid #c7e5da; border-radius: 10px; background: #eef8f5; color: #245b4e; font-size: 13px; line-height: 1.8; margin-bottom: 20px; }
+.bms-credential { border-color: #d9c077; background: #fffaf0; }
+.bms-credential input { margin: 10px 0; font-family: ui-monospace, monospace; }
+.bms-admin-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; font-size: 13px; }
+.bms-device-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,360px),1fr)); gap: 16px; }
+.bms-device-list article { border: 1px solid #dfe7f1; border-radius: 10px; padding: 20px; min-width: 0; overflow-wrap: anywhere; }
+.bms-device-list h3 { margin-bottom: 8px; font-size: 15px; }
+.bms-device-list code, .bms-device-list small { font-size: 12px; color: #64748b; }
+.bms-user-list { list-style: none; display: grid; gap: 12px; }
+.bms-user-list li { display: flex; align-items: start; flex-wrap: wrap; gap: 12px; padding: 12px; border-radius: 8px; background: #f6f8fc; font-size: 13px; overflow-wrap: anywhere; }
+.bms-guide { margin-top: 24px; }
+.bms-guide ol, .bms-guide ul { padding-left: 24px; }
+.bms-guide li { margin-bottom: 16px; }
+.bms-guide dl { display: grid; grid-template-columns: 160px minmax(0,1fr); gap: 10px 16px; margin-top: 12px; padding: 16px; background: #f6f8fc; border-radius: 8px; }
+.bms-guide dt { font-weight: 600; }.bms-guide dd { margin: 0; overflow-wrap: anywhere; }
+.bms-guide code { overflow-wrap: anywhere; font-size: 12px; }.bms-guide details { border-top: 1px solid #dfe7f1; padding-top: 16px; margin-top: 20px; }.bms-guide summary { cursor: pointer; font-size: 14px; }
+.bms-guide-selector { max-width: 480px; }
+@media (max-width: 760px) { .bms-onboarding-steps, .bms-admin-forms { grid-template-columns: minmax(0,1fr); } .bms-onboarding-steps { gap: 8px; } .bms-admin-card, .bms-guide, .bms-credential { padding: 18px; } .bms-guide dl { grid-template-columns: minmax(0,1fr); gap: 4px; } .bms-guide dd { margin-bottom: 10px; } }
