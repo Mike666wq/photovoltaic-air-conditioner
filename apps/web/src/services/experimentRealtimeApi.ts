@@ -1,0 +1,15 @@
+import {request} from './bmsRealtimeApi';
+import type {TrendPage} from './bmsRealtimeApi';
+import type {BmsDevice,ViewerLease} from './bmsRealtimeTypes';
+import type {ExperimentSample,ExperimentSource,ExperimentTrendPoint} from './experimentRealtimeTypes';
+const call=<T,>(path:string,method='GET',body?:unknown,signal?:AbortSignal,keepalive=false)=>request<T>(path,method,body,signal,keepalive);
+// 共用同源会话与CSRF实现；请求路径扩展由统一request的绝对模块路径处理。
+export const experimentApi={
+  devices:()=>call<{devices:BmsDevice[]}>('/experiment/devices'),
+  create:(deviceId:string,equipmentIds:string[],signal?:AbortSignal,source?:ExperimentSource,pageId?:string)=>call<ViewerLease>('/experiment/viewers','POST',{deviceId,equipmentIds,...(source?{source}:{}),...(pageId?{pageId}:{})},signal),
+  renew:(id:string,equipmentIds:string[],source?:ExperimentSource)=>call<ViewerLease>(`/experiment/viewers/${encodeURIComponent(id)}`,'PUT',{equipmentIds,...(source?{source}:{})}),
+  release:(id:string)=>call<void>(`/experiment/viewers/${encodeURIComponent(id)}`,'DELETE',undefined,undefined,true),
+  latest:(id:string,source?:ExperimentSource)=>call<{online:boolean;lastHeartbeatAt:string|null;snapshots:ExperimentSample[]}>(`/experiment/devices/${encodeURIComponent(id)}/latest${source?`?source=${source}`:''}`),
+  trend:(id:string,equipmentId:string,pointId:string,source:ExperimentSource,cursor?:string|null)=>call<TrendPage<ExperimentTrendPoint>>(`/experiment/devices/${encodeURIComponent(id)}/trend?equipmentId=${encodeURIComponent(equipmentId)}&pointId=${encodeURIComponent(pointId)}&source=${source}&limit=2000${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`),
+  clear:(id:string)=>call<void>(`/experiment/devices/${encodeURIComponent(id)}/cache`,'DELETE'),
+};

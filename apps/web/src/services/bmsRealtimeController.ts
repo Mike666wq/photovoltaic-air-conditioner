@@ -1,97 +1,202 @@
 import { bmsApi, BmsApiError } from './bmsRealtimeApi';
 import { useBmsRealtimeStore as store } from '../store/bmsRealtime';
 import { BMS_METRICS } from './bmsRealtimeTypes';
-import type { BmsSample, ViewerLease } from './bmsRealtimeTypes';
+import type { BmsMetric, BmsSample, TrendPoint, ViewerLease } from './bmsRealtimeTypes';
 
-/** 租约、重连和清理只在独立页面挂载后运行，其他路由没有实时副作用。 */
+const pageQueues = new WeakMap<object, Map<string, Promise<void>>>();
+function pageQueue(api: object, pageId?: string) {
+  let queues = pageQueues.get(api);
+  if (!queues) { queues = new Map(); pageQueues.set(api, queues); }
+  const key = pageId ?? 'legacy';
+  return {
+    run<T>(operation: () => Promise<T>): Promise<T> {
+      const previous = queues!.get(key) ?? Promise.resolve();
+      const current = previous.catch(() => {}).then(operation);
+      const tail = current.then(() => {}, () => {});
+      queues!.set(key, tail);
+      void tail.then(() => { if (queues!.get(key) === tail) queues!.delete(key); });
+      return current;
+    },
+  };
+}
+async function boundedRelease(release: () => Promise<void>, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const result = await Promise.race([
+    release().then(() => true, () => false),
+    new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+  ]);
+  if (timer) clearTimeout(timer);
+  return result;
+}
+
+/** 每个BMS面板维护一个来源过滤租约，并在重连时保留本地一小时历史。 */
 export class BmsRealtimeController {
   private generation = 0;
   private events: EventSource | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private retry: ReturnType<typeof setTimeout> | undefined;
+  private trendRefresh: ReturnType<typeof setTimeout> | undefined;
   private abort: AbortController | null = null;
-  constructor(private api = bmsApi, private openEvents = (url: string) => new EventSource(url)) {}
+  private retryCount = 0;
+  private pageId?:string;
+  private trendCursors: Partial<Record<BmsMetric, string | null>> = {};
+  private queryKeys: Partial<Record<BmsMetric, string>> = {};
+  private fetching: Partial<Record<BmsMetric, boolean>> = {};
+  constructor(private api = bmsApi, private openEvents = (url: string) => new EventSource(url), private releaseWaitMs = 5500) {}
+
   stop(phase: 'idle' | 'paused' | 'expired' | 'unauthorized' = 'idle') {
-    this.generation++; this.abort?.abort(); this.abort = null;
-    clearTimeout(this.timer); clearTimeout(this.retry); this.events?.close(); this.events = null;
+    this.generation++;
+    this.cleanup(phase);
+  }
+
+  private cleanup(phase: 'idle' | 'paused' | 'expired' | 'unauthorized' | 'reconnecting') {
+    this.abort?.abort(); this.abort = null;
+    clearTimeout(this.timer); clearTimeout(this.retry); clearTimeout(this.trendRefresh);
+    this.events?.close(); this.events = null;
     const lease = store.getState().lease;
-    store.setState({ phase, lease: null, websiteConnected: false }); store.getState().clearData();
-    if (lease) void this.api.release(lease.viewerId).catch(() => { /* 页面离开最终由TTL释放。 */ });
-  }
-  async start() {
-    this.stop(); const generation = this.generation;
-    const { deviceId, pack } = store.getState(); if (!deviceId) return;
-    this.abort = new AbortController(); store.setState({ phase: 'connecting', error: '' });
-    try {
-      const lease = await this.api.create(deviceId, pack, this.abort.signal);
-      if (generation !== this.generation) { void this.api.release(lease.viewerId).catch(() => {}); return; }
-      store.setState({ lease, phase: 'watching' });
-      this.scheduleRenew(lease, generation);
-      await this.bootstrap(generation);
-      if (generation === this.generation) this.subscribe(lease, generation);
-    } catch (e) { if (generation === this.generation) this.fail(e); }
-  }
-  private fail(e: unknown) {
-    const auth = e instanceof BmsApiError && [401, 403].includes(e.status);
-    this.stop(auth ? 'unauthorized' : 'expired');
-    if (e instanceof BmsApiError && e.status === 401) {
-      store.setState({ identity: null });
-      void this.api.session().catch(() => {});
+    store.setState({ phase, lease: null, websiteConnected: false });
+    if (lease) {
+      const queue = pageQueue(this.api, this.pageId);
+      void queue.run(() => boundedRelease(() => this.api.release(lease.viewerId), this.releaseWaitMs).then(() => {}));
     }
-    store.setState({ error: e instanceof Error ? e.message : '实时数据连接失败' });
   }
+
+  async start(pageId?:string) {
+    this.stop(); this.retryCount = 0;
+    this.pageId=pageId;
+    await this.connect(this.generation);
+  }
+
+  private async connect(generation: number) {
+    const { deviceId, pack, source } = store.getState();
+    if (!deviceId) return;
+    const abort = new AbortController(); this.abort = abort; const pageId = this.pageId;
+    store.setState({ phase: 'connecting', error: '' });
+    try {
+      const lease = await pageQueue(this.api, pageId).run(async () => {
+        if (generation !== this.generation || abort.signal.aborted) return null;
+        const created = await this.api.create(deviceId, pack, abort.signal, source, pageId);
+        if (generation !== this.generation || abort.signal.aborted) {
+          await boundedRelease(() => this.api.release(created.viewerId), this.releaseWaitMs);
+          return null;
+        }
+        store.setState({ lease: created, phase: 'watching' });
+        return created;
+      });
+      if (!lease || generation !== this.generation) return;
+      this.scheduleRenew(lease, generation);
+      await this.bootstrap(generation, true);
+      if (generation === this.generation) this.subscribe(lease, generation);
+    } catch (error) { if (generation === this.generation) this.fail(error); }
+  }
+
+  private fail(error: unknown) {
+    if (error instanceof BmsApiError && [401, 403].includes(error.status)) {
+      this.stop('unauthorized');
+      if (error.status === 401) {
+        store.setState({ identity: null });
+        void this.api.session().catch(() => {});
+      }
+      store.setState({ error: error.message });
+      return;
+    }
+    this.scheduleReconnect(error);
+  }
+
+  private scheduleReconnect(error: unknown) {
+    this.generation++;
+    const generation = this.generation;
+    this.cleanup('reconnecting');
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.retryCount++, 5));
+    store.setState({ error: error instanceof Error ? error.message : '实时连接中断，正在重连' });
+    this.retry = setTimeout(() => { if (generation === this.generation) void this.connect(generation); }, delay);
+  }
+
   private scheduleRenew(lease: ViewerLease, generation: number) {
     clearTimeout(this.timer);
     this.timer = setTimeout(async () => {
       if (generation !== this.generation) return;
+      const { pack, source } = store.getState();
       try {
-        const renewed = await this.api.renew(lease.viewerId, store.getState().pack);
+        const renewed = await this.api.renew(lease.viewerId, pack, source);
         if (generation !== this.generation) return;
         store.setState({ lease: renewed }); this.scheduleRenew(renewed, generation);
-      } catch (e) {
-        if (generation !== this.generation) return;
-        // 已过期则显式重建；其他失败停止，避免失效EventSource无限重连。
-        if (e instanceof BmsApiError && e.status === 410) { void this.start(); return; }
-        this.fail(e);
-      }
+      } catch (error) { if (generation === this.generation) this.fail(error); }
     }, lease.renewAfterSeconds * 1000);
   }
-  private async bootstrap(generation: number) {
-    const { deviceId, pack } = store.getState();
-    const [latest, ...series] = await Promise.all([this.api.latest(deviceId, pack), ...BMS_METRICS.map((metric) => this.api.trend(deviceId, pack, metric))]);
-    if (generation !== this.generation) return;
-    const trends = { ...store.getState().trends };
-    BMS_METRICS.forEach((metric, i) => { trends[metric] = (series[i] as { points: typeof trends.voltage }).points; });
-    store.setState({ trends, devices: store.getState().devices.map((d) => d.deviceId === deviceId ? { ...d, online: latest.online, lastHeartbeatAt: latest.lastHeartbeatAt } : d), websiteConnected: true });
-    for (const sample of latest.packs) store.getState().accept(sample);
+
+  private queryKey(metric: BmsMetric) {
+    const { deviceId, pack, source } = store.getState();
+    return `${deviceId}/${pack}/${source}/${metric}`;
   }
+
+  private async loadTrend(metric: BmsMetric, generation: number, replace = false) {
+    if (this.fetching[metric] || generation !== this.generation) return;
+    const state = store.getState();
+    if (!state.lease) return;
+    const key = this.queryKey(metric);
+    if (this.queryKeys[metric] !== key) {
+      this.queryKeys[metric] = key; this.trendCursors[metric] = null; replace = true;
+    }
+    this.fetching[metric] = true;
+    try {
+      let cursor = replace ? null : (this.trendCursors[metric] ?? null);
+      let firstPage = true;
+      do {
+        const page = await this.api.trend(state.deviceId, state.pack, metric, state.source, cursor);
+        if (generation !== this.generation || key !== this.queryKey(metric)) return;
+        store.getState().appendTrend(metric, page.points, replace && firstPage);
+        cursor = page.nextCursor;
+        firstPage = false;
+        if (!page.hasMore) break;
+      } while (true);
+      if (cursor) this.trendCursors[metric] = cursor;
+    } catch (error) {
+      if (generation === this.generation) this.fail(error);
+    } finally { this.fetching[metric] = false; }
+  }
+
+  private async refreshTrends(generation: number, replace = false) {
+    await Promise.all(BMS_METRICS.map(metric => this.loadTrend(metric, generation, replace)));
+  }
+
+  private async bootstrap(generation: number, includeHistory = false) {
+    const { deviceId, pack, source } = store.getState();
+    const latest = await this.api.latest(deviceId, pack, source);
+    if (generation !== this.generation) return;
+    store.setState({ devices: store.getState().devices.map((d) => d.deviceId === deviceId ? { ...d, online: latest.online, lastHeartbeatAt: latest.lastHeartbeatAt } : d), websiteConnected: true });
+    for (const sample of latest.packs) store.getState().accept(sample);
+    if (includeHistory) await this.refreshTrends(generation, true);
+  }
+
   private subscribe(lease: ViewerLease, generation: number) {
     this.events?.close();
-    const events = this.openEvents(`/api/realtime/events?viewerId=${encodeURIComponent(lease.viewerId)}`); this.events = events;
-    events.onopen = () => { if (generation === this.generation) store.setState({ phase: 'watching', websiteConnected: true, error: '' }); };
+    const source = store.getState().source;
+    const events = this.openEvents(`/api/realtime/events?viewerId=${encodeURIComponent(lease.viewerId)}&source=${source}`);
+    this.events = events;
+    events.onopen = () => { if (generation === this.generation) { this.retryCount = 0; store.setState({ phase: 'watching', websiteConnected: true, error: '' }); } };
     events.addEventListener('snapshot', (event) => {
       if (generation !== this.generation) return;
-      try { store.getState().accept(JSON.parse((event as MessageEvent).data) as BmsSample); }
-      catch { this.fail(new Error('收到无效的实时采样，请重新连接')); }
+      try {
+        store.getState().accept(JSON.parse((event as MessageEvent).data) as BmsSample);
+        if (!this.trendRefresh) this.trendRefresh = setTimeout(() => { this.trendRefresh = undefined; void this.refreshTrends(generation); }, 1200);
+      } catch { this.fail(new Error('收到无效的实时采样，请重新连接')); }
     });
     events.addEventListener('device-status', (event) => {
       if (generation !== this.generation) return;
       try {
         const data = JSON.parse((event as MessageEvent).data);
-        if (data.viewing === false) { this.stop('expired'); return; }
+        if (data.viewing === false) { this.fail(new BmsApiError(410, 'VIEWER_EXPIRED', '观看租约结束，正在重新连接')); return; }
         store.setState({ devices: store.getState().devices.map((d) => d.deviceId === data.deviceId ? { ...d, online: data.online, lastHeartbeatAt: data.lastHeartbeatAt } : d) });
       } catch { this.fail(new Error('设备状态响应无效')); }
     });
-    events.addEventListener('cache-cleared', () => { if (generation === this.generation) store.getState().clearData(); });
-    events.onerror = () => {
+    events.addEventListener('cache-status', (event) => { if (generation === this.generation) { try { store.setState({ cacheStatus: JSON.parse((event as MessageEvent).data) }); } catch {} } });
+    events.addEventListener('cache-capacity', (event) => { if (generation === this.generation) { try { store.setState({ cacheStatus: JSON.parse((event as MessageEvent).data), capacityWarning: true }); } catch {} } });
+    events.addEventListener('cache-cleared', () => {
       if (generation !== this.generation) return;
-      events.close(); store.setState({ phase: 'reconnecting', websiteConnected: false });
-      clearTimeout(this.retry);
-      this.retry = setTimeout(async () => {
-        if (generation !== this.generation) return;
-        try { await this.bootstrap(generation); if (generation === this.generation) this.subscribe(lease, generation); }
-        catch (e) { if (generation === this.generation) this.fail(e); }
-      }, 3000);
-    };
+      this.trendCursors = {}; this.queryKeys = {};
+      store.getState().clearData();
+    });
+    events.onerror = () => { if (generation === this.generation) this.scheduleReconnect(new Error('网站数据连接中断，正在重新申请观看租约')); };
   }
 }

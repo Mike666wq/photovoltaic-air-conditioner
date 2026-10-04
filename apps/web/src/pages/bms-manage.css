@@ -1,5 +1,6 @@
 .bms-onboarding-steps { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 24px; }
 .bms-onboarding-steps span { padding: 14px 18px; border: 1px solid #dfe7f1; border-radius: 10px; background: white; font-size: 13px; color: #52647b; }
+.bms-onboarding-steps span.is-complete { border-color: #9bd2bb; background: #eef8f3; color: #245b4e; }
 .bms-admin-card, .bms-guide, .bms-credential { background: white; border: 1px solid #dfe7f1; border-radius: 14px; padding: 24px; margin-bottom: 24px; min-width: 0; }
 .bms-admin-card h2, .bms-guide h2, .bms-credential h2 { font-size: 18px; margin-bottom: 12px; }
 .bms-admin-card p, .bms-guide p, .bms-guide li, .bms-credential p { color: #52647b; font-size: 13px; line-height: 1.9; margin: 10px 0; }
@@ -27,4 +28,18 @@
 .bms-guide dt { font-weight: 600; }.bms-guide dd { margin: 0; overflow-wrap: anywhere; }
 .bms-guide code { overflow-wrap: anywhere; font-size: 12px; }.bms-guide details { border-top: 1px solid #dfe7f1; padding-top: 16px; margin-top: 20px; }.bms-guide summary { cursor: pointer; font-size: 14px; }
 .bms-guide-selector { max-width: 480px; }
+.bms-system-settings form { max-width: 760px; }
+.bms-system-settings label:not(.bms-checkbox), .bms-user-edit label:not(.bms-checkbox) { display: grid; gap: 7px; color: #334155; font-size: 13px; }
+.bms-connection-status { display: grid; gap: 10px; margin-top: 22px; }
+.bms-connection-status > p { margin: 0; }
+.bms-connection-status article { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 8px 16px; padding: 14px; border: 1px solid #dfe7f1; border-radius: 9px; background: #f8fafc; font-size: 13px; }
+.bms-connection-status article strong { color: #1e293b; }
+.bms-connection-status article span { color: #52647b; }
+.bms-user-edit { border-top: 1px solid #dfe7f1; padding-top: 18px; }
+.bms-user-edit h3 { margin: 0; font-size: 15px; }
+.bms-inline-confirm { margin-top: 20px; padding: 16px; border: 1px solid #d9c077; border-radius: 10px; background: #fffaf0; }
+.bms-inline-confirm strong { color: #674f11; }
+.bms-inline-confirm p, .bms-watch-hint { color: #52647b; line-height: 1.8; }
 @media (max-width: 760px) { .bms-onboarding-steps, .bms-admin-forms { grid-template-columns: minmax(0,1fr); } .bms-onboarding-steps { gap: 8px; } .bms-admin-card, .bms-guide, .bms-credential { padding: 18px; } .bms-guide dl { grid-template-columns: minmax(0,1fr); gap: 4px; } .bms-guide dd { margin-bottom: 10px; } }
+
+.bms-admin-card select{min-width:0;width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit;}

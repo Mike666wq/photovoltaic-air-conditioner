@@ -1,0 +1,149 @@
+.monitoring-trend-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e1e8f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgb(25 45 74 / 5%);
+}
+
+.monitoring-trend-card__head {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px 0;
+}
+
+.monitoring-trend-card__head h2 {
+  min-width: 0;
+  margin: 0;
+  color: #17283e;
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.monitoring-trend-card__history {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  color: #78621a;
+  font-size: 12px;
+}
+
+.monitoring-trend-card__history button {
+  border: 1px solid #d5e1ef;
+  border-radius: 7px;
+  padding: 5px 9px;
+  background: #f6f9fc;
+  color: #295b8c;
+  font: inherit;
+  cursor: pointer;
+}
+
+.monitoring-trend-card__history button:hover {
+  background: #eaf2fa;
+}
+
+.monitoring-trend-card__history button:focus-visible {
+  outline: 2px solid #4b92d0;
+  outline-offset: 2px;
+}
+
+.monitoring-trend-card__body {
+  position: relative;
+  min-width: 0;
+  min-height: 320px;
+  margin: 4px 8px 0;
+}
+
+.monitoring-trend-card__chart {
+  width: 100%;
+  height: 320px;
+  min-height: 320px;
+}
+
+.monitoring-trend-card__empty {
+  position: absolute;
+  inset: 48px 0 42px;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  color: #8492a5;
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.monitoring-trend-card__caption {
+  margin: 0;
+  padding: 0 16px 12px;
+  color: #8492a5;
+  font-size: 11px;
+  text-align: right;
+}
+
+.monitoring-trend-tooltip {
+  min-width: 150px;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.monitoring-trend-tooltip strong {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 650;
+}
+
+.monitoring-trend-tooltip__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.monitoring-trend-tooltip__row i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+@media (max-width: 640px) {
+  .monitoring-trend-card {
+    border-radius: 11px;
+  }
+
+  .monitoring-trend-card__head {
+    padding: 9px 12px 0;
+  }
+
+  .monitoring-trend-card__head h2 {
+    font-size: 14px;
+  }
+
+  .monitoring-trend-card__history {
+    gap: 5px;
+    font-size: 11px;
+  }
+
+  .monitoring-trend-card__history button {
+    padding: 5px 7px;
+  }
+
+  .monitoring-trend-card__body {
+    min-height: 320px;
+    margin: 4px 0 0;
+  }
+
+  .monitoring-trend-card__chart {
+    height: 320px;
+  }
+
+  .monitoring-trend-card__caption {
+    padding: 0 12px 10px;
+  }
+}

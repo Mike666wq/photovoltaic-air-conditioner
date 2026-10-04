@@ -1,7 +1,7 @@
 # AGENTS.md — 光伏·空调仿真平台
 
 > 面向 AI 编码助手的工程规约。**与代码冲突时以代码为准，并顺手修正本文档。**
-> 最后核对：2026-10-03（对应 `apps/web` 现状）
+> 最后核对：2026-10-04（对应 `apps/web` 现状）
 
 ## 0. 三条最容易踩的坑（先看这里）
 
@@ -18,8 +18,8 @@
 
 | 项 | 实际值 |
 |---|---|
-| 阶段 | M1 原理图 / M1.5 动画 / M2 数据读入 / **M3 数据大屏均已完成** |
-| 路由 | `/`（原理图）、`/analysis`（数据大屏，懒加载）、`/bms/realtime`（独立BMS实时页，懒加载）、`/bms/manage`（注册与本地接入，懒加载） |
+| 阶段 | M1 原理图 / M1.5 动画 / M2 数据读入 / M3 数据大屏；统一只读本地监控接入实验与BMS双数据源 |
+| 路由 | `/`（原理图）、`/analysis`（数据大屏，懒加载）、`/monitoring`（统一本地监控，懒加载）、`/experiment/realtime`（实验实时页，懒加载）、`/bms/realtime`（BMS实时页，懒加载）、`/monitoring/manage`与`/bms/manage`（管理与接入别名，懒加载） |
 | 部件 | **13** 个（`data/components.ts`） |
 | 预设 | **9** 个 + 🎲 随机扰动（`data/presets.ts`） |
 | 控制面板滑块 | **21** 个 |
@@ -27,10 +27,12 @@
 | 默认回放 | 一个实验批次内的多数据源共享严格同步时间轴；大屏单源模式同步切换回放来源 |
 | 验收夹具 | 测试现场生成同构数据，不读取被忽略的 `data/` |
 | 源码头 | 124 个 action（`store/simulation.ts`） |
-| 代码量 | TS/TSX源码 ~15.1k 行 / Vitest测试 ~2.7k 行、**32 个文件 / 168项**；另有**21项**独立Node实时API测试 |
 | 测试 | `vitest run` 与 `node --test scripts/realtime/*.test.mjs` 均通过才算完成 |
-| BMS实时页 | v1只读接口；设备Bearer与独立观看Cookie；45秒观看租约；每Pack最多600点/10分钟短趋势；不接入仿真/分析store |
-| BMS注册与接入 | 初始化密钥创建首个管理员；管理员网页注册/删除设备及创建观看账户；PVC原子保存散列；一次性令牌下载Windows配置说明 |
+| 实时监控 | `/monitoring` 聚合展示一个系统绑定的实验源与BMS；两路均只读并与原仿真/分析状态隔离；设备上传分别使用实验/BMS协议 |
+| 实时缓存 | BMS与实验点共用进程内缓存协调器；观测保留最多1小时、45秒观看租约；`BMS_REALTIME_MAX_CACHE_POINTS` 默认500,000点、`BMS_REALTIME_MAX_CACHE_BYTES` 默认128MiB估算预算，超限拒绝新数据；生产仅支持单Node进程/单副本Recreate |
+| 管理与接入 | 管理员配置整体系统名称/绑定/模拟来源，管理设备与账户、逐设备和整体监控权限、停用账户及重置他人密码；设备令牌仅创建/轮换时显示并可下载Windows手动配置说明 |
+| 并发限制验收 | 每账户最多4个跨模块共享活动页面、最多10个活动观看账户；每账户8条SSE、每模块40条租约；无pageId旧客户端每条租约计为独立页面。10账户×4页双路80租约、约2800请求/分钟的生成负载测试已通过 |
+| 真实设备验收 | Windows真实客户端现场上传量和正式HTTPS联合验收仍待完成；生成负载夹具只验证服务端限额处理，不代表现场测点或真实上传量已实测 |
 | 大屏布局 | 桌面 12 列；窄屏 6 列并按断点调整指标卡和图表跨度，不生成隐式列；舞台内容超高时纵向滚动；实时折线图共享可滚动图例和防重叠时间轴 |
 
 ## 2. 常用命令
@@ -60,13 +62,13 @@ node --test scripts/realtime/*.test.mjs # 实时API集成测试（临时loopback
 
 ```
 apps/web/src/
-├─ pages/          SchematicPage（原理图）、AnalysisDashboardPage（大屏）、BmsRealtimePage（独立实时页）、BmsManagePage（注册与接入）
+├─ pages/          SchematicPage（原理图）、AnalysisDashboardPage（大屏）、MonitoringPage（统一监控）、ExperimentRealtimePage、BmsRealtimePage、BmsManagePage（管理与接入）
 ├─ components/     TopBar / TimelineControls / CircuitCanvas(1998行) / ControlPanel /
 │                  PalettePanel / ComponentDetail / ImportDataDialog / SaveManager /
 │                  LogPanel / Tooltip / ToastContainer / TsPointer / GridPattern /
 │                  CableControlDetail / CableControlItem
 │                  ├─ dashboard/  ChartPanel / EChart / MetricCard
-│                  └─ bmsRealtime/ BmsTrendChart（独立实例/单位/缩放）
+│                  └─ bmsRealtime/ BmsTrendChart / MonitoringTrendChart / 接入向导
 ├─ hooks/          useParticleAnimation / usePvSunAnimation / useTransientSpark /
 │                  useModalA11y / useTimelinePlayback
 ├─ engine/         canvasGeometry / orthogonalRouter / particleMotion / powerFlow /
@@ -76,7 +78,7 @@ apps/web/src/
 │                  playbackController / schematicFrame / meterInject / analysisSeries /
 │                  operationalDiagnostics / sessionCoordinator / sourceCache / experiment* /
 │                  stateSerializer / dataset / batteryConvention / preparedImport / bmsRealtime*
-├─ store/          simulation（主状态）、analysis（数据源/批次/口径）、toast、bmsRealtime（隔离实时态）
+├─ store/          simulation（主状态）、analysis（数据源/批次/口径）、toast、bmsRealtime / experimentRealtime（隔离实时态）
 ├─ workers/        dataImportWorker（XLSX 解析，主线程不阻塞）
 ├─ data/           components / cables / meters / presets / chartFields / sourceProfile /
 │                  pdfFieldMap / saveSchema / palettes
@@ -125,9 +127,11 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 |---|---|---|
 | `pv_on === derivePvOn(pv_power)` | `store/simulation.ts` | **`pv_power` 是权威，`pv_on` 是派生量**。UI 只有功率滑块，没有 pv_on 开关；`schematicFrame` 也由功率派生。所有写 `pv_power` 的路径必须同步派生 |
 | PCM 温度恒显实测值 | `engine/pcm.ts` | 曾把 1~49℃ 整段当"相变平台"恒显 `25.0℃`，已修。**不要用常数冒充测量读数** |
-| BMS实时隔离与口径 | `bmsRealtime*` / `scripts/realtime/` | v1保持centiV/centiA/centiAh与原始温度；只标电流正负；不解码未知告警，不读写simulation/analysis/injector；未观看不上传，心跳不代表串口采集；租约TTL用服务端单调时钟 |
-| BMS缓存/部署 | `scripts/realtime/state.mjs` / `routes.mjs` | 每Pack最多600点且10分钟；去重按会话和序号、各通道水位；SSE授权和缓冲有界；当前仅单Node进程，K8s单副本Recreate；多实例须共享状态；注册散列存独立PVC，初始化密钥存Secret；旧只读配置兼容 |
-| BMS网页注册 | `registration.mjs` / `registry.mjs` | 首个管理员须初始化密钥+同源CSRF且仅允许一次；设备/观看账户仅管理员创建；落盘成功才更新运行态；令牌只在注册/轮换成功时显示，文件仅存散列，不能放入公开scenarios/dist；轮换立即撤销旧令牌/租约并清缓存；删除设备须管理员同源确认，持久移除全部授权，结束观看并移除运行态，本地记录保留 |
+| 实时数据隔离与口径 | `bmsRealtime*` / `experimentRealtime*` / `scripts/realtime/` | 统一监控是两路只读视图：BMS保留centiV/centiA/centiAh与原始温度，实验源按 `point-contract.json` 保留质量、单位与逐点时间；不读写simulation/analysis/injector；设备只有有效观看租约时才上传，心跳不代表测点采集；租约TTL使用服务端单调时钟 |
+| 整体监控授权 | `routes.mjs` / `registration.mjs` / `MonitoringPage.tsx` | 单系统最多绑定一个实验设备与一个BMS设备，两项均可空；`monitoringAccess` 只允许查看当前绑定源，不授予设备管理权；系统模拟数据许可与设备自身模拟许可必须同时成立；解绑/换绑前应用内确认，提交后清除被换链路缓存并结束其观看 |
+| 共享缓存与容量 | `cache-coordinator.mjs` / `state.mjs` / `experiment-state.mjs` | BMS与实验观测共用1小时进程内缓存及容量账本；默认最多500,000点、每点按1,024字节估算、总估算128MiB，环境变量可设上限；超限以503拒绝新观测且不部分更新；当前仅单Node进程、K8s单副本Recreate，多实例前须共享租约、缓存、去重与发布订阅 |
+| 管理与注册 | `BmsManagePage.tsx` / `registration.mjs` / `registry.mjs` | 首个管理员须初始化密钥+同源CSRF且仅一次；管理员管理设备与账户、整体监控权限、停用和密码重置（不能自重置）；落盘成功才更新运行态；令牌只在注册/轮换成功时临时显示，禁止持久化或写日志；删除设备移除其逐设备授权、绑定与缓存，但保留账户整体监控授权；本地采集记录不删除 |
+| 并发产品限制 | `auth.mjs` / `routes.mjs` | 每账户最多4个活动`pageId`，同一页面可各持有BMS与实验模块一条租约；最多10个活动观看账户；每账户最多8条SSE，每模块最多40条租约。旧客户端不传`pageId`时每条租约按独立页面计数。`BMS_REALTIME_BROWSER_REQUESTS_PER_MINUTE`按账户限流，默认5000次/分钟、最大可配置10000。10账户×4页面双路80租约及约2800请求/分钟生成负载测试通过；现场Windows上传量和HTTPS联调仍待验收，不得以生成数据代替实测 |
 | 电池符号唯一入口 | `services/batteryConvention.ts` | 用户口径（analysis store）→ 原理图内部口径（正=放电），三处调用统一走它，`unknown` 返回 null 不猜方向 |
 | 导入三态反馈 | `AnalysisDashboardPage` | 全成功✓ / 部分⚠ / 全失败✕，**不要无条件加绿勾** |
 | 弹窗无障碍 | `hooks/useModalA11y.ts` | Esc/Tab 只由最上层弹窗处理；关闭子层恢复父层触发按钮焦点。`ComponentDetail` 是**常驻挂载内部 return null**，`open` 必须传真实状态 |

@@ -113,7 +113,7 @@ export function TopBar() {
         <Link className="topbar-btn" to="/analysis" title="进入数据分析大屏">
           📊 数据分析
         </Link>
-        <Link className="topbar-btn" to="/bms/realtime">BMS 实时</Link>
+        <Link className="topbar-btn" to="/monitoring" title="进入统一本地监控">本地监控</Link>
         <button
           className="topbar-btn"
           onClick={() => setSaveManagerOpen(true)}

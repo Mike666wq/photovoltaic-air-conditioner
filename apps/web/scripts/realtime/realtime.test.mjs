@@ -12,7 +12,7 @@ const token = 'fixture-only-device-token-32-bytes-long';
 const device = { deviceId: 'lab-bms-01', alias: '实验室 BMS', allowedPacks: [1,2], allowedAddresses: [1,2], deviceTokenHash: tokenHash(token), allowSimulation: false };
 const hash = await passwordHash('fixture-viewer-password');
 const config = { enabled: true, devices: [device], users: [{ username: 'operator', passwordHash: hash, devices: [device.deviceId], role: 'admin' }, { username: 'observer', passwordHash: hash, devices: [device.deviceId], role: 'viewer' }, { username: 'other', passwordHash: hash, devices: [] }], publicOrigin: 'https://example.test' };
-const sample = (patch = {}) => ({ ...structuredClone(fixture), ...patch });
+const sample = (patch = {}) => ({ ...structuredClone(fixture), capturedUtc: '2026-10-03T08:00:01.000Z', ...patch });
 async function harness(t, overrides = {}) {
   let mono = 1000;
   const api = createRealtimeApi({ config: { ...config, ...overrides }, clocks: { now: () => mono, wall: () => Date.parse('2026-10-03T08:00:00Z') + mono } });
@@ -120,11 +120,31 @@ test('每Pack点数/时间边界，停止观看清趋势，TTL使用单调时钟
   let mono=0;let wall=Date.parse('2026-10-03T08:00:00Z'); const state=new RealtimeState({...config,maxPoints:3},{now:()=>mono,wall:()=>wall});
   const viewer=state.createViewer('owner',device.deviceId,[1]); const lease=state.heartbeat(device.deviceId);
   for(let i=1;i<=6;i++){mono++;state.accept(device.deviceId,lease.subscriptionId,sample({address:i%2+1,sequence:i}));}
-  assert.equal(state.trend(device.deviceId,1,'voltage',600).points.length,3);wall+=86400000;assert.equal(state.heartbeat(device.deviceId).subscriptionId,lease.subscriptionId);
-  state.release(viewer.viewerId,'owner');assert.equal(state.trend(device.deviceId,1,'voltage',600).points.length,0);mono+=600001;assert.equal(state.latest(device.deviceId,[1]).packs.length,0);
+  assert.equal(state.trend(device.deviceId,1,'voltage',600).points.length,6);wall+=86400000;assert.equal(state.heartbeat(device.deviceId).subscriptionId,lease.subscriptionId);
+  state.release(viewer.viewerId,'owner');assert.equal(state.trend(device.deviceId,1,'voltage',600).points.length,6);mono+=3600001;assert.equal(state.latest(device.deviceId,[1]).packs.length,0);assert.equal(state.trend(device.deviceId,1,'voltage',600).points.length,0);
 });
 
-test('SSE按Pack过滤，并限制每用户4条连接', async (t) => {
+test('默认实时钟共享performance基准且缓存满时拒绝快照不改latest与水位', () => {
+  const real = new RealtimeState({ ...config, devices: [device] });
+  const viewer = real.createViewer('owner', device.deviceId, [1]); const lease = real.heartbeat(device.deviceId);
+  const live = sample({ capturedUtc: new Date().toISOString(), sequence: 1 });
+  assert.equal(real.accept(device.deviceId, lease.subscriptionId, live).accepted, true);
+  assert.equal(real.trend(device.deviceId, 1, 'voltage', 10).points.length, 1);
+
+  let mono = 1000; const wall = Date.parse('2026-10-03T08:00:00Z');
+  const limited = new RealtimeState({ ...config, devices: [device], maxCachePoints: 1, maxCacheBytes: 1024 }, { now: () => mono, wall: () => wall + mono });
+  limited.createViewer('owner', device.deviceId, [1]); const limitedLease = limited.heartbeat(device.deviceId);
+  const first = sample({ capturedUtc: new Date(wall + mono).toISOString(), sequence: 1 });
+  limited.accept(device.deviceId, limitedLease.subscriptionId, first);
+  const previousWatermarks = structuredClone([...limited.device(device.deviceId).watermarks]);
+  assert.throws(() => limited.accept(device.deviceId, limitedLease.subscriptionId, sample({ capturedUtc: new Date(wall + mono + 1).toISOString(), sequence: 2 })), error => error.code === 'CACHE_CAPACITY_EXCEEDED');
+  assert.equal(limited.device(device.deviceId).currentSession, first.connectionSessionId);
+  assert.deepEqual([...limited.device(device.deviceId).watermarks], previousWatermarks);
+  assert.equal(limited.latest(device.deviceId, [1]).packs[0].snapshot.sequence, 1);
+  real.release(viewer.viewerId, 'owner');
+});
+
+test('SSE按Pack过滤，重复viewer连接会替换旧连接', async (t) => {
   const h=await harness(t);const a=await viewing(h,[1]);const b=await viewing(h,[2],'observer');
   const abort=new AbortController(); t.after(()=>abort.abort());
   const url=h.root+'/api/realtime/events?viewerId='+a.viewer.viewerId;
@@ -132,7 +152,8 @@ test('SSE按Pack过滤，并限制每用户4条连接', async (t) => {
   await h.send(b.lease.subscriptionId,sample({pack:2,sequence:30}));await h.send(b.lease.subscriptionId,sample({pack:1,sequence:31}));
   let data='';while(!data.includes('\"pack\":1')){const part=await reader.read();assert.equal(part.done,false);data+=new TextDecoder().decode(part.value);}assert.match(data,/"pack":1/);assert.doesNotMatch(data,/"pack":2/);
   for(let i=0;i<3;i++)assert.equal((await fetch(url,{headers:a.user.headers,signal:abort.signal})).status,200);
-  assert.equal((await a.user.call('/events?viewerId='+a.viewer.viewerId)).status,429);abort.abort();
+  // 同一租约的浏览器EventSource重连替换旧流，不累加连接配额。
+  assert.equal((await fetch(url,{headers:a.user.headers,signal:abort.signal})).status,200);abort.abort();
 });
 test('慢SSE消费者的写缓冲有硬上限，终止后不再写入', async () => {
   const {writeSse}=await import('./routes.mjs');let writes=0;
