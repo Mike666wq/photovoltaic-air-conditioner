@@ -116,7 +116,7 @@ export class RealtimeState {
       const item = { snapshot: s, receivedAt: this.iso(), mono: now, expiresAt, entryId: entryIds.get(cacheKey), acceptedOrder: this.coordinator.allocateAcceptedOrder(), cacheKey };
       d.latest.set(channel, item);
       const ringKey = `${channel}/${s.connectionSessionId}`, ring = d.rings.get(ringKey) ?? { items: [], head: 0 };
-      const compact = Object.fromEntries(['deviceId', 'source', 'address', 'pack', 'sequence', 'connectionSessionId', 'capturedUtc', 'voltageCentivolts', 'currentCentiamps', 'socPercent'].map(name => [name, s[name]]));
+      const compact = Object.fromEntries(['deviceId', 'source', 'address', 'pack', 'sequence', 'connectionSessionId', 'capturedUtc', 'periodSeconds', 'voltageCentivolts', 'currentCentiamps', 'socPercent'].filter(name => name in s).map(name => [name, s[name]]));
       ring.items.push({ ...item, snapshot: compact }); d.rings.set(ringKey, ring);
       this.emit('snapshot', id, this.publicItem(item));
     }
@@ -136,7 +136,7 @@ export class RealtimeState {
     this.sweep(); const d = this.device(id);
     const measure = { voltage: s => s.voltageCentivolts / 100, current: s => s.currentCentiamps / 100, soc: s => s.socPercent }[metric];
     assert(measure, 400, 'METRIC_INVALID', '只支持总压、电流和SOC短趋势');
-    return this.trendPage(d, p => p.expiresAt > this.now() && this.coordinator.hasKey(p.cacheKey) && p.snapshot.pack === pack && (source == null || p.snapshot.source === source), p => ({ capturedUtc: p.snapshot.capturedUtc, value: measure(p.snapshot), receivedAt: p.receivedAt, sequence: p.snapshot.sequence, connectionSessionId: p.snapshot.connectionSessionId, source: p.snapshot.source, address: p.snapshot.address }), limit, cursor);
+    return this.trendPage(d, p => p.expiresAt > this.now() && this.coordinator.hasKey(p.cacheKey) && p.snapshot.pack === pack && (source == null || p.snapshot.source === source), p => ({ capturedUtc: p.snapshot.capturedUtc, value: measure(p.snapshot), receivedAt: p.receivedAt, sequence: p.snapshot.sequence, connectionSessionId: p.snapshot.connectionSessionId, source: p.snapshot.source, address: p.snapshot.address, ...(p.snapshot.periodSeconds == null ? {} : { periodSeconds: p.snapshot.periodSeconds }) }), limit, cursor);
   }
   trendPage(d, accepts, project, limit, cursor) {
     const after = cursor == null ? 0 : Number(cursor); assert(Number.isSafeInteger(after) && after >= 0, 400, 'CURSOR_INVALID', '趋势游标无效');

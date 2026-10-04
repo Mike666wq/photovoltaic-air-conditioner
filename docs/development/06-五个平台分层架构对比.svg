@@ -1,0 +1,285 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="1000" viewBox="0 0 1640 1000">
+  <defs>
+    <style>
+      .title{font:700 33px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .subtitle{font:400 16px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#557086}
+      .name{font:700 20px 'PingFang SC','Microsoft YaHei',sans-serif}
+      .cardTitle{font:700 15px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#123047}
+      .body{font:400 13px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#40586c}
+      .small{font:400 12px 'PingFang SC','Microsoft YaHei',sans-serif}
+      .band{font:700 15px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+    </style>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7fbfe"/>
+      <stop offset="100%" stop-color="#edf5fa"/>
+    </linearGradient>
+  </defs>
+  <rect width="1640" height="1000" fill="url(#bg)"/>
+  <text x="60" y="58" class="title">五个工业 IoT / 边缘平台的统一分层抽象</text>
+  <text x="60" y="88" class="subtitle">基于 2026-09-28 核验的官方文档整理；用于提炼本项目可复用的分层骨架，不代表厂商内部实现</text>
+
+  <g transform="translate(60,118)">
+    <rect width="1520" height="70" rx="12" fill="#dff0f7" stroke="#b6d7e6" stroke-width="2"/>
+    <text x="24" y="30" class="band">共同分层：设备协议适配 → 边缘缓存/状态 → 消息与规则 → 业务应用 → 存储</text>
+    <text x="24" y="54" class="body">五个产品在这五层上的取舍不同：EMQX 只做第 3 层，EdgeX 把第 1–3 层做成微服务，ThingsBoard 第 2–5 层一体，Greengrass 是第 2 层的操作系统，Azure / AWS 是第 4–5 层的云。</text>
+  </g>
+
+  <g transform="translate(60,214)">
+    <g transform="translate(0,0)">
+      <rect width="290" height="700" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+      <rect width="290" height="56" rx="16" fill="#20567f"/>
+      <text x="18" y="24" class="name" fill="#ffffff">ThingsBoard</text>
+      <text x="18" y="44" class="small" fill="#cfe4f2">开源 IoT 平台 CE / PE</text>
+      <g transform="translate(14,70)">
+        <rect width="262" height="72" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">设备接入</text>
+        <text x="12" y="42" class="body">MQTT / CoAP / HTTP / LwM2M / SNMP</text>
+        <text x="12" y="60" class="body">Device Profile 统一定义传输与主题</text>
+      </g>
+      <g transform="translate(14,152)">
+        <rect width="262" height="72" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">边缘层</text>
+        <text x="12" y="42" class="body">ThingsBoard Edge（可选部署）</text>
+        <text x="12" y="60" class="body">本地规则链 + 断网运行 + 自动回同步</text>
+      </g>
+      <g transform="translate(14,234)">
+        <rect width="262" height="96" rx="10" fill="#eaf4fb" stroke="#bcd9ea"/>
+        <text x="12" y="22" class="cardTitle">消息与规则</text>
+        <text x="12" y="42" class="body">Message{ id, originator, type,</text>
+        <text x="12" y="58" class="body">   payload, metadata }</text>
+        <text x="12" y="76" class="body">Rule Chain 为有向图，节点分七类</text>
+        <text x="12" y="92" class="body">根链唯一，Profile 可覆盖路由</text>
+      </g>
+      <g transform="translate(14,340)">
+        <rect width="262" height="110" rx="10" fill="#fdf1e8" stroke="#f0d3b6"/>
+        <text x="12" y="22" class="cardTitle">控制面（最值得抄）</text>
+        <text x="12" y="42" class="body">RPC 单向 / 双向</text>
+        <text x="12" y="60" class="body">轻量 / 持久化（落库 + TTL）</text>
+        <text x="12" y="78" class="body">QUEUED→SENT→DELIVERED→SUCCESSFUL</text>
+        <text x="12" y="96" class="body">TIMEOUT / EXPIRED / FAILED</text>
+      </g>
+      <g transform="translate(14,460)">
+        <rect width="262" height="88" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">存储与推送</text>
+        <text x="12" y="42" class="body">时序：PostgreSQL（默认）/ Cassandra</text>
+        <text x="12" y="60" class="body">独立 latest values 表供快速读取</text>
+        <text x="12" y="78" class="body">WebSocket 订阅 + REST 查询</text>
+      </g>
+      <g transform="translate(14,558)">
+        <rect width="262" height="124" rx="10" fill="#eef6ee" stroke="#c7dfc7"/>
+        <text x="12" y="22" class="cardTitle">对本项目的价值</text>
+        <text x="12" y="42" class="body">1. 设备画像 = 点位元数据</text>
+        <text x="12" y="60" class="body">2. RPC 状态机 = 命令生命周期</text>
+        <text x="12" y="78" class="body">3. Profile 覆盖 = 分设备类型策略</text>
+        <text x="12" y="100" class="body">缺点：整体引入成本高，</text>
+        <text x="12" y="116" class="body">Java 服务端与本项目栈不一致</text>
+      </g>
+    </g>
+
+    <g transform="translate(310,0)">
+      <rect width="290" height="700" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+      <rect width="290" height="56" rx="16" fill="#2d6a4f"/>
+      <text x="18" y="24" class="name" fill="#ffffff">EdgeX Foundry</text>
+      <text x="18" y="44" class="small" fill="#cfe8dc">边缘中间件（LF Edge）</text>
+      <g transform="translate(14,70)">
+        <rect width="262" height="88" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">设备接入</text>
+        <text x="12" y="42" class="body">Device Service SDK（Go / C）</text>
+        <text x="12" y="60" class="body">Modbus / MQTT / SNMP / BACnet / ONVIF</text>
+        <text x="12" y="78" class="body">Driver 接口 = 可插拔适配器</text>
+      </g>
+      <g transform="translate(14,168)">
+        <rect width="262" height="88" rx="10" fill="#eaf4fb" stroke="#bcd9ea"/>
+        <text x="12" y="22" class="cardTitle">统一数据模型</text>
+        <text x="12" y="42" class="body">Event{ id, deviceName, profileName,</text>
+        <text x="12" y="58" class="body">      sourceName, origin(ns), readings }</text>
+        <text x="12" y="76" class="body">Reading{ resourceName, valueType, value,</text>
+        <text x="12" y="88" class="body">       units, scale, offset }</text>
+      </g>
+      <g transform="translate(14,266)">
+        <rect width="262" height="106" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">核心服务</text>
+        <text x="12" y="42" class="body">Core Data（Redis，端口 59880）</text>
+        <text x="12" y="60" class="body">Core Metadata（设备 / 点位注册）</text>
+        <text x="12" y="78" class="body">Core Command（GET / SET，59882）</text>
+        <text x="12" y="96" class="body">MessageBus：Redis → MQTT → NATS</text>
+      </g>
+      <g transform="translate(14,382)">
+        <rect width="262" height="88" rx="10" fill="#fdf1e8" stroke="#f0d3b6"/>
+        <text x="12" y="22" class="cardTitle">边缘规则 eKuiper</text>
+        <text x="12" y="42" class="body">Source → SQL → Sink 三段式</text>
+        <text x="12" y="60" class="body">Sink 可直接写 Core Command</text>
+        <text x="12" y="78" class="body">= 边缘自动控制设备</text>
+      </g>
+      <g transform="translate(14,480)">
+        <rect width="262" height="88" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">存储与推送</text>
+        <text x="12" y="42" class="body">PersistData=false 可只过不存</text>
+        <text x="12" y="60" class="body">Core Data 可整体裁掉</text>
+        <text x="12" y="78" class="body">对外仅暴露 REST / 外部 MQTT</text>
+      </g>
+      <g transform="translate(14,578)">
+        <rect width="262" height="104" rx="10" fill="#eef6ee" stroke="#c7dfc7"/>
+        <text x="12" y="22" class="cardTitle">对本项目的价值</text>
+        <text x="12" y="42" class="body">1. Event / Reading 双层模型</text>
+        <text x="12" y="60" class="body">2. DeviceResource 的单位 / 量程 /</text>
+        <text x="12" y="76" class="body">    换算声明式描述</text>
+        <text x="12" y="96" class="body">缺点：微服务过多，早期过重</text>
+      </g>
+    </g>
+
+    <g transform="translate(620,0)">
+      <rect width="290" height="700" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+      <rect width="290" height="56" rx="16" fill="#6b4a86"/>
+      <text x="18" y="24" class="name" fill="#ffffff">EMQX</text>
+      <text x="18" y="44" class="small" fill="#e0d3ec">MQTT Broker（纯消息层）</text>
+      <g transform="translate(14,70)">
+        <rect width="262" height="88" rx="10" fill="#f7f5fa" stroke="#ded4e8"/>
+        <text x="12" y="22" class="cardTitle">不做什么</text>
+        <text x="12" y="42" class="body">没有设备模型、没有点位画像、</text>
+        <text x="12" y="60" class="body">没有时序库、没有业务语义</text>
+        <text x="12" y="78" class="body">只解决"消息可靠地搬运"</text>
+      </g>
+      <g transform="translate(14,168)">
+        <rect width="262" height="150" rx="10" fill="#fdf1e8" stroke="#f0d3b6"/>
+        <text x="12" y="22" class="cardTitle">最有价值的两件事</text>
+        <text x="12" y="44" class="body">1) Message Queue（6.0+）</text>
+        <text x="12" y="62" class="body">   离线持久化 + 消息 TTL</text>
+        <text x="12" y="78" class="body">   Last-Value 语义（同键只留最新）</text>
+        <text x="12" y="98" class="body">   = 天然的"期望状态"通道</text>
+        <text x="12" y="122" class="body">2) Subscription Filter（6.2）</text>
+        <text x="12" y="140" class="body">   按 MQTT 5.0 User Property 服务端过滤</text>
+      </g>
+      <g transform="translate(14,328)">
+        <rect width="262" height="106" rx="10" fill="#eaf4fb" stroke="#bcd9ea"/>
+        <text x="12" y="22" class="cardTitle">Rule Engine</text>
+        <text x="12" y="42" class="body">SQL：FROM / WHERE / SELECT</text>
+        <text x="12" y="60" class="body">Action：republish / console / sink</text>
+        <text x="12" y="78" class="body">Sink → Kafka / PostgreSQL / MQTT</text>
+        <text x="12" y="96" class="body">6.0.3 起按 namespace 天然隔离</text>
+      </g>
+      <g transform="translate(14,444)">
+        <rect width="262" height="106" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">权限模型</text>
+        <text x="12" y="42" class="body">权限 =（客户端, 操作, 明细, 允许拒绝）</text>
+        <text x="12" y="60" class="body">明细含 topic / QoS / retained</text>
+        <text x="12" y="78" class="body">后端：ACL 文件、内置库、MySQL、</text>
+        <text x="12" y="96" class="body">PG、Mongo、Redis、LDAP、HTTP</text>
+      </g>
+      <g transform="translate(14,560)">
+        <rect width="262" height="122" rx="10" fill="#eef6ee" stroke="#c7dfc7"/>
+        <text x="12" y="22" class="cardTitle">对本项目的价值</text>
+        <text x="12" y="42" class="body">1. 单进程即可跑，部署最轻</text>
+        <text x="12" y="60" class="body">2. Message Queue 直接映射</text>
+        <text x="12" y="76" class="body">    "断网期间设过的目标值"</text>
+        <text x="12" y="98" class="body">缺点：完全不带业务语义，</text>
+        <text x="12" y="114" class="body">点位模型必须自己定义</text>
+      </g>
+    </g>
+
+    <g transform="translate(930,0)">
+      <rect width="290" height="700" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+      <rect width="290" height="56" rx="16" fill="#8a5a1f"/>
+      <text x="18" y="24" class="name" fill="#ffffff">AWS IoT</text>
+      <text x="18" y="44" class="small" fill="#f2dfc4">Greengrass v2 + IoT Core</text>
+      <g transform="translate(14,70)">
+        <rect width="262" height="88" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">边缘运行时</text>
+        <text x="12" y="42" class="body">Core Device / Client Device</text>
+        <text x="12" y="60" class="body">Component = recipe + artifact + dep</text>
+        <text x="12" y="78" class="body">Nucleus（Java / C lite）</text>
+      </g>
+      <g transform="translate(14,168)">
+        <rect width="262" height="126" rx="10" fill="#fdf1e8" stroke="#f0d3b6"/>
+        <text x="12" y="22" class="cardTitle">影子 desired / reported</text>
+        <text x="12" y="44" class="body">云影子与本地影子（Local Shadow）</text>
+        <text x="12" y="62" class="body">设备只写 reported，应用只写 desired</text>
+        <text x="12" y="80" class="body">delta = 两者差异，自动下发</text>
+        <text x="12" y="100" class="body">version（乐观并发）+ clientToken</text>
+        <text x="12" y="118" class="body">同步策略：realTime / periodic</text>
+      </g>
+      <g transform="translate(14,304)">
+        <rect width="262" height="106" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">冲突合并规则</text>
+        <text x="12" y="42" class="body">desired 冲突 → 云端覆盖本地</text>
+        <text x="12" y="60" class="body">reported 冲突 → 本地覆盖云端</text>
+        <text x="12" y="78" class="body">可配 direction：</text>
+        <text x="12" y="96" class="body">deviceToCloud / cloudToDevice</text>
+      </g>
+      <g transform="translate(14,420)">
+        <rect width="262" height="106" rx="10" fill="#eaf4fb" stroke="#bcd9ea"/>
+        <text x="12" y="22" class="cardTitle">Jobs（批量作业）</text>
+        <text x="12" y="42" class="body">作业态：SCHEDULED / IN_PROGRESS /</text>
+        <text x="12" y="58" class="body">COMPLETED / CANCELED</text>
+        <text x="12" y="76" class="body">执行态：QUEUED / IN_PROGRESS /</text>
+        <text x="12" y="92" class="body">SUCCEEDED / FAILED 等</text>
+      </g>
+      <g transform="translate(14,536)">
+        <rect width="262" height="70" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">断线缓存</text>
+        <text x="12" y="42" class="body">DiskSpooler：出站消息落盘</text>
+        <text x="12" y="60" class="body">Stream Manager：本地流</text>
+      </g>
+      <g transform="translate(14,616)">
+        <rect width="262" height="66" rx="10" fill="#eef6ee" stroke="#c7dfc7"/>
+        <text x="12" y="22" class="cardTitle">对本项目的价值</text>
+        <text x="12" y="42" class="body">1. 冲突合并规则可直接抄</text>
+        <text x="12" y="60" class="body">缺点：强绑 AWS，闭环软件</text>
+      </g>
+    </g>
+
+    <g transform="translate(1240,0)">
+      <rect width="290" height="700" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+      <rect width="290" height="56" rx="16" fill="#20538f"/>
+      <text x="18" y="24" class="name" fill="#ffffff">Azure IoT Hub</text>
+      <text x="18" y="44" class="small" fill="#cfe0f5">云平台（双轨控制模型）</text>
+      <g transform="translate(14,70)">
+        <rect width="262" height="126" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">Device Twin</text>
+        <text x="12" y="44" class="body">tags（设备不可见）</text>
+        <text x="12" y="62" class="body">properties.desired（后端写）</text>
+        <text x="12" y="80" class="body">properties.reported（设备写）</text>
+        <text x="12" y="98" class="body">$metadata / $version 乐观并发</text>
+        <text x="12" y="118" class="body">官方定位：状态同步，不是遥测</text>
+      </g>
+      <g transform="translate(14,206)">
+        <rect width="262" height="160" rx="10" fill="#fdf1e8" stroke="#f0d3b6"/>
+        <text x="12" y="22" class="cardTitle">Direct Methods（同步）</text>
+        <text x="12" y="44" class="body">请求-响应，立即确认</text>
+        <text x="12" y="62" class="body">responseTimeout 默认 30s（5~300s）</text>
+        <text x="12" y="80" class="body">connectTimeout 默认 0（必须在线）</text>
+        <text x="12" y="98" class="body">payload 不超过 128KB</text>
+        <text x="12" y="116" class="body">MQTT：$iothub/methods/POST/</text>
+        <text x="12" y="132" class="body">       {name}/?$rid={id}，QoS 0</text>
+        <text x="12" y="152" class="body">明确不保证顺序与并发语义</text>
+      </g>
+      <g transform="translate(14,376)">
+        <rect width="262" height="88" rx="10" fill="#eaf4fb" stroke="#bcd9ea"/>
+        <text x="12" y="22" class="cardTitle">返回码语义</text>
+        <text x="12" y="42" class="body">200 设备执行成功</text>
+        <text x="12" y="60" class="body">404 设备不在位 / 未上线</text>
+        <text x="12" y="78" class="body">504 网关超时未应答</text>
+      </g>
+      <g transform="translate(14,474)">
+        <rect width="262" height="88" rx="10" fill="#f2f7fb" stroke="#dbe8f0"/>
+        <text x="12" y="22" class="cardTitle">适用边界</text>
+        <text x="12" y="42" class="body">仅标准层可用</text>
+        <text x="12" y="60" class="body">设备必须在场，不适合离线批量</text>
+        <text x="12" y="78" class="body">长流程用 Jobs / 孪生，不用方法</text>
+      </g>
+      <g transform="translate(14,572)">
+        <rect width="262" height="110" rx="10" fill="#eef6ee" stroke="#c7dfc7"/>
+        <text x="12" y="22" class="cardTitle">对本项目的价值</text>
+        <text x="12" y="42" class="body">1. 把"瞬时开关"和"长期设定"</text>
+        <text x="12" y="58" class="body">    明确分成两种机制</text>
+        <text x="12" y="80" class="body">2. 200 / 404 / 504 三态可直接</text>
+        <text x="12" y="96" class="body">    映射成本项目命令状态机</text>
+      </g>
+    </g>
+  </g>
+
+  <g transform="translate(60,936)">
+    <rect width="1520" height="46" rx="10" fill="#123047"/>
+    <text x="20" y="29" class="body" fill="#dcecf5">提炼结论：本项目不需要整体引入任何一个平台，只需要它的三层骨架 —— EdgeX 的 Event / Reading 数据模型 + ThingsBoard 的 RPC 状态机 + EMQX 的离线 Message Queue。</text>
+  </g>
+</svg>

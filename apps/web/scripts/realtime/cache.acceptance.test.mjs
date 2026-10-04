@@ -235,6 +235,7 @@ test('趋势游标按稳定序号分页2000点，过期前缀不会造成缺页�
 
   const first = h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 2_000);
   assert.equal(first.points.length, 2_000);
+  assert.equal(first.points[0].periodSeconds, 1, '趋势观测应逐点保留声明周期');
   assert.equal(first.hasMore, true);
   const second = h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 2_000, null, first.nextCursor);
   assert.equal(second.points.length, 5);
@@ -257,6 +258,7 @@ test('序号空洞、来源和连接会话切换均保留各自有效历史', ()
   acceptBms(h, nextLease, { sequence: 1, source: 'simulation', connectionSessionId: 'bms-session-b', capturedUtc: new Date(h.wall).toISOString() });
   assert.deepEqual(h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 20, 'serial').points.map(p => `${p.connectionSessionId}:${p.sequence}`), ['bms-session-a:1', 'bms-session-a:3', 'bms-session-b:1']);
   assert.deepEqual(h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 20, 'simulation').points.map(p => p.sequence), [1]);
+  assert.equal(h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 20, 'serial').points.at(-1).periodSeconds, 1);
   h.bms.release(next.viewer.viewerId, next.owner);
 });
 

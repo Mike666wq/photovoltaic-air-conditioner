@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { latestByChannel, sourceTrendLines } from './realtimeSource';
 import { buildTrendSeries } from '../components/bmsRealtime/MonitoringTrendChart';
 import { buildExperimentTrendLines } from './experimentRealtimeTypes';
+import { buildBmsTrendLines } from '../components/bmsRealtime/BmsTrendChart';
 it('按接收顺序而不是客户端时间选当前来源，各通道独立', () => {
   const samples = [{ acceptedOrder: 3, channel: 'PLC', source: 'simulation' }, { acceptedOrder: 1, channel: 'PLC', source: 'serial' }, { acceptedOrder: 2, channel: 'DDSU666', source: 'serial' }];
   expect(latestByChannel(samples, s => s.channel)).toEqual([samples[0], samples[2]]);
@@ -18,4 +19,13 @@ it('模拟期间缺失测点，返回实测仍通过来源段号断线；质量�
   expect(buildTrendSeries(buildExperimentTrendLines('T1', '℃', points))[0].data).toEqual([[1000, 25], [2000, null], [2000, 25]]);
   expect(buildExperimentTrendLines('T1', 'W', points)[0].points.every(p => p.value === null)).toBe(true);
   expect(buildExperimentTrendLines('T1', '℃', [{ ...points[0], quality: 'timeout' }])[0].points[0].value).toBeNull();
+});
+it('BMS图表封装到来源拆线再到共享构图器逐点保留采集周期', () => {
+  const points = [0, 300_000, 600_000].map((time, i) => ({
+    capturedUtc: new Date(time).toISOString(), value: 53 + i, periodSeconds: 300,
+    source: 'serial' as const, connectionSessionId: 'bms-session',
+  }));
+  const lines = buildBmsTrendLines('总电压', 'V', points);
+  expect(lines[0].points.map(point => point.periodSeconds)).toEqual([300, 300, 300]);
+  expect(buildTrendSeries(lines)[0].data).toEqual([[0, 53], [300_000, 54], [600_000, 55]]);
 });

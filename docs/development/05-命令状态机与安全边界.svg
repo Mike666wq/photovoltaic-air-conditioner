@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720">
+  <defs>
+    <style>
+      .title{font:700 32px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .sub{font:400 16px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#557086}
+      .h{font:700 20px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#123047}
+      .b{font:400 15px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#435d71}
+      .s{font:400 13px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#6b8090}
+      .arrow{stroke:#4c86a8;stroke-width:4;fill:none;marker-end:url(#a)}
+      .good{stroke:#3ca374;stroke-width:4;fill:none;marker-end:url(#g)}
+      .bad{stroke:#d95b5b;stroke-width:4;fill:none;marker-end:url(#r)}
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#4c86a8"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#3ca374"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#d95b5b"/></marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f7fcff"/><stop offset="100%" stop-color="#edf5fb"/></linearGradient>
+  </defs>
+  <rect width="1600" height="720" fill="url(#bg)"/>
+  <text x="60" y="58" class="title">命令状态机：页面意图不等于物理状态</text>
+  <text x="60" y="92" class="sub">每次控制都必须经历“期望值—执行—反馈—确认”，失败路径必须可解释、可审计、可回退</text>
+
+  <rect x="60" y="150" width="1280" height="190" rx="20" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+  <text x="90" y="190" class="h">正常路径</text>
+  <rect x="95" y="230" width="140" height="66" rx="12" fill="#eef8fb" stroke="#a7cfdf"/><text x="118" y="258" class="b">created</text><text x="112" y="282" class="s">用户创建命令</text>
+  <rect x="285" y="230" width="140" height="66" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/><text x="308" y="258" class="b">validated</text><text x="300" y="282" class="s">权限/范围检查</text>
+  <rect x="475" y="230" width="140" height="66" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/><text x="498" y="258" class="b">published</text><text x="488" y="282" class="s">MQTT 下发</text>
+  <rect x="665" y="230" width="140" height="66" rx="12" fill="#eefbf3" stroke="#aad9c0"/><text x="688" y="258" class="b">accepted</text><text x="678" y="282" class="s">边缘接受</text>
+  <rect x="855" y="230" width="140" height="66" rx="12" fill="#eefbf3" stroke="#aad9c0"/><text x="878" y="258" class="b">executing</text><text x="866" y="282" class="s">执行器动作</text>
+  <rect x="1045" y="230" width="140" height="66" rx="12" fill="#e5f6ee" stroke="#8dc7a8"/><text x="1068" y="258" class="b">confirmed</text><text x="1055" y="282" class="s">reported 反馈</text>
+  <path d="M235 263 L280 263" class="arrow"/><path d="M425 263 L470 263" class="arrow"/><path d="M615 263 L660 263" class="arrow"/><path d="M805 263 L850 263" class="arrow"/><path d="M995 263 L1040 263" class="good"/>
+
+  <rect x="60" y="380" width="600" height="230" rx="20" fill="#fff5f5" stroke="#e0b1b1" stroke-width="2"/>
+  <text x="90" y="420" class="h">失败与安全路径</text>
+  <rect x="95" y="460" width="180" height="66" rx="12" fill="#fff2e2" stroke="#e0c19a"/><text x="122" y="488" class="b">rejected</text><text x="110" y="512" class="s">权限/联锁/参数拒绝</text>
+  <rect x="330" y="460" width="180" height="66" rx="12" fill="#fff2e2" stroke="#e0c19a"/><text x="357" y="488" class="b">expired</text><text x="340" y="512" class="s">TTL 到期不再执行</text>
+  <rect x="95" y="548" width="180" height="40" rx="12" fill="#fff2e2" stroke="#e0c19a"/><text x="150" y="574" class="b">failed</text>
+  <rect x="330" y="548" width="180" height="40" rx="12" fill="#fff2e2" stroke="#e0c19a"/><text x="378" y="574" class="b">cancelled</text>
+  <path d="M650 492 L560 492" class="bad"/>
+
+  <rect x="700" y="380" width="800" height="230" rx="20" fill="#123047"/>
+  <text x="730" y="420" class="h" fill="#ffffff">三条不可绕过的边界</text>
+  <text x="730" y="465" class="b" fill="#dff4ff">1. desired 是用户意图，reported 是设备事实，二者必须分别显示。</text>
+  <text x="730" y="505" class="b" fill="#dff4ff">2. 急停、液位、流量、过流等硬联锁在边缘/PLC，云端不能越过。</text>
+  <text x="730" y="545" class="b" fill="#dff4ff">3. 命令必须有 commandId、TTL、权限和审计；超时不能靠重发掩盖。</text>
+</svg>

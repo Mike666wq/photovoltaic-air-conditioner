@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <style>
+      .title{font:700 34px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .subtitle{font:400 17px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#557086}
+      .h{font:700 20px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#123047}
+      .b{font:400 16px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#435d71}
+      .s{font:400 13px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#6b8090}
+      .arrow{stroke:#4c86a8;stroke-width:4;fill:none;marker-end:url(#a)}
+      .arrowGreen{stroke:#3ca374;stroke-width:4;fill:none;marker-end:url(#g)}
+      .arrowPurple{stroke:#6c7fe0;stroke-width:4;fill:none;stroke-dasharray:10 8;marker-end:url(#p)}
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#4c86a8"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#3ca374"/></marker>
+    <marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6c7fe0"/></marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f7fcff"/><stop offset="100%" stop-color="#edf6fb"/></linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <text x="65" y="62" class="title">阶段一：实时数据传输与独立实时页面</text>
+  <text x="65" y="96" class="subtitle">实时页面不依赖原理图；原理图只是后续同一条数据链路的消费者</text>
+
+  <rect x="60" y="160" width="250" height="430" rx="18" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+  <text x="88" y="205" class="h">现场设备与测量</text>
+  <rect x="88" y="240" width="194" height="62" rx="10" fill="#eef8fb"/><text x="110" y="270" class="b">温度 / 流量 / 压力</text><text x="110" y="292" class="s">PT100 · 4~20mA · 脉冲</text>
+  <rect x="88" y="322" width="194" height="62" rx="10" fill="#eef8fb"/><text x="110" y="352" class="b">电表 / BMS</text><text x="110" y="374" class="s">Modbus · CAN · RS485</text>
+  <rect x="88" y="404" width="194" height="62" rx="10" fill="#eef8fb"/><text x="110" y="434" class="b">空调 / 热泵</text><text x="110" y="456" class="s">原厂协议 · 运行状态</text>
+  <rect x="88" y="486" width="194" height="62" rx="10" fill="#fff2e3"/><text x="110" y="516" class="b">控制状态反馈</text><text x="110" y="538" class="s">干接点 · 电流 · 辅助触点</text>
+
+  <rect x="360" y="160" width="270" height="430" rx="18" fill="#ffffff" stroke="#a7cfdf" stroke-width="2"/>
+  <text x="388" y="205" class="h">采集与边缘层</text>
+  <rect x="388" y="240" width="214" height="92" rx="10" fill="#f4f1ff" stroke="#c2bcf0"/><text x="410" y="270" class="b">PLC / RTU / 工业 I/O</text><text x="410" y="296" class="s">周期采集 · 量程转换 · 状态</text><text x="410" y="316" class="s">硬件时间戳优先</text>
+  <rect x="388" y="360" width="214" height="140" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="410" y="390" class="b">Edge Agent</text><text x="410" y="416" class="s">协议归一化</text><text x="410" y="440" class="s">eventTime / receivedAt</text><text x="410" y="464" class="s">quality / sequence</text><text x="410" y="488" class="s">本地缓存与断网补传</text>
+  <rect x="388" y="528" width="214" height="40" rx="10" fill="#eef8fb"/><text x="425" y="555" class="b">本地 Broker / 规则</text>
+  <path d="M310 375 L360 375" class="arrow"/>
+  <path d="M495 252 L495 355" class="arrowGreen"/>
+  <path d="M495 500 L495 523" class="arrowGreen"/>
+
+  <rect x="680" y="160" width="280" height="430" rx="18" fill="#ffffff" stroke="#c2bcf0" stroke-width="2"/>
+  <text x="708" y="205" class="h">实时后端</text>
+  <rect x="708" y="240" width="224" height="72" rx="10" fill="#f4f1ff" stroke="#c2bcf0"/><text x="730" y="270" class="b">MQTT Ingest</text><text x="730" y="294" class="s">订阅 · 校验 · 去重 · 落库</text>
+  <rect x="708" y="338" width="224" height="72" rx="10" fill="#eef8fb" stroke="#a7cfdf"/><text x="730" y="368" class="b">Telemetry Service</text><text x="730" y="392" class="s">最新值 · 质量 · 延迟统计</text>
+  <rect x="708" y="436" width="224" height="72" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="730" y="466" class="b">History / Alarm API</text><text x="730" y="490" class="s">时序查询 · 告警 · 导出</text>
+  <rect x="708" y="534" width="224" height="40" rx="10" fill="#f4f1ff"/><text x="750" y="561" class="b">WebSocket Gateway</text>
+  <path d="M630 375 L680 375" class="arrow"/>
+  <path d="M820 312 L820 333" class="arrowGreen"/>
+  <path d="M820 410 L820 431" class="arrowGreen"/>
+  <path d="M820 508 L820 529" class="arrowGreen"/>
+
+  <rect x="1005" y="160" width="535" height="430" rx="18" fill="#ffffff" stroke="#a7cfdf" stroke-width="2"/>
+  <text x="1035" y="205" class="h">独立实时页面 /live</text>
+  <rect x="1035" y="240" width="220" height="112" rx="10" fill="#eef8fb" stroke="#a7cfdf"/><text x="1057" y="270" class="b">设备与测点卡</text><text x="1057" y="296" class="s">当前值 · 单位 · 时间</text><text x="1057" y="320" class="s">质量 · 在线状态</text>
+  <rect x="1290" y="240" width="220" height="112" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="1312" y="270" class="b">实时趋势</text><text x="1312" y="296" class="s">秒级 / 分钟级聚合</text><text x="1312" y="320" class="s">多来源对比</text>
+  <rect x="1035" y="380" width="220" height="112" rx="10" fill="#fff2e3"/><text x="1057" y="410" class="b">告警中心</text><text x="1057" y="436" class="s">阈值 · 陈旧 · 离线</text><text x="1057" y="460" class="s">确认与恢复记录</text>
+  <rect x="1290" y="380" width="220" height="112" rx="10" fill="#f4f1ff" stroke="#c2bcf0"/><text x="1312" y="410" class="b">实验会话</text><text x="1312" y="436" class="s">开始 / 结束 / 导出</text><text x="1312" y="460" class="s">实时与历史查询</text>
+  <path d="M960 554 L1085 554 L1085 520" class="arrowPurple"/>
+
+  <rect x="60" y="650" width="1480" height="170" rx="20" fill="#123047"/>
+  <text x="95" y="695" class="h" fill="#ffffff">阶段一的三条硬约束</text>
+  <text x="95" y="735" class="b" fill="#dff4ff">1. 浏览器不直连 PLC：所有现场数据必须经过 Edge Agent / 后端。</text>
+  <text x="95" y="768" class="b" fill="#dff4ff">2. 任何值都必须有 eventTime、receivedAt、quality、source，不能只显示一个裸数字。</text>
+  <text x="95" y="801" class="b" fill="#dff4ff">3. 实时页面与原理图解耦；页面刷新、关闭或网络波动不能影响采集。</text>
+</svg>

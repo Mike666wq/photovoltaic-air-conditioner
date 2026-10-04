@@ -51,7 +51,9 @@ test('无观看仅心跳；创建、采样、转换与同租约续期', async (t
   assert.equal((await h.send(lease.subscriptionId)).status, 200);
   const latest = (await user.call('/devices/lab-bms-01/latest')).body.packs[0];
   assert.equal(latest.snapshot.currentCentiamps, -102); assert.equal(latest.receivedAt, '2026-10-03T08:00:01.000Z'); assert.equal(latest.stale, false);
-  assert.equal((await user.call('/devices/lab-bms-01/trend?pack=1&metric=current')).body.points[0].value, -1.02);
+  const trend = (await user.call('/devices/lab-bms-01/trend?pack=1&metric=current')).body.points[0];
+  assert.equal(trend.value, -1.02);
+  assert.equal(trend.periodSeconds, fixture.periodSeconds, 'HTTP趋势响应应逐点保留采集周期');
   assert.equal((await h.beat()).body.subscriptionId, lease.subscriptionId);
 });
 test('多观看者并集、所有权、续期、释放、过期、新租约', async (t) => {

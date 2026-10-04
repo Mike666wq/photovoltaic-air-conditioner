@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1080" viewBox="0 0 1500 1080">
+  <defs>
+    <style>
+      .title{font:700 32px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .subtitle{font:400 16px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#557086}
+      .h{font:700 18px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .cardTitle{font:700 15px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#123047}
+      .body{font:400 13px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#40586c}
+      .small{font:400 12px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#6b8296}
+      .st{font:700 14px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .mono{font:400 12px ui-monospace,'SF Mono',Menlo,monospace;fill:#33465a}
+    </style>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7fbfe"/>
+      <stop offset="100%" stop-color="#eef6fb"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4c86a8"/>
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c0503c"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3d8a5c"/>
+    </marker>
+  </defs>
+  <rect width="1500" height="1080" fill="url(#bg)"/>
+  <text x="56" y="56" class="title">命令状态机与 desired / reported 双轨：本项目阶段二必须实现的核心机制</text>
+  <text x="56" y="86" class="subtitle">综合 ThingsBoard 持久化 RPC 状态机、AWS 影子 desired/reported/delta、Azure Direct Methods 返回码语义，给出可直接落地的合并设计</text>
+
+  <!-- 上半：状态机 -->
+  <g transform="translate(56,120)">
+    <rect width="1388" height="430" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+    <text x="24" y="36" class="h">A. 命令生命周期（本项目建议的八态机）</text>
+
+    <!-- 状态节点 -->
+    <g transform="translate(40,74)">
+      <rect width="150" height="66" rx="10" fill="#e7f2fa" stroke="#8fbdd9" stroke-width="2"/>
+      <text x="14" y="26" class="st">QUEUED</text>
+      <text x="14" y="46" class="small">已入库，等待送达</text>
+      <text x="14" y="60" class="small">对应 TB 的持久化 RPC</text>
+    </g>
+    <g transform="translate(238,74)">
+      <rect width="150" height="66" rx="10" fill="#e7f2fa" stroke="#8fbdd9" stroke-width="2"/>
+      <text x="14" y="26" class="st">DISPATCHED</text>
+      <text x="14" y="46" class="small">已下发到边缘队列</text>
+      <text x="14" y="60" class="small">对应 TB 的 SENT</text>
+    </g>
+    <g transform="translate(436,74)">
+      <rect width="150" height="66" rx="10" fill="#eaf6ec" stroke="#8fc0a0" stroke-width="2"/>
+      <text x="14" y="26" class="st">ACKNOWLEDGED</text>
+      <text x="14" y="46" class="small">设备已接收命令</text>
+      <text x="14" y="60" class="small">对应 TB 的 DELIVERED</text>
+    </g>
+    <g transform="translate(634,74)">
+      <rect width="150" height="66" rx="10" fill="#d9f0e2" stroke="#5aa878" stroke-width="2"/>
+      <text x="14" y="26" class="st">SUCCEEDED</text>
+      <text x="14" y="46" class="small">执行成功且已回报</text>
+      <text x="14" y="60" class="small">对应 TB 的 SUCCESSFUL</text>
+    </g>
+
+    <g transform="translate(436,240)">
+      <rect width="150" height="66" rx="10" fill="#fdf0e3" stroke="#e0a878" stroke-width="2"/>
+      <text x="14" y="26" class="st">TIMEOUT</text>
+      <text x="14" y="46" class="small">超时，按次数重试</text>
+      <text x="14" y="60" class="small">对应 TB 的 TIMEOUT</text>
+    </g>
+    <g transform="translate(634,240)">
+      <rect width="150" height="66" rx="10" fill="#f7e7e4" stroke="#cf8a7c" stroke-width="2"/>
+      <text x="14" y="26" class="st">FAILED</text>
+      <text x="14" y="46" class="small">重试耗尽或被拒绝</text>
+      <text x="14" y="60" class="small">对应 TB 的 FAILED</text>
+    </g>
+    <g transform="translate(832,240)">
+      <rect width="150" height="66" rx="10" fill="#f0eef4" stroke="#a89fc0" stroke-width="2"/>
+      <text x="14" y="26" class="st">EXPIRED</text>
+      <text x="14" y="46" class="small">TTL 到期从未送达</text>
+      <text x="14" y="60" class="small">对应 TB 的 EXPIRED</text>
+    </g>
+    <g transform="translate(1030,240)">
+      <rect width="150" height="66" rx="10" fill="#f2f2f2" stroke="#b8b8b8" stroke-width="2"/>
+      <text x="14" y="26" class="st">CANCELED</text>
+      <text x="14" y="46" class="small">人工撤销 / 被新命令取代</text>
+      <text x="14" y="60" class="small">AWS Jobs 的终态之一</text>
+    </g>
+
+    <!-- 转移连线 -->
+    <path d="M 190 107 L 236 107" class="flow" fill="none" stroke="#4c86a8" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M 388 107 L 434 107" fill="none" stroke="#4c86a8" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M 586 107 L 632 107" fill="none" stroke="#3d8a5c" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M 511 140 L 511 238" fill="none" stroke="#c0503c" stroke-width="3" stroke-dasharray="8 6" marker-end="url(#arrowRed)"/>
+    <text x="522" y="192" class="small">未在 responseTimeout 内回报</text>
+    <path d="M 586 273 L 632 273" fill="none" stroke="#c0503c" stroke-width="3" marker-end="url(#arrowRed)"/>
+    <text x="586" y="322" class="small">重试次数耗尽</text>
+    <path d="M 709 240 L 830 240" fill="none" stroke="#7a6a9c" stroke-width="3" stroke-dasharray="6 5" marker-end="url(#arrow)"/>
+    <text x="716" y="228" class="small">TTL 到期（从 QUEUED 起算）</text>
+    <path d="M 115 140 L 115 320 L 900 320 L 900 310" fill="none" stroke="#8a8a8a" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow)"/>
+    <text x="300" y="336" class="small">新命令到达时，同一 (设备, 命令名) 下的未终结旧命令转 CANCELED（幂等替换）</text>
+
+    <g transform="translate(40,352)">
+      <rect width="1140" height="58" rx="10" fill="#fdf8ee" stroke="#e4d3b0"/>
+      <text x="14" y="24" class="cardTitle">四条必须写进设计的规则</text>
+      <text x="14" y="44" class="body">1. 每条命令必须带 commandId（幂等键）+ expiresAt（TTL）；2. 超时默认 30s、可配置，重试上限 3 次；3. SUCCEEDED 之后才允许写 reported；4. 状态迁移必须落审计表，不允许只在内存里。</text>
+    </g>
+  </g>
+
+  <!-- 下半左：desired/reported -->
+  <g transform="translate(56,578)">
+    <rect width="880" height="450" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+    <text x="24" y="36" class="h">B. desired / reported / delta 双轨（借鉴 AWS 影子 + 修正冲突规则）</text>
+
+    <g transform="translate(30,64)">
+      <rect width="250" height="150" rx="12" fill="#eaf4fb" stroke="#8fbdd9" stroke-width="2"/>
+      <text x="16" y="28" class="cardTitle">desired（期望）</text>
+      <text x="16" y="52" class="mono">hp.on = true</text>
+      <text x="16" y="70" class="mono">hp.mode = cool</text>
+      <text x="16" y="88" class="mono">hp.setpoint = 24</text>
+      <text x="16" y="112" class="body">只允许平台与操作员写入</text>
+      <text x="16" y="132" class="body">模拟器 / 物理设备都不写</text>
+    </g>
+
+    <g transform="translate(600,64)">
+      <rect width="250" height="150" rx="12" fill="#eaf7ee" stroke="#8fc0a0" stroke-width="2"/>
+      <text x="16" y="28" class="cardTitle">reported（实际）</text>
+      <text x="16" y="52" class="mono">hp.on = true</text>
+      <text x="16" y="70" class="mono">hp.mode = cool</text>
+      <text x="16" y="88" class="mono">hp.setpoint = 24</text>
+      <text x="16" y="112" class="body">只允许边缘执行器写入</text>
+      <text x="16" y="132" class="body">必须来自反馈而非命令</text>
+    </g>
+
+    <g transform="translate(300,64)">
+      <rect width="270" height="150" rx="12" fill="#f4f2fa" stroke="#a89fc0" stroke-width="2"/>
+      <text x="16" y="28" class="cardTitle">delta（差异）</text>
+      <text x="16" y="52" class="mono">hp.setpoint: 24 → 26</text>
+      <text x="16" y="76" class="body">平台计算 desired 与 reported 的差，</text>
+      <text x="16" y="96" class="body">生成命令并下发到边缘。</text>
+      <text x="16" y="122" class="body">delta 为空 = 稳态达成</text>
+    </g>
+
+    <path d="M 280 139 L 298 139" fill="none" stroke="#4c86a8" stroke-width="3" marker-end="url(#arrow)"/>
+    <path d="M 570 139 L 598 139" fill="none" stroke="#3d8a5c" stroke-width="3" marker-end="url(#arrow)"/>
+
+    <g transform="translate(30,238)">
+      <rect width="820" height="96" rx="10" fill="#fdf8ee" stroke="#e4d3b0"/>
+      <text x="16" y="24" class="cardTitle">对 AWS 官方合并规则的一处修正（重要）</text>
+      <text x="16" y="46" class="body">AWS 官方规则：desired 冲突由云端覆盖本地，reported 冲突由本地覆盖云端。</text>
+      <text x="16" y="68" class="body">这对"人下的指令"是正确的，但对本项目的"安全约束"是危险的 —— 边缘侧的防冻、缺水联锁会</text>
+      <text x="16" y="88" class="body">被云端一条过期指令覆盖。因此本项目必须把字段分成"可远程覆盖"与"本地强制"两类，后者云端只读。</text>
+    </g>
+
+    <g transform="translate(30,352)">
+      <rect width="820" height="72" rx="10" fill="#eef6ee" stroke="#c7dfc7"/>
+      <text x="16" y="24" class="cardTitle">字段分级（本项目建议）</text>
+      <text x="16" y="46" class="mono">L1 遥测只读：tank_temp, flow, power —— 任何一侧都不写</text>
+      <text x="16" y="64" class="mono">L2 可控：hp.setpoint, at.fan —— desired 与 reported 均可写，需状态机保护</text>
+    </g>
+  </g>
+
+  <!-- 下半右：断网与恢复 -->
+  <g transform="translate(960,578)">
+    <rect width="484" height="450" rx="16" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+    <text x="24" y="36" class="h">C. 断网期的行为约定</text>
+
+    <g transform="translate(24,60)">
+      <rect width="436" height="110" rx="10" fill="#eef6ee" stroke="#c7dfc7"/>
+      <text x="16" y="26" class="cardTitle">断网期间：能做什么</text>
+      <text x="16" y="50" class="body">1. 边缘继续采集并落盘（本地时序缓存）</text>
+      <text x="16" y="70" class="body">2. 边缘继续执行本地联锁与已授权的本地规则</text>
+      <text x="16" y="90" class="body">3. 平台侧命令进入离线队列，不阻塞操作员界面</text>
+    </g>
+
+    <g transform="translate(24,186)">
+      <rect width="436" height="110" rx="10" fill="#fdf1e8" stroke="#f0d3b6"/>
+      <text x="16" y="26" class="cardTitle">断网期间：不能承诺什么</text>
+      <text x="16" y="50" class="body">1. 不能承诺"命令已执行"—— 只能显示"已排队"</text>
+      <text x="16" y="70" class="body">2. 不能让 setpoint 类命令无限期滞留（必须 TTL）</text>
+      <text x="16" y="90" class="body">3. 不能让平台界面显示"在线"而实际数据是陈旧的</text>
+    </g>
+
+    <g transform="translate(24,312)">
+      <rect width="436" height="112" rx="10" fill="#eaf4fb" stroke="#bcd9ea"/>
+      <text x="16" y="26" class="cardTitle">恢复后的三步</text>
+      <text x="16" y="50" class="body">1. 边缘按时间戳补传缓存数据（可断点续传）</text>
+      <text x="16" y="70" class="body">2. 对齐 desired 与 reported，重新计算 delta</text>
+      <text x="16" y="90" class="body">3. 未过 TTL 的命令下发，已过期的转 EXPIRED 并通知操作员</text>
+    </g>
+  </g>
+</svg>

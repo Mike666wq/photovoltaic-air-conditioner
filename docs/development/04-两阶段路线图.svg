@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="860" viewBox="0 0 1600 860">
+  <defs>
+    <style>
+      .title{font:700 34px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .subtitle{font:400 17px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#557086}
+      .h{font:700 20px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#123047}
+      .b{font:400 15px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#435d71}
+      .s{font:400 13px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#6b8090}
+      .line{stroke:#b7cede;stroke-width:5;fill:none}
+      .done{stroke:#3ca374;stroke-width:5;fill:none}
+      .next{stroke:#6c7fe0;stroke-width:5;fill:none;stroke-dasharray:12 8}
+    </style>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f7fcff"/><stop offset="100%" stop-color="#edf5fb"/></linearGradient>
+  </defs>
+  <rect width="1600" height="860" fill="url(#bg)"/>
+  <text x="65" y="62" class="title">两阶段路线图：从数据可见到设备可控</text>
+  <text x="65" y="96" class="subtitle">每一小步都有可演示结果；未通过验收不进入下一步</text>
+
+  <path d="M130 330 L1470 330" class="line"/>
+  <path d="M130 330 L700 330" class="done"/>
+  <path d="M700 330 L1470 330" class="next"/>
+
+  <g transform="translate(70,150)">
+    <circle cx="60" cy="180" r="34" fill="#3ca374"/>
+    <text x="44" y="190" font="700 24px sans-serif" fill="#fff">0</text>
+    <rect x="0" y="235" width="230" height="250" rx="16" fill="#fff" stroke="#b7d9c6" stroke-width="2"/>
+    <text x="24" y="275" class="h">调研与条件冻结</text>
+    <text x="24" y="308" class="b">• 设备与接口盘点</text>
+    <text x="24" y="338" class="b">• 点位与单位字典</text>
+    <text x="24" y="368" class="b">• 控制边界评审</text>
+    <text x="24" y="398" class="b">• 采购与安全方案</text>
+    <text x="24" y="452" class="s">门槛：至少 10 个测点</text>
+  </g>
+
+  <g transform="translate(340,150)">
+    <circle cx="60" cy="180" r="34" fill="#3ca374"/>
+    <text x="44" y="190" font="700 24px sans-serif" fill="#fff">1</text>
+    <rect x="0" y="235" width="230" height="250" rx="16" fill="#fff" stroke="#b7d9c6" stroke-width="2"/>
+    <text x="24" y="275" class="h">模拟实时数据</text>
+    <text x="24" y="308" class="b">• Simulator 服务</text>
+    <text x="24" y="338" class="b">• 统一 PointSample</text>
+    <text x="24" y="368" class="b">• /live 独立页面</text>
+    <text x="24" y="398" class="b">• WebSocket 实时推送</text>
+    <text x="24" y="452" class="s">门槛：模拟链路稳定</text>
+  </g>
+
+  <g transform="translate(610,150)">
+    <circle cx="60" cy="180" r="34" fill="#4c86a8"/>
+    <text x="44" y="190" font="700 24px sans-serif" fill="#fff">2</text>
+    <rect x="0" y="235" width="230" height="250" rx="16" fill="#fff" stroke="#a7cfdf" stroke-width="2"/>
+    <text x="24" y="275" class="h">真实实时数据</text>
+    <text x="24" y="308" class="b">• Edge Agent</text>
+    <text x="24" y="338" class="b">• PLC / Modbus / BMS</text>
+    <text x="24" y="368" class="b">• MQTT 与时序入库</text>
+    <text x="24" y="398" class="b">• 缓存补传与告警</text>
+    <text x="24" y="452" class="s">门槛：真实测点连续稳定</text>
+  </g>
+
+  <g transform="translate(880,150)">
+    <circle cx="60" cy="180" r="34" fill="#6c7fe0"/>
+    <text x="44" y="190" font="700 24px sans-serif" fill="#fff">3</text>
+    <rect x="0" y="235" width="230" height="250" rx="16" fill="#fff" stroke="#c2bcf0" stroke-width="2"/>
+    <text x="24" y="275" class="h">模拟控制</text>
+    <text x="24" y="308" class="b">• Command API</text>
+    <text x="24" y="338" class="b">• 模拟设备适配器</text>
+    <text x="24" y="368" class="b">• ACK / TTL / 审计</text>
+    <text x="24" y="398" class="b">• 期望 / 实际状态</text>
+    <text x="24" y="452" class="s">门槛：页面不绕过后端</text>
+  </g>
+
+  <g transform="translate(1150,150)">
+    <circle cx="60" cy="180" r="34" fill="#6c7fe0"/>
+    <text x="44" y="190" font="700 24px sans-serif" fill="#fff">4</text>
+    <rect x="0" y="235" width="230" height="250" rx="16" fill="#fff" stroke="#c2bcf0" stroke-width="2"/>
+    <text x="24" y="275" class="h">物理设备控制</text>
+    <text x="24" y="308" class="b">• PLC / 网关执行</text>
+    <text x="24" y="338" class="b">• 联锁与失败回退</text>
+    <text x="24" y="368" class="b">• 权限与操作审计</text>
+    <text x="24" y="398" class="b">• 原理图状态映射</text>
+    <text x="24" y="452" class="s">门槛：命令可确认可追溯</text>
+  </g>
+
+  <g transform="translate(1420,150)">
+    <circle cx="60" cy="180" r="34" fill="#d95b5b"/>
+    <text x="44" y="190" font="700 24px sans-serif" fill="#fff">5</text>
+    <rect x="0" y="235" width="120" height="250" rx="16" fill="#fff" stroke="#e0b1b1" stroke-width="2"/>
+    <text x="20" y="275" class="h">闭环</text>
+    <text x="20" y="310" class="b">• 自动规则</text>
+    <text x="20" y="340" class="b">• PID</text>
+    <text x="20" y="370" class="b">• 数字孪生</text>
+    <text x="20" y="400" class="b">• HIL 验证</text>
+  </g>
+
+  <rect x="70" y="600" width="1460" height="160" rx="20" fill="#123047"/>
+  <text x="105" y="646" class="h" fill="#ffffff">推荐顺序</text>
+  <text x="105" y="684" class="b" fill="#dff4ff">阶段一先做“独立实时页”，不等待原理图联动；阶段二先做“后端模拟控制”，再做真实设备控制。</text>
+  <text x="105" y="718" class="b" fill="#dff4ff">每一步都要保留真实数据来源、真实命令链路和可回放证据，避免做成只能在演示环境工作的页面。</text>
+</svg>

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <style>
+      .title{font:700 34px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .subtitle{font:400 17px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#557086}
+      .h{font:700 20px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#123047}
+      .b{font:400 16px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#435d71}
+      .s{font:400 13px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#6b8090}
+      .arrow{stroke:#4c86a8;stroke-width:4;fill:none;marker-end:url(#a)}
+      .green{stroke:#3ca374;stroke-width:4;fill:none;marker-end:url(#g)}
+      .purple{stroke:#6c7fe0;stroke-width:4;fill:none;stroke-dasharray:10 8;marker-end:url(#p)}
+      .red{stroke:#d95b5b;stroke-width:4;fill:none;stroke-dasharray:8 7;marker-end:url(#r)}
+    </style>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#4c86a8"/></marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#3ca374"/></marker>
+    <marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6c7fe0"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#d95b5b"/></marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#f7fcff"/><stop offset="100%" stop-color="#eef5fb"/></linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <text x="65" y="62" class="title">阶段二：从模拟控制到物理控制，再到原理图操作</text>
+  <text x="65" y="96" class="subtitle">模拟器与真实设备使用同一套命令 API；区别只在边缘适配器，不在页面逻辑</text>
+
+  <rect x="60" y="150" width="230" height="430" rx="18" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+  <text x="88" y="195" class="h">控制页面</text>
+  <rect x="88" y="235" width="174" height="72" rx="10" fill="#eef8fb" stroke="#a7cfdf"/><text x="110" y="265" class="b">期望值输入</text><text x="110" y="289" class="s">开关 / 模式 / 温度</text>
+  <rect x="88" y="335" width="174" height="90" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="110" y="365" class="b">实际状态</text><text x="110" y="391" class="s">现场反馈 / 电流 / 温度</text>
+  <rect x="88" y="455" width="174" height="90" rx="10" fill="#fff2e3"/><text x="110" y="485" class="b">命令状态</text><text x="110" y="511" class="s">已发送 / 已确认 / 超时</text>
+
+  <rect x="340" y="150" width="260" height="430" rx="18" fill="#ffffff" stroke="#c2bcf0" stroke-width="2"/>
+  <text x="368" y="195" class="h">后端控制服务</text>
+  <rect x="368" y="235" width="204" height="72" rx="10" fill="#f4f1ff" stroke="#c2bcf0"/><text x="390" y="265" class="b">权限与范围校验</text><text x="390" y="289" class="s">用户 · 设备 · 点位 · 模式</text>
+  <rect x="368" y="335" width="204" height="90" rx="10" fill="#eef8fb" stroke="#a7cfdf"/><text x="390" y="365" class="b">命令服务</text><text x="390" y="391" class="s">commandId · TTL · 版本</text><text x="390" y="413" class="s">审计与重试策略</text>
+  <rect x="368" y="455" width="204" height="90" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="390" y="485" class="b">期望状态 Shadow</text><text x="390" y="511" class="s">desired vs reported</text>
+  <path d="M290 320 L340 320" class="arrow"/>
+
+  <rect x="650" y="150" width="280" height="430" rx="18" fill="#ffffff" stroke="#aad9c0" stroke-width="2"/>
+  <text x="678" y="195" class="h">边缘控制层</text>
+  <rect x="678" y="235" width="224" height="72" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="700" y="265" class="b">MQTT Command Adapter</text><text x="700" y="289" class="s">收到命令 · 检查过期</text>
+  <rect x="678" y="335" width="224" height="90" rx="10" fill="#fff2e3"/><text x="700" y="365" class="b">本地安全联锁</text><text x="700" y="391" class="s">液位 · 流量 · 压力 · 急停</text><text x="700" y="413" class="s">自动 / 手动 / 锁定</text>
+  <rect x="678" y="455" width="224" height="90" rx="10" fill="#eef8fb" stroke="#a7cfdf"/><text x="700" y="485" class="b">执行与反馈</text><text x="700" y="511" class="s">PLC / 继电器 / 变频器</text>
+  <path d="M600 320 L650 320" class="arrow"/>
+  <path d="M790 307 L790 330" class="green"/>
+  <path d="M790 425 L790 450" class="green"/>
+
+  <rect x="980" y="150" width="260" height="430" rx="18" fill="#ffffff" stroke="#a7cfdf" stroke-width="2"/>
+  <text x="1008" y="195" class="h">现场设备</text>
+  <rect x="1008" y="235" width="204" height="72" rx="10" fill="#eef8fb" stroke="#a7cfdf"/><text x="1030" y="265" class="b">物理设备</text><text x="1030" y="289" class="s">空调 / 水泵 / 阀门 / 热泵</text>
+  <rect x="1008" y="335" width="204" height="90" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="1030" y="365" class="b">反馈传感器</text><text x="1030" y="391" class="s">电流 · 流量 · 温度 · 压力</text><text x="1030" y="413" class="s">实际状态上报</text>
+  <rect x="1008" y="455" width="204" height="90" rx="10" fill="#f4f1ff" stroke="#c2bcf0"/><text x="1030" y="485" class="b">报告状态</text><text x="1030" y="511" class="s">实际值 · 故障 · 版本</text>
+  <path d="M930 320 L980 320" class="green"/>
+  <path d="M1110 307 L1110 330" class="green"/>
+  <path d="M1110 425 L1110 450" class="green"/>
+
+  <rect x="1300" y="150" width="240" height="430" rx="18" fill="#ffffff" stroke="#c2bcf0" stroke-width="2"/>
+  <text x="1328" y="195" class="h">原理图 / 数字孪生</text>
+  <rect x="1328" y="235" width="184" height="72" rx="10" fill="#f4f1ff" stroke="#c2bcf0"/><text x="1350" y="265" class="b">部件状态镜像</text><text x="1350" y="289" class="s">实际值 + 设定值</text>
+  <rect x="1328" y="335" width="184" height="90" rx="10" fill="#eef8fb" stroke="#a7cfdf"/><text x="1350" y="365" class="b">部件操作</text><text x="1350" y="391" class="s">点击开关 / 模式 / 风档</text><text x="1350" y="413" class="s">转成统一命令</text>
+  <rect x="1328" y="455" width="184" height="90" rx="10" fill="#eefbf3" stroke="#aad9c0"/><text x="1350" y="485" class="b">动画联动</text><text x="1350" y="511" class="s">仅由实际状态驱动</text>
+  <path d="M1240 500 L1300 500" class="purple"/>
+  <path d="M1420 455 L1420 330 L1240 330" class="purple"/>
+
+  <path d="M1110 545 L1110 620 L800 620 L800 545" class="arrow"/>
+  <text x="820" y="646" class="s">设备反馈回到后端与页面</text>
+
+  <rect x="60" y="700" width="1480" height="130" rx="20" fill="#123047"/>
+  <text x="95" y="745" class="h" fill="#ffffff">控制阶段的核心原则</text>
+  <text x="95" y="782" class="b" fill="#dff4ff">先在模拟器中验证命令链路；再接真实执行器。模拟器和真实设备共用 API、状态机、权限、审计和联锁。</text>
+  <text x="95" y="812" class="b" fill="#dff4ff">原理图只是控制入口和状态镜像，不能成为 PLC 之外的第二套硬接线控制器。</text>
+</svg>

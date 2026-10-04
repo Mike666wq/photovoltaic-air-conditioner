@@ -35,7 +35,7 @@ export interface BmsRegistry { writable: boolean; devices: BmsDevice[]; users: B
 export interface BmsDeviceCredential { device: BmsDevice; deviceToken: string }
 export interface BmsIdentity { username: string; role: 'viewer' | 'admin'; monitoringAccess?: boolean; effectiveDeviceIds?: string[] }
 export interface ViewerLease { viewerId: string; expiresAt: string; renewAfterSeconds: number }
-export interface TrendPoint { entryId:number; capturedUtc: string; receivedAt: string; sequence: number; connectionSessionId: string; value: number; source: BmsSnapshot['source']; address: number }
+export interface TrendPoint { entryId:number; capturedUtc: string; receivedAt: string; sequence: number; connectionSessionId: string; value: number; source: BmsSnapshot['source']; address: number; periodSeconds?: number | null }
 export type BmsMetric = 'voltage' | 'current' | 'soc';
 export const BMS_METRICS: BmsMetric[] = ['voltage', 'current', 'soc'];
 export const BMS_TIME_ZONE = 'Asia/Shanghai';

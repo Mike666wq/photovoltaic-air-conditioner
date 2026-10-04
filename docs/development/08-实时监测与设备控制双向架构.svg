@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1940" height="1280" viewBox="0 0 1940 1280" role="img" aria-labelledby="title desc"><title id="title">光伏空调实验平台实时监测与设备控制双向架构</title><desc id="desc">上方蓝色链路由现场仪器经采集接口、边缘网关、云端到页面，下方橙色链路由网页决策经云端、边缘、本地控制与驱动到实验设备，绿色反馈线回到上行测量。全部硬件和技术栈为待现场确认的候选方案。</desc><rect width="1940" height="1280" fill="#f7f9fc"/>
+<text x="62" y="67" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="36" font-weight="600" text-anchor="start" fill="#172942">光伏·空调实验平台：实时数据上行与设备控制下行</text>
+<text x="64" y="111" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="21" text-anchor="start" fill="#627189">候选实施架构｜硬件型号、点表和控制范围经现场确认后确定｜阶段一先只读，阶段二逐设备开放操控</text>
+<rect x="52" y="147" width="986" height="982" rx="16" fill="#edf2f7"/>
+<rect x="1090" y="147" width="798" height="982" rx="16" fill="#edf4fc"/>
+<text x="78" y="180" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="21" text-anchor="start" fill="#66758d">现场实验区（设备、采集与本地控制）</text>
+<text x="1110" y="180" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="21" text-anchor="start" fill="#66758d">云端服务与现有 Web 项目</text>
+<polyline points="1060,147 1060,1129" fill="none" stroke="#acb8c8" stroke-width="2" stroke-linejoin="round" stroke-dasharray="8 6"/>
+<text x="1058" y="1184" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="20" text-anchor="middle" fill="#52647b">网络边界：网关主动出站连接，PLC / 仪器端口不开放公网</text>
+<text x="78" y="236" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="28" font-weight="600" text-anchor="start" fill="#2474ba">阶段一 · 去：真实数据从现场上传并展示</text>
+<rect x="78" y="265" width="270" height="246" rx="16" fill="#ffffff" stroke="#2474ba" stroke-width="2"/>
+<rect x="94" y="281" width="48" height="32" rx="8" fill="#2474ba"/>
+<text x="118" y="300" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">A1</text>
+<text x="94" y="350" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">实验对象与检测仪器</text>
+<text x="94" y="392" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">热泵 / 水路 / 光伏 / 电池</text>
+<text x="94" y="423" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">PT100、热电偶、流量计</text>
+<text x="94" y="454" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">电能表、BMS、状态触点</text>
+<text x="94" y="484" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" text-anchor="start" fill="#4c6078">输出：电阻 / mV / AI / 数字</text>
+<rect x="398" y="265" width="270" height="246" rx="16" fill="#ffffff" stroke="#2474ba" stroke-width="2"/>
+<rect x="414" y="281" width="48" height="32" rx="8" fill="#2474ba"/>
+<text x="438" y="300" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">A2</text>
+<text x="414" y="350" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">采集与协议入口</text>
+<text x="414" y="392" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">RTD / TC / AI / 计数模块</text>
+<text x="414" y="423" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">PLC、现有 DAQ 或采集机</text>
+<text x="414" y="454" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">RS-485 ≠ Modbus 协议</text>
+<text x="414" y="483" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="16" text-anchor="start" fill="#4c6078">Modbus / OPC UA 等数字数据</text>
+<rect x="718" y="265" width="270" height="246" rx="16" fill="#ffffff" stroke="#2474ba" stroke-width="2"/>
+<rect x="734" y="281" width="48" height="32" rx="8" fill="#2474ba"/>
+<text x="758" y="300" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">A3</text>
+<text x="734" y="350" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">边缘网关</text>
+<text x="734" y="392" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">工业 Linux + 协议适配器</text>
+<text x="734" y="423" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">解码、单位、时间与质量</text>
+<text x="734" y="454" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">SQLite 缓存、补传与身份</text>
+<text x="734" y="484" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" text-anchor="start" fill="#4c6078">上报：HTTPS + JSON 批次</text>
+<rect x="1110" y="265" width="290" height="246" rx="16" fill="#ffffff" stroke="#2474ba" stroke-width="2"/>
+<rect x="1126" y="281" width="48" height="32" rx="8" fill="#2474ba"/>
+<text x="1150" y="300" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">A4</text>
+<text x="1126" y="350" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">云端接收与存储</text>
+<text x="1126" y="392" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">TLS 入口、设备认证与校验</text>
+<text x="1126" y="423" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">Node.js LTS / Fastify 候选</text>
+<text x="1126" y="454" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">PostgreSQL、历史与去重</text>
+<text x="1126" y="485" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">输出：快照、SSE、查询 API</text>
+<rect x="1518" y="265" width="290" height="246" rx="16" fill="#ffffff" stroke="#2474ba" stroke-width="2"/>
+<rect x="1534" y="281" width="48" height="32" rx="8" fill="#2474ba"/>
+<text x="1558" y="300" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">A5</text>
+<text x="1534" y="350" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">实时页面与原理图</text>
+<text x="1534" y="392" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">React / Zustand / ECharts</text>
+<text x="1534" y="423" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">温度、流量、电气、SOC</text>
+<text x="1534" y="454" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">数据年龄、质量、真实趋势</text>
+<text x="1534" y="485" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">测点绑定 → 仪表 / 部件</text>
+<polyline points="353,382 391,382" fill="none" stroke="#2474ba" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="391.0,382.0 377.0,375.0 377.0,389.0" fill="#2474ba"/>
+<polyline points="673,382 711,382" fill="none" stroke="#2474ba" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="711.0,382.0 697.0,375.0 697.0,389.0" fill="#2474ba"/>
+<polyline points="993,382 1103,382" fill="none" stroke="#2474ba" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1103.0,382.0 1089.0,375.0 1089.0,389.0" fill="#2474ba"/>
+<polyline points="1405,382 1511,382" fill="none" stroke="#2474ba" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1511.0,382.0 1497.0,375.0 1497.0,389.0" fill="#2474ba"/>
+<text x="1049" y="355" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="16" text-anchor="middle" fill="#2474ba">HTTPS / TLS</text>
+<text x="1460" y="355" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="16" text-anchor="middle" fill="#2474ba">SSE / HTTPS</text>
+<rect x="78" y="548" width="910" height="78" rx="12" fill="#e2eef9"/>
+<text x="96" y="577" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="20" text-anchor="start" fill="#355873">测量信号先经匹配模块转换：RTD / TC / 4–20mA 不是网络消息。</text>
+<text x="96" y="606" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#355873">优先复用现有 PLC / 采集软件；驱动、点表、安装与校准必须核对。</text>
+<rect x="1110" y="548" width="698" height="78" rx="12" fill="#e2eef9"/>
+<text x="1128" y="577" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="20" text-anchor="start" fill="#355873">同一套真实语义映射供实时页、大屏与原理图使用。</text>
+<text x="1128" y="606" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#355873">已有 COP / 能量 / A-B 分析继续复用，不以演示值补实测。</text>
+<text x="78" y="705" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="28" font-weight="600" text-anchor="start" fill="#c8731a">阶段二 · 回：人工观测后操作，经本地控制执行</text>
+<rect x="78" y="750" width="270" height="246" rx="16" fill="#ffffff" stroke="#c8731a" stroke-width="2"/>
+<rect x="94" y="766" width="48" height="32" rx="8" fill="#c8731a"/>
+<text x="118" y="785" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">B5</text>
+<text x="94" y="835" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">实验设备与真实反馈</text>
+<text x="94" y="877" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">水泵、风机、热泵等装置</text>
+<text x="94" y="908" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">驱动输出作用于实际设备</text>
+<text x="94" y="939" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">触点 / 电流 / 流量等反馈</text>
+<text x="94" y="970" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">动作结果与实验测量分开</text>
+<rect x="398" y="750" width="270" height="246" rx="16" fill="#ffffff" stroke="#c8731a" stroke-width="2"/>
+<rect x="414" y="766" width="48" height="32" rx="8" fill="#c8731a"/>
+<text x="438" y="785" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">B4</text>
+<text x="414" y="835" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">本地控制与驱动</text>
+<text x="414" y="877" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">PLC 或厂家内置控制器</text>
+<text x="414" y="908" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">本地联锁、仲裁、启停序列</text>
+<text x="414" y="939" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">VFD / 隔离 I/O / 接触器</text>
+<text x="414" y="970" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">接口：批准协议 / AO / DO</text>
+<rect x="718" y="750" width="270" height="246" rx="16" fill="#ffffff" stroke="#c8731a" stroke-width="2"/>
+<rect x="734" y="766" width="48" height="32" rx="8" fill="#c8731a"/>
+<text x="758" y="785" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">B3</text>
+<text x="734" y="835" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">边缘执行代理</text>
+<text x="734" y="877" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">持久 inbox、期限与去重</text>
+<text x="734" y="908" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">校验控制权、映射允许动作</text>
+<text x="734" y="939" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">读实际反馈，回报执行阶段</text>
+<text x="734" y="970" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">接收：主动 HTTPS 长轮询</text>
+<rect x="1110" y="750" width="290" height="246" rx="16" fill="#ffffff" stroke="#c8731a" stroke-width="2"/>
+<rect x="1126" y="766" width="48" height="32" rx="8" fill="#c8731a"/>
+<text x="1150" y="785" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">B2</text>
+<text x="1126" y="835" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">云端命令服务</text>
+<text x="1126" y="877" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">用户 / 设备 / 动作权限</text>
+<text x="1126" y="908" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">固定命令 ID、目标与期限</text>
+<text x="1126" y="939" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">数据库命令队列、审计</text>
+<text x="1126" y="970" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">投递不等于物理执行成功</text>
+<rect x="1518" y="750" width="290" height="246" rx="16" fill="#ffffff" stroke="#c8731a" stroke-width="2"/>
+<rect x="1534" y="766" width="48" height="32" rx="8" fill="#c8731a"/>
+<text x="1558" y="785" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="18" font-weight="600" text-anchor="middle" fill="#ffffff">B1</text>
+<text x="1534" y="835" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="23" font-weight="600" text-anchor="start" fill="#21344c">网页观测与操作</text>
+<text x="1534" y="877" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">根据真实数据人工决策</text>
+<text x="1534" y="908" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">启停 / 批准设定值按钮</text>
+<text x="1534" y="939" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">目标、实际值、结果分开</text>
+<text x="1534" y="970" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#4c6078">后续：同入口联动原理图</text>
+<polyline points="1513,867 1407,867" fill="none" stroke="#c8731a" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="1407.0,867.0 1421.0,874.0 1421.0,860.0" fill="#c8731a"/>
+<polyline points="1105,867 995,867" fill="none" stroke="#c8731a" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="995.0,867.0 1009.0,874.0 1009.0,860.0" fill="#c8731a"/>
+<polyline points="713,867 675,867" fill="none" stroke="#c8731a" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="675.0,867.0 689.0,874.0 689.0,860.0" fill="#c8731a"/>
+<polyline points="393,867 355,867" fill="none" stroke="#c8731a" stroke-width="4" stroke-linejoin="round"/>
+<polygon points="355.0,867.0 369.0,874.0 369.0,860.0" fill="#c8731a"/>
+<text x="1049" y="840" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="16" text-anchor="middle" fill="#c8731a">HTTPS 命令</text>
+<text x="1460" y="840" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="16" text-anchor="middle" fill="#c8731a">认证 HTTP 请求</text>
+<polyline points="995,906 1103,906" fill="none" stroke="#269078" stroke-width="2" stroke-linejoin="round" stroke-dasharray="8 6"/>
+<polygon points="1103.0,906.0 1089.0,899.0 1089.0,913.0" fill="#269078"/>
+<text x="1049" y="935" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="16" text-anchor="middle" fill="#269078">阶段回报</text>
+<polyline points="213,998 213,1042 32,1042 32,491 76,491" fill="none" stroke="#269078" stroke-width="3" stroke-linejoin="round" stroke-dasharray="8 6"/>
+<polygon points="76.0,491.0 62.0,484.0 62.0,498.0" fill="#269078"/>
+<rect x="78" y="1023" width="1730" height="66" rx="12" fill="#e3f2ed"/>
+<text x="96" y="1052" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="21" text-anchor="start" fill="#236c59">反馈闭环：实际动作 → 状态 / 测量回到阶段一 → 云端判断与页面确认；命令回显不能冒充物理反馈。</text>
+<text x="96" y="1078" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#236c59">网关不是强电开关。急停、保护与快速闭环留在本地；设备停机与恢复策略按厂家和现场方案定义。</text>
+<text x="78" y="1227" font-family="PingFang SC,Hiragino Sans GB,Microsoft YaHei,sans-serif" font-size="19" text-anchor="start" fill="#65768c">备选传输：需要 MQTT 时，以 MQTT 5 / TLS 承载网关↔云端两向业务；Web 仍通过应用 API / SSE。</text>
+</svg>

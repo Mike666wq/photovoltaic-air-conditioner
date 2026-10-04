@@ -8,6 +8,7 @@ export interface BmsChartPoint {
   connectionSessionId?: string;
   session?: string;
   source?: BmsSnapshot['source'];
+  periodSeconds?: number | null;
 }
 
 /** BMS来源拆线显示，会话或来源翻转都会形成独立断点。 */
@@ -15,6 +16,7 @@ export function buildBmsTrendLines(title: string, unit: string, points: BmsChart
   return sourceTrendLines(title, unit, points.map(point => ({
     time: point.capturedUtc, value: point.value, source: point.source ?? 'serial',
     session: point.session ?? point.connectionSessionId ?? 'unknown',
+    periodSeconds: point.periodSeconds,
   })));
 }
 

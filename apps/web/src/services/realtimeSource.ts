@@ -13,7 +13,7 @@ export function latestByChannel<T extends { acceptedOrder: number }>(samples: T[
 }
 
 /** 先沿完整历史识别来源翻转，再拆线；串口→模拟→串口不得重新连线。 */
-export function sourceTrendLines(title: string, unit: string, points: Array<{ time: string; value: number | null; source: string; session: string }>): MonitoringTrendSeries[] {
+export function sourceTrendLines(title: string, unit: string, points: Array<{ time: string; value: number | null; source: string; session: string; periodSeconds?: number | null }>): MonitoringTrendSeries[] {
   const lines = new Map<string, MonitoringTrendSeries>();
   let previous: string | undefined, segment = 0;
   for (const point of points) {
@@ -25,7 +25,7 @@ export function sourceTrendLines(title: string, unit: string, points: Array<{ ti
       line = { id: `${title}/${point.source}`, name: `${title} · ${sourceLabel(point.source)}`, unit, points: [] };
       lines.set(point.source, line);
     }
-    line.points.push({ time: point.time, value: point.value, session: `${boundary}/${segment}` });
+    line.points.push({ time: point.time, value: point.value, session: `${boundary}/${segment}`, periodSeconds: point.periodSeconds });
   }
   return [...lines.values()];
 }

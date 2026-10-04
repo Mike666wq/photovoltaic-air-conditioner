@@ -7,6 +7,8 @@ export interface MonitoringTrendPoint {
   time: string;
   value: number | null;
   session: string;
+  /** BMS逐点声明的采集周期；实验源或旧API可省略。 */
+  periodSeconds?: number | null;
 }
 
 export interface MonitoringTrendSeries {
@@ -29,9 +31,15 @@ export interface BuiltTrendSeries {
   id: string;
   name: string;
   data: Array<[number, number | null]>;
+  /** 仅单点分段需要标记，密集曲线保持无标记。 */
+  isolatedPointIndices: number[];
 }
 
-/** 保留全部观测，只在空值、会话切换和时间间隔处插入仅用于绘图的空断点。 */
+function validPeriodMs(value: number | null | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value * 1000 : undefined;
+}
+
+/** 保留全部观测；周期按观测逐点解释，周期缺失时沿用通用间隔阈值。 */
 export function buildTrendSeries(series: MonitoringTrendSeries[], gapMs = 30_000): BuiltTrendSeries[] {
   return series.map((line) => {
     const points = line.points
@@ -42,8 +50,13 @@ export function buildTrendSeries(series: MonitoringTrendSeries[], gapMs = 30_000
     let previous: (typeof points)[number] | undefined;
 
     for (const current of points) {
+      const previousPeriodMs = previous ? validPeriodMs(previous.point.periodSeconds) : undefined;
+      const currentPeriodMs = validPeriodMs(current.point.periodSeconds);
+      // 以之前观测声明的周期判定本次间隔；首次或旧点无周期时使用当前点声明。
+      const declaredPeriodMs = previousPeriodMs ?? currentPeriodMs;
+      const allowedGapMs = Math.max(gapMs, declaredPeriodMs ? declaredPeriodMs * 1.5 : gapMs);
       const hasBoundary = previous != null && (
-        previous.point.session !== current.point.session || current.time - previous.time > gapMs
+        previous.point.session !== current.point.session || current.time - previous.time > allowedGapMs
       );
       if (current.point.value == null) {
         data.push([current.time, null]);
@@ -53,7 +66,17 @@ export function buildTrendSeries(series: MonitoringTrendSeries[], gapMs = 30_000
       }
       previous = current;
     }
-    return { id: line.id, name: line.name, data };
+    const isolatedPointIndices: number[] = [];
+    let segmentStart = -1;
+    for (let index = 0; index <= data.length; index++) {
+      if (index < data.length && data[index][1] != null) {
+        if (segmentStart < 0) segmentStart = index;
+      } else if (segmentStart >= 0) {
+        if (index - segmentStart === 1) isolatedPointIndices.push(segmentStart);
+        segmentStart = -1;
+      }
+    }
+    return { id: line.id, name: line.name, data, isolatedPointIndices };
   });
 }
 
@@ -207,17 +230,20 @@ export function MonitoringTrendChart({
         { type: 'inside', xAxisIndex: 0, startValue: window.start, endValue: window.end, filterMode: 'none' },
         { type: 'slider', xAxisIndex: 0, height: 16, bottom: 20, showDetail: false, brushSelect: false, startValue: window.start, endValue: window.end, filterMode: 'none' },
       ],
-      series: built.map((line) => ({
-        id: line.id,
-        name: line.name,
-        type: 'line' as const,
-        data: line.data,
-        connectNulls: false,
-        showSymbol: line.data.filter((point) => point[1] != null).length === 1,
-        symbolSize: 5,
-        lineStyle: { width: 2 },
-        emphasis: { focus: 'series' },
-      })),
+      series: built.map((line) => {
+        const isolatedPointIndices = new Set(line.isolatedPointIndices);
+        return {
+          id: line.id,
+          name: line.name,
+          type: 'line' as const,
+          data: line.data,
+          connectNulls: false,
+          showSymbol: true,
+          symbolSize: (_value: unknown, params: { dataIndex: number }) => isolatedPointIndices.has(params.dataIndex) ? 6 : 0,
+          lineStyle: { width: 2 },
+          emphasis: { focus: 'series' },
+        };
+      }),
     };
     applyingOptionRef.current = true;
     try {

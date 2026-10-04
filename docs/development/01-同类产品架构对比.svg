@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920">
+  <defs>
+    <style>
+      .title{font:700 34px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#0f2a3d}
+      .subtitle{font:400 17px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#557086}
+      .cardTitle{font:700 21px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#123047}
+      .body{font:400 16px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#40586c}
+      .label{font:600 15px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#1a3c55}
+      .small{font:400 13px 'PingFang SC','Microsoft YaHei',sans-serif;fill:#63798b}
+      .flow{stroke:#4c86a8;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#6c7fe0;stroke-width:3;fill:none;stroke-dasharray:9 7;marker-end:url(#arrowPurple)}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4c86a8"/>
+    </marker>
+    <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6c7fe0"/>
+    </marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f6fbfe"/>
+      <stop offset="100%" stop-color="#eef6fb"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="920" fill="url(#bg)"/>
+  <text x="70" y="64" class="title">同类产品架构对比：共同模式与本项目定位</text>
+  <text x="70" y="98" class="subtitle">基于官方产品资料整理的原创架构示意，不代表厂商内部实现细节</text>
+
+  <g transform="translate(60,140)">
+    <rect width="350" height="560" rx="18" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+    <rect width="350" height="66" rx="18" fill="#dff0f7"/>
+    <text x="24" y="30" class="cardTitle">楼宇自控 / BMS</text>
+    <text x="24" y="53" class="small">SIMATIC · Desigo · EcoStruxure · Metasys</text>
+
+    <rect x="30" y="100" width="290" height="74" rx="12" fill="#eef8fb" stroke="#a7cfdf"/>
+    <text x="52" y="132" class="label">现场设备与 DDC / PLC</text>
+    <text x="52" y="157" class="body">空调 · 水泵 · 阀门 · 传感器</text>
+    <rect x="30" y="205" width="290" height="74" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/>
+    <text x="52" y="237" class="label">本地控制与联锁</text>
+    <text x="52" y="262" class="body">BACnet · Modbus · OPC UA</text>
+    <rect x="30" y="310" width="290" height="74" rx="12" fill="#eef8fb" stroke="#a7cfdf"/>
+    <text x="52" y="342" class="label">监督控制平台</text>
+    <text x="52" y="367" class="body">趋势 · 报警 · 日程 · 权限</text>
+    <rect x="30" y="415" width="290" height="74" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/>
+    <text x="52" y="447" class="label">云分析 / 远程运维</text>
+    <text x="52" y="472" class="body">报表 · 能耗 · 跨站点分析</text>
+    <path d="M175 180 L175 200" class="flow"/>
+    <path d="M175 285 L175 305" class="flow"/>
+    <path d="M175 390 L175 410" class="flow"/>
+    <text x="24" y="534" class="small">关键思想：控制留在本地，云端负责监督</text>
+  </g>
+
+  <g transform="translate(440,140)">
+    <rect width="350" height="560" rx="18" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+    <rect width="350" height="66" rx="18" fill="#e5f6ee"/>
+    <text x="24" y="30" class="cardTitle">光储监控平台</text>
+    <text x="24" y="53" class="small">FusionSolar · SolarEdge · Victron VRM</text>
+    <rect x="30" y="100" width="290" height="74" rx="12" fill="#eef8fb" stroke="#a7cfdf"/>
+    <text x="52" y="132" class="label">逆变器 / BMS / 电表</text>
+    <text x="52" y="157" class="body">设备内部测量与状态</text>
+    <rect x="30" y="205" width="290" height="74" rx="12" fill="#eefbf3" stroke="#aad9c0"/>
+    <text x="52" y="237" class="label">本地通信设备</text>
+    <text x="52" y="262" class="body">SmartLogger · datalogger · GX</text>
+    <rect x="30" y="310" width="290" height="74" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/>
+    <text x="52" y="342" class="label">云监控与设备运维</text>
+    <text x="52" y="367" class="body">实时值 · 历史 · 告警 · 远程设置</text>
+    <rect x="30" y="415" width="290" height="74" rx="12" fill="#eef8fb" stroke="#a7cfdf"/>
+    <text x="52" y="447" class="label">EMS / 控制策略</text>
+    <text x="52" y="472" class="body">功率限制 · 充放电策略 · 启停</text>
+    <path d="M175 180 L175 200" class="flow"/>
+    <path d="M175 285 L175 305" class="flow"/>
+    <path d="M175 390 L175 410" class="flow"/>
+    <text x="24" y="534" class="small">关键思想：网关既上云，也保证本地可用</text>
+  </g>
+
+  <g transform="translate(820,140)">
+    <rect width="350" height="560" rx="18" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+    <rect width="350" height="66" rx="18" fill="#fff2e3"/>
+    <text x="24" y="30" class="cardTitle">工业 IoT 平台</text>
+    <text x="24" y="53" class="small">ThingsBoard · EdgeX · EMQX · Ignition</text>
+    <rect x="30" y="100" width="290" height="74" rx="12" fill="#eef8fb" stroke="#a7cfdf"/>
+    <text x="52" y="132" class="label">设备服务 / 协议驱动</text>
+    <text x="52" y="157" class="body">Modbus · MQTT · OPC UA · CAN</text>
+    <rect x="30" y="205" width="290" height="74" rx="12" fill="#eefbf3" stroke="#aad9c0"/>
+    <text x="52" y="237" class="label">边缘与消息层</text>
+    <text x="52" y="262" class="body">缓存 · 规则 · Broker · 补传</text>
+    <rect x="30" y="310" width="290" height="74" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/>
+    <text x="52" y="342" class="label">云 IoT / 实时服务</text>
+    <text x="52" y="367" class="body">设备影子 · 作业 · 规则引擎</text>
+    <rect x="30" y="415" width="290" height="74" rx="12" fill="#eef8fb" stroke="#a7cfdf"/>
+    <text x="52" y="447" class="label">仪表盘与控制</text>
+    <text x="52" y="472" class="body">遥测 · RPC · 审计 · 权限</text>
+    <path d="M175 180 L175 200" class="flow"/>
+    <path d="M175 285 L175 305" class="flow"/>
+    <path d="M175 390 L175 410" class="flow"/>
+    <text x="24" y="534" class="small">关键思想：协议归一化后再进入云端</text>
+  </g>
+
+  <g transform="translate(1200,140)">
+    <rect width="340" height="560" rx="18" fill="#ffffff" stroke="#c9dce8" stroke-width="2"/>
+    <rect width="340" height="66" rx="18" fill="#f0ecff"/>
+    <text x="24" y="30" class="cardTitle">数字孪生 / HIL</text>
+    <text x="24" y="53" class="small">Simulink RT · OPAL-RT · TwinCAT</text>
+    <rect x="30" y="100" width="280" height="74" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/>
+    <text x="52" y="132" class="label">实时模型与控制算法</text>
+    <text x="52" y="157" class="body">固定周期 · 确定性执行</text>
+    <rect x="30" y="205" width="280" height="74" rx="12" fill="#eef8fb" stroke="#a7cfdf"/>
+    <text x="52" y="237" class="label">实时 I/O</text>
+    <text x="52" y="262" class="body">Modbus · CAN · EtherCAT · 模拟量</text>
+    <rect x="30" y="310" width="280" height="74" rx="12" fill="#eefbf3" stroke="#aad9c0"/>
+    <text x="52" y="342" class="label">物理设备 / 仿真设备</text>
+    <text x="52" y="367" class="body">HIL · 快速控制原型 · 自动化测试</text>
+    <rect x="30" y="415" width="280" height="74" rx="12" fill="#f4f1ff" stroke="#c2bcf0"/>
+    <text x="52" y="447" class="label">数字孪生与状态镜像</text>
+    <text x="52" y="472" class="body">预测 · 可视化 · 优化</text>
+    <path d="M170 180 L170 200" class="flow"/>
+    <path d="M170 285 L170 305" class="flow"/>
+    <path d="M170 390 L170 410" class="flow"/>
+    <text x="24" y="534" class="small">关键思想：控制算法先在虚拟环境验证</text>
+  </g>
+
+  <rect x="60" y="740" width="1480" height="130" rx="20" fill="#123047"/>
+  <text x="95" y="785" class="label" fill="#ffffff">本项目应采用的组合路径</text>
+  <text x="95" y="825" class="body" fill="#dff4ff">光储监控的领域模型 + 工业 IoT 的设备服务/MQTT + BMS 的本地控制与联锁 + 数字孪生的验证方法</text>
+  <text x="95" y="853" class="body" fill="#dff4ff">先实时观测 → 再模拟控制 → 再物理控制 → 最后原理图数字孪生</text>
+</svg>
