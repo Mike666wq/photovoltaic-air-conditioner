@@ -24,11 +24,12 @@ async function harness(t, envOverrides={}, initial) {
     const res=await fetch(root+'/api/realtime'+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});
     return{status:res.status,headers:res.headers,body:res.status===204?null:await res.json()};
   };
+  const callModule=async(prefix,path,method='GET',body,headers={})=>{const res=await fetch(root+prefix+path,{method,headers:{...(body?{'Content-Type':'application/json'}:{}),...headers},body:body?JSON.stringify(body):undefined});return{status:res.status,headers:res.headers,body:res.status===204?null:await res.json()};};
   const guest=async()=>{const g=await call('/auth/session');return{Cookie:g.headers.get('set-cookie').split(';')[0],Origin:origin,'X-Bms-Csrf':g.body.csrfToken};};
   const signed=(res)=>{const headers={Cookie:res.headers.get('set-cookie').split(';')[0],Origin:origin,'X-Bms-Csrf':res.body.csrfToken};return{headers,call:(p,m,b)=>call(p,m,b,headers)};};
   const setup=async()=>{const res=await call('/setup/bootstrap','POST',{username:'fixture-admin',password,bootstrapToken},await guest());assert.equal(res.status,201);return signed(res);};
   const login=async(username)=>{const res=await call('/auth/login','POST',{username,password},await guest());assert.equal(res.status,200);return signed(res);};
-  return{api,env,dir,call,guest,setup,login,file:join(env.BMS_REALTIME_REGISTRY_DIR??join(dir,'storage'),'registry.json')};
+  return{api,env,dir,call,callModule,guest,setup,login,file:join(env.BMS_REALTIME_REGISTRY_DIR??join(dir,'storage'),'registry.json')};
 }
 test('公开接入状态不泄露配置；关闭模块仍能说明初始化流程',async(t)=>{
   const dangerous = {BMS_REALTIME_ENABLED:'1', BMS_REALTIME_PUBLIC_ORIGIN:origin};
@@ -60,11 +61,25 @@ test('管理员注册设备和观看账户；读取不返回散列或令牌，�
   assert.equal((await h.call('/admin/devices','POST',deviceInput,{...admin.headers,'X-Bms-Csrf':'wrong'})).status,403);
   const created=await admin.call('/admin/devices','POST',deviceInput);assert.equal(created.status,201);assert(created.body.deviceToken.length>=32);
   assert.equal((await admin.call('/devices')).body.devices.length,1);
+  assert.equal((await h.callModule('/api/monitoring','/devices','GET',undefined,admin.headers)).body.devices.length,1);
+  const second=await admin.call('/admin/devices','POST',{...deviceInput,deviceId:'fixture-device-2'});assert.equal(second.status,201);
   assert.equal((await admin.call('/admin/devices','POST',deviceInput)).status,409);
   const user=await admin.call('/admin/users','POST',{username:'fixture-viewer',password,devices:[deviceInput.deviceId]});assert.equal(user.status,201);
+  const empty=await admin.call('/admin/users','POST',{username:'empty-viewer',password,devices:[]});assert.equal(empty.status,201);assert.deepEqual(empty.body.user.devices,[]);
   assert.equal((await admin.call('/admin/users','POST',{username:'another-admin',password,role:'admin',devices:[deviceInput.deviceId]})).status,403);
   const viewer=await h.login('fixture-viewer');assert.equal((await viewer.call('/admin/registry')).status,403);assert.equal((await viewer.call('/admin/devices','POST',{...deviceInput,deviceId:'other'})).status,403);
   assert.equal((await viewer.call('/devices')).body.devices[0].allowedAddresses[0],1);
+  const noDeviceViewer=await h.login('empty-viewer');assert.deepEqual((await h.callModule('/api/monitoring','/devices','GET',undefined,noDeviceViewer.headers)).body.devices,[]);
+  assert.deepEqual((await noDeviceViewer.call('/auth/session')).body.user.effectiveDeviceIds,[]);
+  assert.equal((await admin.call('/admin/users/empty-viewer','PUT',{devices:['fixture-device','fixture-device-2'],disabled:false})).status,204);
+  assert.equal((await h.callModule('/api/monitoring','/devices','GET',undefined,noDeviceViewer.headers)).body.devices.length,2);
+  assert.equal((await admin.call('/admin/users/empty-viewer','PUT',{devices:['fixture-device','missing'],disabled:true})).status,400);
+  let emptyDto=(await admin.call('/admin/registry')).body.users.find(u=>u.username==='empty-viewer');assert.equal(emptyDto.disabled,false);assert.deepEqual(emptyDto.devices,['fixture-device','fixture-device-2']);
+  const registryDir=h.env.BMS_REALTIME_REGISTRY_DIR;renameSync(registryDir,registryDir+'.backup');writeFileSync(registryDir,'blocked');
+  assert.equal((await admin.call('/admin/users/empty-viewer','PUT',{devices:[],disabled:true})).status,503);
+  rmSync(registryDir);renameSync(registryDir+'.backup',registryDir);
+  assert.equal((await h.callModule('/api/monitoring','/devices','GET',undefined,noDeviceViewer.headers)).body.devices.length,2);
+  emptyDto=(await admin.call('/admin/registry')).body.users.find(u=>u.username==='empty-viewer');assert.equal(emptyDto.disabled,false);assert.deepEqual(emptyDto.devices,['fixture-device','fixture-device-2']);
   const publicData=JSON.stringify((await admin.call('/admin/registry')).body);for(const secret of ['passwordHash','deviceTokenHash',created.body.deviceToken,password])assert(!publicData.includes(secret));
   const persisted=loadConfig(h.env);assert.equal(persisted.devices[0].deviceTokenHash,tokenHash(created.body.deviceToken));assert.equal(persisted.users[1].role,'viewer');assert(!readFileSync(h.file,'utf8').includes(created.body.deviceToken));
 });

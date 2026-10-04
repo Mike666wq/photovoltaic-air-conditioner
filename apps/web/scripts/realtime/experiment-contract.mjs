@@ -14,7 +14,7 @@ export function validateExperimentSnapshot(body, device) {
   assert(s.schemaVersion === 1, 422, 'SCHEMA_UNSUPPORTED', '不支持的实验采样协议版本');
   assert(s.module === 'experiment' && s.deviceId === device.deviceId, 403, 'DEVICE_MISMATCH', '设备或模块身份不匹配');
   assert(device.allowedEquipment.includes(s.equipmentId), 403, 'EQUIPMENT_FORBIDDEN', '未授权的实验仪器');
-  assert(['serial', 'simulation'].includes(s.source)); assert(s.source !== 'simulation' || device.allowSimulation, 403, 'SIMULATION_FORBIDDEN', '该设备不允许模拟采样');
+  assert(['serial', 'simulation'].includes(s.source));
   assert(identifier(s.connectionSessionId) && identifier(s.acquisitionSessionId) && integer(s.sequence, 1, Number.MAX_SAFE_INTEGER) && utcDate(s.capturedUtc));
   assert(Array.isArray(s.points) && s.points.length > 0 && s.points.length <= 128);
   const seen = new Set();

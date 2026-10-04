@@ -1,3 +1,4 @@
+import { sourceTrendLines, latestByChannel } from './realtimeSource';
 import contract from '../../shared/experiment/point-contract.json';
 export const experimentCatalog = contract;
 export const EXPERIMENT_EQUIPMENT = ['DS666','PLC','DDSU666','DJSF6682'];
@@ -8,8 +9,8 @@ export interface ExperimentPoint {
   receivedAt:string;ageMs:number;seenMono?:number;
 }
 export interface ExperimentSnapshot {schemaVersion:1;module:'experiment';deviceId:string;connectionSessionId:string;acquisitionSessionId:string;sequence:number;capturedUtc:string;source:ExperimentSource;equipmentId:string;slave:number;points:ExperimentPoint[]}
-export interface ExperimentSample {snapshot:ExperimentSnapshot;receivedAt:string}
-export interface ExperimentTrendPoint {entryId:number;observedUtc:string;value:number|null;quality:string;unit:string;receivedAt:string;configVersion:string;acquisitionRound:number;connectionSessionId:string;source?:ExperimentSource}
+export interface ExperimentSample {snapshot:ExperimentSnapshot;receivedAt:string;acceptedOrder:number}
+export interface ExperimentTrendPoint {entryId:number;observedUtc:string;value:number|null;quality:string;unit:string;receivedAt:string;configVersion:string;acquisitionRound:number;connectionSessionId:string;source:ExperimentSource;sourceSegment?:number;equipmentId:string}
 export const experimentTime=(time?:string|null)=>time&&Number.isFinite(Date.parse(time))?new Date(time).toLocaleString('zh-CN',{hour12:false}):'—';
 const qualityLabels:Record<string,string>={good:'有效观测',timeout:'通信超时',protocol_exception:'协议异常',decode_error:'解码失败',error:'采集失败',unknown:'质量未知',stale:'旧数据'};
 export function pointStatus(p:ExperimentPoint|undefined,mono=performance.now()) {
@@ -20,3 +21,11 @@ export function pointStatus(p:ExperimentPoint|undefined,mono=performance.now()) 
   return {label:stale?'旧数据 · 已过期':qualityLabels[p.quality]??`未知质量：${p.quality}`,value:good?(p.value===null?(p.displayValue||'—'):String(p.value)):'—',stale,good};
 }
 export function experimentChannel(sample:ExperimentSample){return `${sample.snapshot.source}/${sample.snapshot.equipmentId}`;}
+export function experimentTrendKey(deviceId:string,selection:string){return `${deviceId}/${selection}`;}
+export function buildExperimentTrendLines(title:string,unit:string,points:ExperimentTrendPoint[]){
+  return sourceTrendLines(title, unit, points.map(point => ({
+    time: point.observedUtc, value: point.quality === 'good' && point.unit === unit ? point.value : null,
+    source: point.source, session: `${point.connectionSessionId}/${point.sourceSegment ?? 0}`,
+  })));
+}
+export const latestExperimentSamples = (samples: ExperimentSample[]) => latestByChannel(samples, sample => sample.snapshot.equipmentId);

@@ -27,7 +27,6 @@ export function validateSnapshot(body, device) {
   assert(s.deviceId === device.deviceId, 403, 'DEVICE_MISMATCH', '设备身份不匹配');
   assert(device.allowedPacks.includes(s.pack) && device.allowedAddresses.includes(s.address), 403, 'PACK_FORBIDDEN', '未注册的地址或Pack');
   assert(s.source === 'serial' || s.source === 'simulation');
-  assert(s.source !== 'simulation' || device.allowSimulation, 403, 'SIMULATION_FORBIDDEN', '该设备不允许模拟采样');
   assert(identifier(s.connectionSessionId) && integer(s.sequence, 1, Number.MAX_SAFE_INTEGER));
   assert(integer(s.acquisitionRound, 0, Number.MAX_SAFE_INTEGER) && utcDate(s.capturedUtc));
   assert(s.periodSeconds == null || integer(s.periodSeconds, 1, 86400));

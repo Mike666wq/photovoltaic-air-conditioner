@@ -1,7 +1,7 @@
 import { loadConfig, validateConfig, tokenHash, equal, opaque, verifyPassword, passwordHash } from './auth.mjs';
 import { RegistryStore } from './registry.mjs';
 import { CacheCoordinator } from './cache-coordinator.mjs';
-import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice, deleteDevice, updateUserDevices, updateSystem, updateUserMonitoring, resetUserPassword } from './registration.mjs';
+import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice, deleteDevice, updateUserDevices, updateUserMonitoring, resetUserPassword } from './registration.mjs';
 import { RealtimeState } from './state.mjs';
 import { ExperimentState } from './experiment-state.mjs';
 import { catalog, equipment, validateExperimentSnapshot } from './experiment-contract.mjs';
@@ -54,28 +54,40 @@ export function createRealtimeApi(options = {}) {
   const config = options.config ?? loadConfig();
   if (!config.enabled) return { handle: async (req, res) => { if (!apiPrefix(req.url)) return false; if (req.url === `${apiPrefix(req.url)}/setup/status` && req.method === 'GET') json(res, 200, setupStatus(config)); else json(res, 503, { error: { code: 'MODULE_DISABLED', message: '实时数据模块尚未启用，请联系管理员' } }); return true; }, close() {} };
   validateConfig(config);
-  const coordinator = options.coordinator ?? new CacheCoordinator(config, options.clocks); coordinator.setBindings(config.system);
+  const coordinator = options.coordinator ?? new CacheCoordinator(config, options.clocks);
   const state = new RealtimeState({...config,maxViewerLeases:config.maxViewerLeases??40,coordinator,devices:config.devices.filter(d=>moduleOf(d)==='bms')}, options.clocks);
   const experiment = new ExperimentState({...config,maxViewerLeases:config.maxViewerLeases??40,coordinator,devices:config.devices.filter(d=>moduleOf(d)==='experiment')},options.clocks);
   const states=[state,experiment];
+  const boundLegacyIds = (systemConfig) => [systemConfig?.experimentDeviceId, systemConfig?.bmsDeviceId].filter(Boolean);
+  const effectiveDeviceIds = (user, systemConfig = config.system, devices = config.devices) => {
+    const available = new Set(devices.map(d => d.deviceId));
+    if (user.role === 'admin') return [...available];
+    const ids = new Set((user.devices ?? []).filter(id => available.has(id)));
+    if (user.monitoringAccess) for (const id of boundLegacyIds(systemConfig)) if (available.has(id)) ids.add(id);
+    return [...ids];
+  };
   let boundSystem = structuredClone(config.system);
+  let boundUsers = structuredClone(config.users), boundDevices = structuredClone(config.devices);
   const sessions = new Map(); const rates = new Map(); const streams = new Set(); let loginBusy = 0;
   const registry = new RegistryStore(config, (devices, systemConfig, users) => {
     try {
       const before = boundSystem ?? {};
+      for (const oldUser of boundUsers) {
+        if (oldUser.role === 'admin' || oldUser.disabled) continue;
+        const current = users.find(u => u.username === oldUser.username);
+        const oldIds = new Set(effectiveDeviceIds(oldUser, before, boundDevices));
+        const nextIds = new Set(current && !current.disabled ? effectiveDeviceIds(current, systemConfig, devices) : []);
+        for (const id of oldIds) if (!nextIds.has(id)) {
+          for (const target of states) for (const viewer of [...target.viewers.values()]) {
+            if (viewer.principal !== oldUser.username || viewer.deviceId !== id) continue;
+            for (const stream of [...streams]) if (stream.viewerId === viewer.viewerId) {
+              write(stream, 'permission-revoked', { deviceId: id, code: 'DEVICE_PERMISSION_REVOKED' });
+              endStream(stream);
+            }
+          }
+        }
+      }
       state.syncRegistrations(devices.filter(d=>moduleOf(d)==='bms')); experiment.syncRegistrations(devices.filter(d=>moduleOf(d)==='experiment'));
-      coordinator.setBindings(systemConfig);
-      const changed = new Set();
-      for (const [field, target] of [['bmsDeviceId', state], ['experimentDeviceId', experiment]]) {
-        if (before[field] !== systemConfig[field]) { if (before[field]) changed.add([target, before[field]]); if (systemConfig[field]) changed.add([target, systemConfig[field]]); }
-      }
-      for (const [target, id] of changed) {
-        if (target.devices.has(id)) { for (const v of [...target.viewers.values()]) if (v.deviceId === id) target.release(v.viewerId, v.owner); target.clear(id); }
-      }
-      if (before.allowSimulation && !systemConfig.allowSimulation) {
-        if (systemConfig.bmsDeviceId && state.devices.has(systemConfig.bmsDeviceId)) state.clearSource(systemConfig.bmsDeviceId, 'simulation');
-        if (systemConfig.experimentDeviceId && experiment.devices.has(systemConfig.experimentDeviceId)) experiment.clearSource(systemConfig.experimentDeviceId, 'simulation');
-      }
       boundSystem = structuredClone(systemConfig);
       for (const [id, s] of sessions) {
         const current = users.find(u => u.username === s.user?.username);
@@ -86,9 +98,9 @@ export function createRealtimeApi(options = {}) {
       }
       for (const target of states) for (const v of [...target.viewers.values()]) {
         const current = users.find(u => u.username === v.principal);
-        const boundId = target === state ? systemConfig.bmsDeviceId : systemConfig.experimentDeviceId;
-        if (!current || current.disabled || (!current.devices.includes(v.deviceId) && !((current.role === 'admin' || current.monitoringAccess) && boundId === v.deviceId))) target.release(v.viewerId, v.owner);
+        if (!current || current.disabled || !effectiveDeviceIds(current, systemConfig, devices).includes(v.deviceId)) target.release(v.viewerId, v.owner);
       }
+      boundUsers = structuredClone(users); boundDevices = structuredClone(devices);
     } catch {
       // 文件已提交；运行态同步失败时撤销全部观看，避免旧授权继续推送。
       sessions.clear();
@@ -98,6 +110,7 @@ export function createRealtimeApi(options = {}) {
         target.viewers.clear();
         for (const device of target.devices.values()) { device.lease = null; device.latest.clear(); device.rings.clear(); device.watermarks.clear(); device.sequences.clear(); }
       }
+      boundSystem = structuredClone(systemConfig); boundUsers = structuredClone(users); boundDevices = structuredClone(devices);
       console.error('[realtime] 注册提交后的运行态同步失败，已关闭全部观看会话');
     }
   });
@@ -134,12 +147,10 @@ export function createRealtimeApi(options = {}) {
   function loggedResponse(res, s, user, status = 200) {
     for (const target of states) for (const v of [...target.viewers.values()]) if (v.owner === s.id) target.release(v.viewerId, s.id);
     sessions.delete(s.id); const id = opaque(); const logged = { user, csrf: opaque(), until: state.now() + 28800000 }; sessions.set(id, logged); cookie(res, id);
-    return json(res, status, { user: { username: user.username, role: user.role ?? 'viewer', monitoringAccess: user.role === 'admin' || !!user.monitoringAccess }, csrfToken: logged.csrf });
+    return json(res, status, { user: { username: user.username, role: user.role ?? 'viewer', monitoringAccess: user.role === 'admin' || !!user.monitoringAccess, effectiveDeviceIds: effectiveDeviceIds(user) }, csrfToken: logged.csrf });
   }
   function authorized(s, id, target) {
-    const boundId = target === experiment ? config.system.experimentDeviceId : config.system.bmsDeviceId;
-    const systemAccess = (s.user.role === 'admin' || s.user.monitoringAccess) && boundId === id;
-    assert((s.user.devices.includes(id) || systemAccess) && target.devices.has(id),403,'DEVICE_FORBIDDEN','没有此模块设备的观看权限');
+    assert(effectiveDeviceIds(s.user).includes(id) && target.devices.has(id),403,'DEVICE_FORBIDDEN','没有此模块设备的观看权限');
     return target.device(id).registration;
   }
   function deviceAuth(req, module) {
@@ -207,8 +218,6 @@ export function createRealtimeApi(options = {}) {
     if (pathname === '/snapshots' && req.method === 'POST') {
       const d = deviceAuth(req, module); rate(`snapshots:${d.deviceId}`, 1800); const b = await readJson(req);
       const snapshot = isExperiment?validateExperimentSnapshot(b,deviceAuth(req,module)):validateSnapshot(b, deviceAuth(req, module));
-      const bound = isExperiment ? config.system.experimentDeviceId : config.system.bmsDeviceId;
-      assert(snapshot.source !== 'simulation' || bound !== d.deviceId || config.system.allowSimulation, 403, 'SIMULATION_FORBIDDEN', '整体系统未允许模拟采样');
       return json(res, 200, state.accept(d.deviceId, b.subscriptionId, snapshot));
     }
     if (pathname === '/auth/session' && req.method === 'GET') {
@@ -218,7 +227,7 @@ export function createRealtimeApi(options = {}) {
         assert(sessions.size < 512, 429, 'SESSION_LIMIT', '观看会话数已达上限');
         const id = opaque(); s = { id, user: null, csrf: opaque(), until: state.now() + 300000 }; sessions.set(id, s); cookie(res, id, 300);
       }
-      return json(res, 200, { user: s.user ? { username: s.user.username, role: s.user.role ?? 'viewer', monitoringAccess: s.user.role === 'admin' || !!s.user.monitoringAccess } : null, csrfToken: s.csrf });
+      return json(res, 200, { user: s.user ? { username: s.user.username, role: s.user.role ?? 'viewer', monitoringAccess: s.user.role === 'admin' || !!s.user.monitoringAccess, effectiveDeviceIds: effectiveDeviceIds(s.user) } : null, csrfToken: s.csrf });
     }
     if (pathname === '/auth/login' && req.method === 'POST') {
       const s = session(req, false); mutation(req, s); rate(`login:${req.socket.remoteAddress}`, 10);
@@ -241,7 +250,12 @@ export function createRealtimeApi(options = {}) {
       const s = session(req); assert(s.user.role === 'admin', 403, 'ADMIN_REQUIRED', '整体系统配置需要管理员权限');
       if (req.method === 'GET') return json(res, 200, { writable: registry.writable, system: config.system });
       assert(req.method === 'PUT', 405, 'METHOD_NOT_ALLOWED'); mutation(req, s);
-      const updated = await updateSystem(registry, await readJson(req)); return json(res, 200, { system: updated });
+      throw new ApiError(410, 'LEGACY_SYSTEM_READ_ONLY', '旧整体系统绑定仅保留只读兼容，请为观察者配置独立设备权限');
+    }
+    if (isMonitoring && pathname === '/devices' && req.method === 'GET') {
+      const s = session(req);
+      const ids = effectiveDeviceIds(s.user);
+      return json(res, 200, { devices: ids.map(id => config.devices.find(d => d.deviceId === id)).filter(Boolean).map(registeredInfo) });
     }
     if (isMonitoring && pathname === '/admin/cache' && req.method === 'GET') {
       const s = session(req); assert(s.user.role === 'admin', 403, 'ADMIN_REQUIRED', '缓存诊断需要管理员权限');
@@ -259,7 +273,7 @@ export function createRealtimeApi(options = {}) {
     }
     if (['/admin/registry', '/admin/devices', '/admin/users'].includes(pathname) || /^\/admin\/devices\/[^/]+(?:\/token)?$/.test(pathname) || /^\/admin\/users\/[^/]+(?:\/devices|\/password)?$/.test(pathname)) {
       const s = session(req); assert(s.user.role === 'admin', 403, 'ADMIN_REQUIRED', '设备和账户注册需要管理员权限'); rate(`admin:${s.user.username}`, 20);
-      if (pathname === '/admin/registry' && req.method === 'GET') return json(res, 200, { writable: registry.writable, devices: config.devices.map(registeredInfo), users: config.users.map((u) => ({ username: u.username, role: u.role ?? 'viewer', devices: u.devices, monitoringAccess: u.monitoringAccess ?? false, disabled: u.disabled ?? false })) });
+      if (pathname === '/admin/registry' && req.method === 'GET') return json(res, 200, { writable: registry.writable, devices: config.devices.map(registeredInfo), users: config.users.map((u) => ({ username: u.username, role: u.role ?? 'viewer', devices: u.devices, effectiveDeviceIds: effectiveDeviceIds(u), monitoringAccess: u.monitoringAccess ?? false, disabled: u.disabled ?? false })) });
       const userMatch=pathname.match(/^\/admin\/users\/([^/]+)\/devices$/);
       if(userMatch && req.method==='PUT'){mutation(req,s);await updateUserDevices(registry,decodeURIComponent(userMatch[1]),await readJson(req));return json(res,204);}
       const accessMatch=pathname.match(/^\/admin\/users\/([^/]+)$/);
@@ -291,8 +305,7 @@ export function createRealtimeApi(options = {}) {
     const s = session(req);
     rate(`browser:${s.user.username}`, config.browserRequestsPerMinute ?? 5000);
     if (pathname === '/devices' && req.method === 'GET') {
-      state.sweep(); const boundId = isExperiment ? config.system.experimentDeviceId : config.system.bmsDeviceId;
-      const ids = [...new Set([...s.user.devices, ...((s.user.role === 'admin' || s.user.monitoringAccess) && boundId ? [boundId] : [])])];
+      state.sweep(); const ids = effectiveDeviceIds(s.user);
       return json(res, 200, { devices: ids.filter(id=>state.devices.has(id)).map((id) => state.info(state.device(id))) });
     }
     if (pathname === '/viewers' && req.method === 'POST') {

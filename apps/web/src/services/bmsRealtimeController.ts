@@ -41,8 +41,11 @@ export class BmsRealtimeController {
   private pageId?:string;
   private trendCursors: Partial<Record<BmsMetric, string | null>> = {};
   private queryKeys: Partial<Record<BmsMetric, string>> = {};
-  private fetching: Partial<Record<BmsMetric, boolean>> = {};
+  private fetching = new Set<string>();
+  private permissionRevoked?: (deviceId: string) => void;
   constructor(private api = bmsApi, private openEvents = (url: string) => new EventSource(url), private releaseWaitMs = 5500) {}
+
+  setPermissionRevokedHandler(handler?: (deviceId: string) => void) { this.permissionRevoked = handler; }
 
   stop(phase: 'idle' | 'paused' | 'expired' | 'unauthorized' = 'idle') {
     this.generation++;
@@ -68,14 +71,14 @@ export class BmsRealtimeController {
   }
 
   private async connect(generation: number) {
-    const { deviceId, pack, source } = store.getState();
+    const { deviceId, pack } = store.getState();
     if (!deviceId) return;
     const abort = new AbortController(); this.abort = abort; const pageId = this.pageId;
     store.setState({ phase: 'connecting', error: '' });
     try {
       const lease = await pageQueue(this.api, pageId).run(async () => {
         if (generation !== this.generation || abort.signal.aborted) return null;
-        const created = await this.api.create(deviceId, pack, abort.signal, source, pageId);
+        const created = await this.api.create(deviceId, pack, abort.signal, pageId);
         if (generation !== this.generation || abort.signal.aborted) {
           await boundedRelease(() => this.api.release(created.viewerId), this.releaseWaitMs);
           return null;
@@ -98,12 +101,18 @@ export class BmsRealtimeController {
         void this.api.session().catch(() => {});
       }
       store.setState({ error: error.message });
+      if (error.status === 403 && error.code === 'DEVICE_FORBIDDEN') this.permissionRevoked?.(store.getState().deviceId);
       return;
     }
     this.scheduleReconnect(error);
   }
 
   private scheduleReconnect(error: unknown) {
+    if (this.retryCount >= 8) {
+      this.stop('expired');
+      store.setState({ error: '自动重连已达8次，请检查网络后手动开始观测。' });
+      return;
+    }
     this.generation++;
     const generation = this.generation;
     this.cleanup('reconnecting');
@@ -116,9 +125,9 @@ export class BmsRealtimeController {
     clearTimeout(this.timer);
     this.timer = setTimeout(async () => {
       if (generation !== this.generation) return;
-      const { pack, source } = store.getState();
+      const { pack } = store.getState();
       try {
-        const renewed = await this.api.renew(lease.viewerId, pack, source);
+        const renewed = await this.api.renew(lease.viewerId, pack);
         if (generation !== this.generation) return;
         store.setState({ lease: renewed }); this.scheduleRenew(renewed, generation);
       } catch (error) { if (generation === this.generation) this.fail(error); }
@@ -126,26 +135,28 @@ export class BmsRealtimeController {
   }
 
   private queryKey(metric: BmsMetric) {
-    const { deviceId, pack, source } = store.getState();
-    return `${deviceId}/${pack}/${source}/${metric}`;
+    const { deviceId, pack } = store.getState();
+    return `${deviceId}/${pack}/${metric}`;
   }
 
   private async loadTrend(metric: BmsMetric, generation: number, replace = false) {
-    if (this.fetching[metric] || generation !== this.generation) return;
+    if (generation !== this.generation) return;
     const state = store.getState();
     if (!state.lease) return;
     const key = this.queryKey(metric);
+    const requestKey = `${generation}/${key}`;
+    if (this.fetching.has(requestKey)) return;
     if (this.queryKeys[metric] !== key) {
       this.queryKeys[metric] = key; this.trendCursors[metric] = null; replace = true;
     }
-    this.fetching[metric] = true;
+    this.fetching.add(requestKey);
     try {
       let cursor = replace ? null : (this.trendCursors[metric] ?? null);
       let firstPage = true;
       do {
-        const page = await this.api.trend(state.deviceId, state.pack, metric, state.source, cursor);
+        const page = await this.api.trend(state.deviceId, state.pack, metric, cursor);
         if (generation !== this.generation || key !== this.queryKey(metric)) return;
-        store.getState().appendTrend(metric, page.points, replace && firstPage);
+        store.getState().appendTrend(state.pack, metric, page.points, replace && firstPage);
         cursor = page.nextCursor;
         firstPage = false;
         if (!page.hasMore) break;
@@ -153,7 +164,7 @@ export class BmsRealtimeController {
       if (cursor) this.trendCursors[metric] = cursor;
     } catch (error) {
       if (generation === this.generation) this.fail(error);
-    } finally { this.fetching[metric] = false; }
+    } finally { this.fetching.delete(requestKey); }
   }
 
   private async refreshTrends(generation: number, replace = false) {
@@ -161,8 +172,8 @@ export class BmsRealtimeController {
   }
 
   private async bootstrap(generation: number, includeHistory = false) {
-    const { deviceId, pack, source } = store.getState();
-    const latest = await this.api.latest(deviceId, pack, source);
+    const { deviceId, pack } = store.getState();
+    const latest = await this.api.latest(deviceId, pack);
     if (generation !== this.generation) return;
     store.setState({ devices: store.getState().devices.map((d) => d.deviceId === deviceId ? { ...d, online: latest.online, lastHeartbeatAt: latest.lastHeartbeatAt } : d), websiteConnected: true });
     for (const sample of latest.packs) store.getState().accept(sample);
@@ -171,8 +182,7 @@ export class BmsRealtimeController {
 
   private subscribe(lease: ViewerLease, generation: number) {
     this.events?.close();
-    const source = store.getState().source;
-    const events = this.openEvents(`/api/realtime/events?viewerId=${encodeURIComponent(lease.viewerId)}&source=${source}`);
+    const events = this.openEvents(`/api/realtime/events?viewerId=${encodeURIComponent(lease.viewerId)}`);
     this.events = events;
     events.onopen = () => { if (generation === this.generation) { this.retryCount = 0; store.setState({ phase: 'watching', websiteConnected: true, error: '' }); } };
     events.addEventListener('snapshot', (event) => {
@@ -189,6 +199,17 @@ export class BmsRealtimeController {
         if (data.viewing === false) { this.fail(new BmsApiError(410, 'VIEWER_EXPIRED', '观看租约结束，正在重新连接')); return; }
         store.setState({ devices: store.getState().devices.map((d) => d.deviceId === data.deviceId ? { ...d, online: data.online, lastHeartbeatAt: data.lastHeartbeatAt } : d) });
       } catch { this.fail(new Error('设备状态响应无效')); }
+    });
+    events.addEventListener('permission-revoked', (event) => {
+      if (generation !== this.generation) return;
+      try {
+        const data = JSON.parse((event as MessageEvent).data) as { deviceId?: string };
+        const deviceId = store.getState().deviceId;
+        if (!deviceId || data.deviceId !== deviceId) return;
+        this.stop('unauthorized');
+        store.setState({ error: '管理员已撤销此设备的观测权限。' });
+        this.permissionRevoked?.(deviceId);
+      } catch { this.fail(new Error('权限变更通知无效')); }
     });
     events.addEventListener('cache-status', (event) => { if (generation === this.generation) { try { store.setState({ cacheStatus: JSON.parse((event as MessageEvent).data) }); } catch {} } });
     events.addEventListener('cache-capacity', (event) => { if (generation === this.generation) { try { store.setState({ cacheStatus: JSON.parse((event as MessageEvent).data), capacityWarning: true }); } catch {} } });

@@ -1,53 +1,102 @@
-import {useEffect,useRef,useState} from 'react';
-import {Link} from 'react-router-dom';
-import {bmsApi,BmsApiError} from '../services/bmsRealtimeApi';
-import {experimentApi} from '../services/experimentRealtimeApi';
-import {ExperimentRealtimeController} from '../services/experimentRealtimeController';
-import {experimentCatalog,experimentTime,pointStatus} from '../services/experimentRealtimeTypes';
-import {useExperimentRealtimeStore as store} from '../store/experimentRealtime';
-import {BmsTrendChart} from '../components/bmsRealtime/BmsTrendChart';
-import {ExperimentMonitoringPanel} from './ExperimentMonitoringPanel';
-import type {BmsDevice,BmsIdentity} from '../services/bmsRealtimeTypes';
-import type {BmsSetupStatus} from '../services/bmsRealtimeTypes';
+import { useEffect, useRef, useState } from 'react';
+import { Navigate } from 'react-router-dom';
+import { experimentApi } from '../services/experimentRealtimeApi';
+import { ExperimentRealtimeController } from '../services/experimentRealtimeController';
+import { experimentCatalog, experimentTime, pointStatus, latestExperimentSamples, experimentTrendKey, buildExperimentTrendLines } from '../services/experimentRealtimeTypes';
+import { sourceLabel } from '../services/realtimeSource';
+import { useExperimentRealtimeStore as store } from '../store/experimentRealtime';
+import { MonitoringTrendChart } from '../components/bmsRealtime/MonitoringTrendChart';
+import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
 import './bms-realtime.css';
 import './experiment-realtime.css';
-const groups=['温度','实验电表','市电','太阳能','运行状态','诊断'];
-function ExperimentRealtimeLegacyPage(){
-  const state=store(),controller=useRef(new ExperimentRealtimeController());
-  const [ready,setReady]=useState(false),[busy,setBusy]=useState(false),[now,setNow]=useState(Date.now()),[mono,setMono]=useState(performance.now()),[setup,setSetup]=useState<BmsSetupStatus|null>(null),[clear,setClear]=useState(false);
-  const device=state.devices.find(d=>d.deviceId===state.deviceId),watching=['connecting','watching','reconnecting'].includes(state.phase);
-  const online=!!device?.online&&!!device.lastHeartbeatAt&&now-Date.parse(device.lastHeartbeatAt)<45000;
-  const samples=Object.values(state.samples).filter(s=>s.snapshot.source===state.source),points=samples.flatMap(s=>s.snapshot.points);
-  const goodCount=points.filter(p=>pointStatus(p,mono).good).length;
-  const selected=experimentCatalog.points.find(p=>`${p.equipmentId}/${p.id}`===state.selection)??experimentCatalog.points[0];
-  const selectedPoint=state.samples[`${state.source}/${selected.equipmentId}`]?.snapshot.points.find(p=>p.id===selected.id);
-  const selectedUnit=selectedPoint?.unit??selected.metadata.Unit;
-  const last=samples.slice().sort((a,b)=>Date.parse(b.receivedAt)-Date.parse(a.receivedAt))[0];
-  const load=async()=>{const devices=(await experimentApi.devices()).devices;const old=store.getState(),d=devices.find(d=>d.deviceId===old.deviceId)??devices[0];const valid=experimentCatalog.points.find(p=>d?.allowedEquipment?.includes(p.equipmentId));store.setState({devices,deviceId:d?.deviceId??'',selection:d?.allowedEquipment?.includes(old.selection.split('/')[0])?old.selection:valid?`${valid.equipmentId}/${valid.id}`:'PLC/T0'});};
-  useEffect(()=>{let alive=true;const title=document.title;document.title='系统实验实时监控 · 光伏空调实验平台';void(async()=>{try{const status=await bmsApi.setupStatus();if(!alive)return;setSetup(status);if(!status.enabled||!status.initialized)return;const identity=await bmsApi.session();if(!alive)return;store.setState({identity});if(identity)await load();}catch(e){if(alive)store.setState({error:(e as Error).message});}finally{if(alive)setReady(true);}})();
-    const timer=setInterval(()=>{setNow(Date.now());setMono(performance.now());},1000),hidden=()=>{if(document.hidden)controller.current.stop('paused');};document.addEventListener('visibilitychange',hidden);
-    return()=>{alive=false;document.title=title;clearInterval(timer);document.removeEventListener('visibilitychange',hidden);controller.current.stop();store.getState().reset();};},[]);
-  const login=async(form:HTMLFormElement)=>{setBusy(true);try{const data=new FormData(form),identity=await bmsApi.login(String(data.get('username')),String(data.get('password')));store.setState({identity,error:''});form.reset();await load();}catch(e){store.setState({error:(e as Error).message});}finally{setBusy(false);}};
-  const status=!watching?(state.phase==='paused'?'页面隐藏，观看已暂停':state.phase==='unauthorized'?'观看权限失效':state.phase==='expired'?'观看已结束，请重新连接':'未连接观看'):state.phase==='reconnecting'?'网站连接中断，正在重连':!online?'本地程序未在线 / 等待本地程序':goodCount>0?`当前来源有 ${goodCount} 个有效观测点`:points.length?'当前来源的测点无新鲜有效值':'客户端心跳在线，等待当前来源采样';
-  return <main className="bms-page experiment-page"><header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>系统实验实时监控</h1></div><nav aria-label="页面导航"><Link to="/monitoring">云端监控</Link><Link to="/bms/realtime">BMS 实时</Link><Link to="/monitoring/manage">设备管理与接入</Link><Link to="/">原理图</Link>{state.identity&&<><span>{state.identity.username}</span><button disabled={busy} onClick={async()=>{controller.current.stop();try{await bmsApi.logout();store.getState().reset();await bmsApi.session();}catch(e){store.setState({error:(e as Error).message});}}}>退出登录</button></>}</nav></header>
-    <div className="bms-content"><div className="bms-intro"><div><h2>整个实验系统的实时观测</h2><p>37 个正式测点 · 4 台仪器 · 七温度、电表、市电、太阳能和运行状态。时间为本地时区 {Intl.DateTimeFormat().resolvedOptions().timeZone}。</p></div><span className="bms-readonly">只读监测</span></div>
-      <p className="bms-warning">各点独立采样，组装快照不是同步采集的一轮。倍率待核准时保留客户端原值，不计算 COP 或能量平衡；状态码不推测开关含义。</p>
-      {state.error&&<p className="bms-error" role="alert">{state.error}</p>}
-      {!ready?<p>正在检查登录…</p>:setup&&(!setup.enabled||!setup.initialized)?<section className="bms-login"><h2>先完成管理员与设备注册</h2><Link to="/monitoring/manage">前往设备注册与本地接入指南</Link></section>:!state.identity?<section className="bms-login"><h2>统一观看账户登录</h2><p>使用已有 BMS/云端账户，管理员需另行授权实验采集设备。</p><form onSubmit={e=>{e.preventDefault();void login(e.currentTarget);}}><label>用户名<input name="username" autoComplete="username" required /></label><label>密码<input type="password" name="password" autoComplete="current-password" required /></label><button className="bms-primary" disabled={busy}>登录</button></form></section>:<>
-        <section className="bms-toolbar" aria-label="实验观看设置"><label>本地采集源<select value={state.deviceId} disabled={state.phase==='connecting'} onChange={e=>{controller.current.stop();store.setState({deviceId:e.target.value,source:'serial'});void load();}}>{!state.devices.length&&<option value="">暂无授权实验设备</option>}{state.devices.map(d=><option key={d.deviceId} value={d.deviceId}>{d.alias} · {d.deviceId}</option>)}</select></label><label>数据来源<select value={state.source} onChange={e=>{store.setState({source:e.target.value as 'serial'|'simulation',trend:[]});void controller.current.refreshTrend();}}><option value="serial">串口实测</option>{device?.allowSimulation&&<option value="simulation">模拟数据（独立通道）</option>}</select></label>{watching?<button onClick={()=>controller.current.stop()}>断开观看</button>:<button className="bms-primary" disabled={!device} onClick={()=>void controller.current.start()}>连接本地实验数据</button>}<button disabled={watching||busy} onClick={()=>void load().catch(e=>store.setState({error:e.message}))}>刷新设备</button></section>
-        {!device&&<p className="bms-notice">请管理员注册“实验监控”类型的本地采集源，并授权给当前账户。BMS 类型设备不会出现在这里。</p>}
-        <section className={`bms-status ${watching&&online&&goodCount>0?'is-fresh':''}`}><div className="bms-status-title"><span className="bms-dot"/><strong>{status}</strong>{state.source==='simulation'&&<span className="bms-simulation">模拟数据</span>}</div><div className="bms-status-grid"><div><span>网站数据连接</span><b>{state.websiteConnected?'已连通':'未连通'}</b></div><div><span>采集端心跳</span><b>{online?'在线':'未在线'}</b><small>{experimentTime(device?.lastHeartbeatAt)}</small></div><div><span>观看租约</span><b>{state.lease?'已建立':'未建立'}</b><small>{experimentTime(state.lease?.expiresAt)}</small></div><div><span>最后快照组装时间</span><b>{experimentTime(last?.snapshot.capturedUtc)}</b><small>逐点时间见测点卡片</small></div></div><p>心跳不证明采集正常；每点超过30秒自动标旧数据。通常等待下一次心跳，约15秒加网络耗时。</p></section>
-        {last&&Math.abs(Date.parse(last.snapshot.capturedUtc)-Date.parse(last.receivedAt))>60000&&<p className="bms-warning">采集机与服务器时间可能有偏差，请核对系统时钟。逐点时间保留原值。</p>}
-      </>}
-      <div className="experiment-group-links" aria-label="测点分组">{groups.map(g=><a key={g} href={`#experiment-${g}`}>{g} · {experimentCatalog.points.filter(p=>p.metadata.Group===g).length}</a>)}</div>
-      {groups.map(group=><section key={group} id={`experiment-${group}`} className="experiment-group"><h2>{group} <small>{experimentCatalog.points.filter(p=>p.metadata.Group===group).length} 个测点</small></h2><div className="experiment-point-grid">{experimentCatalog.points.filter(p=>p.metadata.Group===group).map(def=>{const sample=state.samples[`${state.source}/${def.equipmentId}`],point=sample?.snapshot.points.find(p=>p.id===def.id),view=pointStatus(point,mono);return <article key={`${def.equipmentId}/${def.id}`} className={`experiment-point ${view.good?'':'is-muted'}`} data-point-id={def.id}><header><h3>{def.metadata.Label}</h3><code>{def.id}</code></header><div className="experiment-point-value"><strong>{view.value}</strong><span>{point?.unit??def.metadata.Unit}</span></div><p className={view.good?'experiment-quality':'experiment-quality is-warning'}>{view.label}{!def.metadata.ScaleConfirmed&&<span> · 倍率待核准</span>}</p><small>{def.equipmentId} · 站号 {def.slave} · {state.source==='serial'?'串口实测':'模拟数据'}</small><p className="experiment-point-time">观测：{experimentTime(point?.observedUtc)}</p>{point&&<details><summary>原始值与寄存器信息</summary><p>原始值：{point.rawValue===null?'—':String(point.rawValue)}；客户端显示：{point.displayValue||'—'}</p><p>质量码：{point.quality}；轮次：{point.acquisitionRound}；配置：{point.configVersion}</p><p>接收：{experimentTime(point.receivedAt)}；零基地址：{def.addressZeroBased}；寄存器数：{def.registerCount}；解码：{point.decodeMode}</p>{view.stale&&<p>历史观测值：{point.value===null?(point.displayValue||'—'):String(point.value)}（旧数据）</p>}</details>}</article>;})}</div></section>)}
-      <section className="experiment-trend"><label>短趋势测点<select value={state.selection} onChange={e=>{store.setState({selection:e.target.value,trend:[]});void controller.current.refreshTrend();}}>{experimentCatalog.points.filter(p=>!device||device.allowedEquipment?.includes(p.equipmentId)).map(p=><option key={`${p.equipmentId}/${p.id}`} value={`${p.equipmentId}/${p.id}`}>{p.equipmentId} · {p.id} · {p.metadata.Label}</option>)}</select></label>{!selected.metadata.ScaleConfirmed&&<p className="bms-warning">倍率待核准：曲线使用客户端工程值，未做二次换算。</p>}<BmsTrendChart title={`${selected.metadata.Label} · ${selected.id}`} unit={selectedUnit.split(' · ')[0]} color="#0891b2" localTime points={state.trend.map(p=>({capturedUtc:p.observedUtc,value:p.unit===selectedUnit?p.value:null}))}/><p>曲线按逐点 observedUtc 绘制；失败和未知质量为断点，实测与模拟、连接会话分开。最多600条/10分钟，另受采集源与模块总量限制。</p></section>
-      <footer className="bms-footer"><span>完整记录、串口配置和 Excel/CSV 导出由本地客户端负责。网页不控制 PLC。</span>{state.identity?.role==='admin'&&device&&<div>{clear?<><span>清理当前实验源的短缓存？</span><button onClick={async()=>{try{await experimentApi.clear(device.deviceId);store.getState().clearData();setClear(false);}catch(e){store.setState({error:(e as Error).message});}}}>确认清理</button><button onClick={()=>setClear(false)}>取消</button></>:<button onClick={()=>setClear(true)}>清理实验短缓存</button>}</div>}</footer>
-    </div></main>;
-}
 
-export interface ExperimentRealtimePageProps { embedded?:boolean; identity?:BmsIdentity; device?:BmsDevice|null; source?:'serial'|'simulation'; autostart?:boolean; pageId?:string; onUnauthorized?:()=>void }
-export function ExperimentRealtimePage(props:ExperimentRealtimePageProps={}){
-  if(props.embedded&&props.identity)return <ExperimentMonitoringPanel identity={props.identity} device={props.device??null} source={props.source} pageId={props.pageId??'legacy-monitor'} autostart={props.autostart} onUnauthorized={props.onUnauthorized}/>;
-  return <ExperimentRealtimeLegacyPage/>;
+const groups = ['温度', '实验电表', '市电', '太阳能', '运行状态', '诊断'];
+export interface ExperimentRealtimePageProps {
+  embedded?: boolean; identity?: BmsIdentity; device?: BmsDevice | null; autostart?: boolean; pageId?: string;
+  onUnauthorized?: () => void; onPermissionRevoked?: (deviceId: string) => void;
+}
+export function ExperimentRealtimePage(props: ExperimentRealtimePageProps = {}) {
+  if (!props.identity || !props.device) return <Navigate to="/monitoring?view=devices&module=experiment" replace />;
+  return <ExperimentObservation {...props} identity={props.identity} device={props.device} />;
+}
+function ExperimentObservation({ identity, device, autostart, pageId, onUnauthorized, onPermissionRevoked }: ExperimentRealtimePageProps & { identity: BmsIdentity; device: BmsDevice }) {
+  const state = store(), controller = useRef(new ExperimentRealtimeController()), resume = useRef(false), initialized = useRef(false);
+  const [now, setNow] = useState(Date.now()), [mono, setMono] = useState(performance.now()), [clearing, setClearing] = useState(false);
+  const currentDevice = state.devices.find(d => d.deviceId === device.deviceId) ?? device;
+  const online = !!currentDevice.online && !!currentDevice.lastHeartbeatAt && now - Date.parse(currentDevice.lastHeartbeatAt) < 45000;
+  const watching = ['connecting', 'watching', 'reconnecting'].includes(state.phase);
+  const samples = latestExperimentSamples(Object.values(state.samples)).filter(s => now - Date.parse(s.receivedAt) < 3600000);
+  const byEquipment = new Map(samples.map(sample => [sample.snapshot.equipmentId, sample]));
+  const goodCount = samples.flatMap(s => s.snapshot.points).filter(p => pointStatus(p, mono).good).length;
+  const includesSimulation = samples.some(s => s.snapshot.source === 'simulation');
+  const definitions = experimentCatalog.points.filter(p => device.allowedEquipment?.includes(p.equipmentId));
+  const selected = definitions.find(p => `${p.equipmentId}/${p.id}` === state.selection) ?? definitions[0];
+  const last = samples.reduce<(typeof samples)[number] | undefined>((previous, sample) => !previous || sample.acceptedOrder > previous.acceptedOrder ? sample : previous, undefined);
+
+  useEffect(() => {
+    controller.current.setPermissionRevokedHandler(onPermissionRevoked);
+    return () => controller.current.setPermissionRevokedHandler(undefined);
+  }, [onPermissionRevoked]);
+  useEffect(() => {
+    if (initialized.current && state.phase === 'unauthorized' && !state.identity) onUnauthorized?.();
+  }, [state.identity, state.phase, onUnauthorized]);
+  useEffect(() => {
+    const current = controller.current, old = store.getState();
+    initialized.current = true;
+    if (old.deviceId !== device.deviceId || old.identity?.username !== identity.username) old.clearData();
+    const first = experimentCatalog.points.find(p => device.allowedEquipment?.includes(p.equipmentId));
+    store.setState({ identity, devices: [device], deviceId: device.deviceId, error: '', selection: device.allowedEquipment?.includes(old.selection.split('/')[0]) ? old.selection : first ? `${first.equipmentId}/${first.id}` : 'PLC/T0' });
+    resume.current = !!autostart && document.hidden;
+    if (autostart && !document.hidden) void current.start(pageId);
+    const timer = setInterval(() => { setNow(Date.now()); setMono(performance.now()); }, 1000);
+    const visibility = () => {
+      if (document.hidden) {
+        resume.current = ['connecting', 'watching', 'reconnecting'].includes(store.getState().phase);
+        if (resume.current) current.stop('paused');
+      } else if (resume.current) { resume.current = false; void current.start(pageId); }
+    };
+    document.addEventListener('visibilitychange', visibility);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', visibility); resume.current = false; current.stop(); };
+  }, [device.deviceId, identity.username, autostart, pageId]);
+
+  const trend = (definition: typeof experimentCatalog.points[number]) => {
+    const selection = `${definition.equipmentId}/${definition.id}`;
+    const unit = byEquipment.get(definition.equipmentId)?.snapshot.points.find(p => p.id === definition.id)?.unit ?? definition.metadata.Unit;
+    const points = state.trendByPoint[experimentTrendKey(device.deviceId, selection)] ?? [];
+    return <MonitoringTrendChart title={`${definition.metadata.Label} · ${definition.id}`} unit={unit} series={buildExperimentTrendLines(selection, unit, points)} />;
+  };
+  const status = state.phase === 'paused' ? '观看已暂停' : state.phase === 'unauthorized' ? '观看权限失效' : state.phase === 'reconnecting' ? '网站连接中断，正在重连' : state.phase === 'connecting' ? '正在建立观看' : !watching ? '未连接观看' : !online ? '本地程序未在线 / 等待本地程序' : `当前有 ${goodCount} 个有效观测点`;
+  return <section className="experiment-page" aria-label="实验设备实时观测">
+    <p className="bms-notice">只读观测 · 本地程序负责采集与记录，网页不控制设备。心跳在线不代表采集正常。</p>
+    {state.error && <p className="bms-error" role="alert">{state.error}</p>}
+    <section className="bms-toolbar" aria-label="实验观看设置">
+      {watching ? <button onClick={() => { resume.current = false; controller.current.stop(); }}>暂停观测</button> : <button className="bms-primary" disabled={state.phase === 'unauthorized'} onClick={() => void controller.current.start(pageId)}>开始观测</button>}
+    </section>
+    <section className={`bms-status ${online && watching && goodCount ? 'is-fresh' : ''}`} aria-live="polite">
+      <div className="bms-status-title"><strong>{status}</strong>{includesSimulation && <span className="bms-simulation">包含模拟数据</span>}</div>
+      <div className="bms-status-grid"><div><span>网站数据连接</span><b>{state.websiteConnected ? '已连通' : '未连通'}</b></div><div><span>采集端心跳</span><b>{online ? '在线' : '未在线'}</b><small>{experimentTime(currentDevice.lastHeartbeatAt)}</small></div><div><span>观看租约</span><b>{state.lease ? '已建立' : '未建立'}</b><small>{experimentTime(state.lease?.expiresAt)}</small></div><div><span>最后快照组装时间</span><b>{experimentTime(last?.snapshot.capturedUtc)}</b><small>逐点时间见测点卡片</small></div></div>
+      <p>逐仪器自动跟随最新来源。每点超过30秒标旧数据；通常等待下一次心跳，约15秒加网络耗时。</p>
+      {samples.map(sample => <p key={sample.snapshot.equipmentId}>{sample.snapshot.equipmentId}：{sourceLabel(sample.snapshot.source)}</p>)}
+    </section>
+    {last && Math.abs(Date.parse(last.snapshot.capturedUtc) - Date.parse(last.receivedAt)) > 60000 && <p className="bms-warning">采集机与服务器时间可能有偏差，请核对系统时钟。</p>}
+    <div className="experiment-group-links" aria-label="测点分组">{groups.filter(group => definitions.some(p => p.metadata.Group === group)).map(group => <a key={group} href={`#experiment-${group}`}>{group}</a>)}</div>
+    <section className="bms-trends" aria-label="温度与太阳能趋势">{definitions.filter(p => p.metadata.Group === '温度' || p.metadata.Group === '太阳能').map(def => <div key={`${def.equipmentId}/${def.id}`}>{trend(def)}</div>)}</section>
+    {groups.filter(group => definitions.some(p => p.metadata.Group === group)).map(group => <section key={group} id={`experiment-${group}`} className="experiment-group">
+      <h2>{group}</h2><div className="experiment-point-grid">{definitions.filter(p => p.metadata.Group === group).map(def => {
+        const sample = byEquipment.get(def.equipmentId), point = sample?.snapshot.points.find(p => p.id === def.id), view = pointStatus(point, mono);
+        const history = sample && state.lastGoodByPoint[`${sample.snapshot.source}/${def.equipmentId}/${def.id}`];
+        return <article key={`${def.equipmentId}/${def.id}`} className={`experiment-point ${view.good ? '' : 'is-muted'}`} data-point-id={def.id}>
+          <header><h3>{def.metadata.Label}</h3><code>{def.id}</code></header>
+          <div className="experiment-point-value"><strong>{view.value}</strong><span>{point?.unit ?? def.metadata.Unit}</span></div>
+          <p className={view.good ? 'experiment-quality' : 'experiment-quality is-warning'}>{view.label}{!def.metadata.ScaleConfirmed && <span> · 倍率待核准</span>}</p>
+          <small>{def.equipmentId} · 站号 {def.slave} · {sourceLabel(sample?.snapshot.source)}</small>
+          <p className="experiment-point-time">观测：{experimentTime(point?.observedUtc)}</p>
+          {!view.good && history && <p>最后有效历史值：{history.value ?? history.displayValue} {history.unit} · {sourceLabel(sample?.snapshot.source)} · {experimentTime(history.observedUtc)}（非当前读数）</p>}
+          {point && <details><summary>原始值与寄存器信息</summary><p>原始值：{point.rawValue ?? '—'}；客户端显示：{point.displayValue || '—'}</p><p>质量：{point.quality}；轮次：{point.acquisitionRound}；配置：{point.configVersion}</p><p>接收：{experimentTime(point.receivedAt)}；零基地址：{def.addressZeroBased}；寄存器数：{def.registerCount}；解码：{point.decodeMode}</p>{view.stale && <p>历史观测值：{point.value ?? point.displayValue} {point.unit}（旧数据，非当前读数）</p>}</details>}
+        </article>;
+      })}</div>
+    </section>)}
+    {selected && <section className="experiment-trend"><label>短趋势测点<select value={`${selected.equipmentId}/${selected.id}`} onChange={event => { const selection = event.target.value; store.setState({ selection, trend: state.trendByPoint[experimentTrendKey(device.deviceId, selection)] ?? [] }); void controller.current.refreshTrend(); }}>{definitions.map(p => <option key={`${p.equipmentId}/${p.id}`} value={`${p.equipmentId}/${p.id}`}>{p.equipmentId} · {p.id} · {p.metadata.Label}</option>)}</select></label>{trend(selected)}<p>完整保留最近一小时；曲线按逐点时间绘制，来源、会话、失败和数据空档为断点，倍率不重复转换。</p></section>}
+    <footer className="bms-footer"><span>完整记录、串口配置和导出由本地客户端负责。</span>{state.capacityWarning && <span className="bms-warning">缓存容量不足，新观测已被拒绝；已有历史仍保留。</span>}{identity.role === 'admin' && (clearing ? <div><span>清理当前设备的短缓存？</span><button onClick={async () => { try { await experimentApi.clear(device.deviceId); store.getState().clearData(); setClearing(false); } catch (error) { store.setState({ error: (error as Error).message }); } }}>确认清理</button><button onClick={() => setClearing(false)}>取消</button></div> : <button onClick={() => setClearing(true)}>清理设备短缓存</button>)}</footer>
+  </section>;
 }

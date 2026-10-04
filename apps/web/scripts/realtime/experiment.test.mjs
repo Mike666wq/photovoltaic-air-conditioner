@@ -48,10 +48,11 @@ test('真实零、RAW null、失败、未知质量和过期均保留；失败/�
 });
 test('新连接会话可重启序列并保留session独立旧趋势；退役会话拒绝迟到包',async(t)=>{const h=await harness(t),user=await h.login();await h.start(user);const lease=(await h.beat()).body;await h.send(lease,snapshot('PLC',100));const next=snapshot('PLC',1,{connectionSessionId:'new-connection',acquisitionSessionId:'new-acquisition',capturedUtc:'2026-10-03T08:00:00.1000000Z'});next.points=next.points.map(p=>({...p,observedUtc:'2026-10-03T08:00:00.1000000Z',acquisitionRound:2}));assert.equal((await h.send(lease,next)).status,200);assert.equal((await h.send(lease,snapshot('PLC',101))).body.error.code,'SESSION_RETIRED');assert.equal((await h.send(lease,{...next,sequence:2,acquisitionSessionId:'wrong-acquisition'})).status,409);assert.equal((await user.call('/api/experiment/devices/experiment-fixture/trend?equipmentId=PLC&pointId=T1&source=serial')).body.points.length,2);
 });
-test('拒绝未知地址/测点、越权、错误schema及正文超限；默认禁止模拟',async(t)=>{const h=await harness(t),user=await h.login();await h.start(user);const lease=(await h.beat()).body;
+test('拒绝未知地址/测点、越权、错误source/schema及正文超限；旧模拟许可字段不阻断',async(t)=>{const h=await harness(t),user=await h.login();await h.start(user);const lease=(await h.beat()).body;
  for(const patch of [{slave:99},{equipmentId:'plc'},{points:[]},{points:[{...snapshot().points[0],id:'unbound'}]},{points:[{...snapshot().points[0],addressZeroBased:999}]},{points:[{...snapshot().points[0],quality:'error',value:1}]}])assert([400,403].includes((await h.send(lease,snapshot('PLC',1,patch))).status));
- assert.equal((await h.send(lease,snapshot('PLC',1,{schemaVersion:2}))).status,422);assert.equal((await h.call('/api/experiment/snapshots','POST',{padding:'x'.repeat(65537)},{Authorization:'Bearer '+token})).status,413);
- h.config.devices.find(d=>d.deviceId===expDevice.deviceId).allowSimulation=false;assert.equal((await h.send(lease,snapshot('PLC',1,{source:'simulation'}))).status,403);
+ assert.equal((await h.send(lease,snapshot('PLC',1,{schemaVersion:2}))).status,422);assert.equal((await h.send(lease,snapshot('PLC',1,{source:'other'}))).status,400);assert.equal((await h.call('/api/experiment/snapshots','POST',{padding:'x'.repeat(65537)},{Authorization:'Bearer '+token})).status,413);
+ h.config.devices.find(d=>d.deviceId===expDevice.deviceId).allowSimulation=false;assert.equal((await h.send(lease,snapshot('PLC',1,{source:'simulation'}))).status,200);
+ const simulated=(await user.call('/api/experiment/devices/experiment-fixture/latest?source=simulation')).body.snapshots[0];assert.equal(simulated.snapshot.source,'simulation');assert.equal(typeof simulated.acceptedOrder,'number');
  const unauthorized=await h.login('viewer-fixture');assert.equal((await unauthorized.call('/api/experiment/viewers','POST',{deviceId:'bms-fixture',equipmentIds:['PLC']})).status,403);
 });
 test('停止观看、超时、注销撤销双模块租约；SSE只推送观看仪器并在结束时关闭',{timeout:5000},async(t)=>{const h=await harness(t),user=await h.login();const v=await h.start(user,['PLC']);await h.start(await h.login('viewer-fixture'),['DS666']);const lease=(await h.beat()).body;
@@ -73,4 +74,23 @@ test('一小时点预算不按旧600/4000/20000静默裁切，观测满一小时
  let mono=0;const devices=Array.from({length:6},(_,i)=>({...expDevice,deviceId:'budget-'+i})),state=new ExperimentState({devices,maxCachePoints:500000,maxCacheBytes:134217728,cacheMs:3600000,viewerMs:45000,maxViewers:4},{now:()=>mono,wall:()=>Date.parse('2026-10-03T08:00:00Z')+mono});
  for(const d of devices){state.createViewer(d.deviceId,d.deviceId,['PLC']);const lease=state.heartbeat(d.deviceId);for(let i=1;i<=300;i++){mono++;const s=snapshot('PLC',i,{deviceId:d.deviceId,capturedUtc:new Date(Date.parse('2026-10-03T08:00:00Z')+mono).toISOString()});s.points=s.points.map(p=>({...p,acquisitionRound:i,observedUtc:s.capturedUtc}));state.accept(d.deviceId,lease.subscriptionId,validateExperimentSnapshot({subscriptionId:lease.subscriptionId,snapshot:s},d));}}
  const rings=[...state.devices.values()].flatMap(d=>[...d.rings.values()]);assert(rings.every(r=>r.items.length-r.head===300));assert.equal(state.coordinator.status().usedPoints,6*300*18);mono+=3600001;state.sweep();assert([...state.devices.values()].every(d=>d.latest.size===0&&d.rings.size===0));assert.equal(state.coordinator.status().usedPoints,0);
+});
+
+test('实测→缺点模拟→实测不补旧点，完整历史及缺点期间来源段保留', async(t)=>{
+ const h=await harness(t),user=await h.login();await h.start(user);const lease=await h.beat();
+ const first=snapshot();assert.equal((await h.send(lease.body,first)).status,200);
+ const time1='2026-10-03T08:00:01Z',time2='2026-10-03T08:00:02Z';
+ const changed=(time,sequence,source,omitted)=>snapshot('PLC',sequence,{source,capturedUtc:time,points:first.points.filter(p=>p.id!==omitted).map(p=>({...p,observedUtc:time,acquisitionRound:sequence}))});
+ assert.equal((await h.send(lease.body,changed(time1,2,'simulation','T1'))).status,200);
+ let latest=(await user.call('/api/experiment/devices/experiment-fixture/latest')).body.snapshots.sort((a,b)=>b.acceptedOrder-a.acceptedOrder)[0];
+ assert.equal(latest.snapshot.source,'simulation');assert.ok(!latest.snapshot.points.some(p=>p.id==='T1'));
+ assert.equal((await h.send(lease.body,changed(time2,3,'serial','T1'))).status,200);
+ latest=(await user.call('/api/experiment/devices/experiment-fixture/latest')).body.snapshots.sort((a,b)=>b.acceptedOrder-a.acceptedOrder)[0];
+ assert.equal(latest.snapshot.source,'serial');assert.ok(!latest.snapshot.points.some(p=>p.id==='T1'));
+ assert.equal(latest.snapshot.points[0].receivedAt,'2026-10-03T08:00:00.000Z');
+ const time3='2026-10-03T08:00:03Z';assert.equal((await h.send(lease.body,changed(time3,4,'serial','no-omission'))).status,200);
+ const history=(await user.call('/api/experiment/devices/experiment-fixture/trend?equipmentId=PLC&pointId=T0')).body.points;
+ assert.deepEqual(history.map(p=>p.source),['serial','simulation','serial','serial']);assert.deepEqual(history.map(p=>p.sourceSegment),[0,1,2,2]);
+ const missing=(await user.call('/api/experiment/devices/experiment-fixture/trend?equipmentId=PLC&pointId=T1')).body.points;
+ assert.deepEqual(missing.map(p=>p.sourceSegment),[0,2]);
 });

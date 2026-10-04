@@ -27,7 +27,6 @@ function clockHarness(options = {}) {
     ...options.config,
   };
   const coordinator = new CacheCoordinator(config, clocks);
-  coordinator.setBindings({ bmsDeviceId: bmsDevice.deviceId, experimentDeviceId: experimentDevice.deviceId });
   const bms = new RealtimeState({ ...config, coordinator, devices: [bmsDevice] }, clocks);
   const experiment = new ExperimentState({ ...config, coordinator, devices: [experimentDevice] }, clocks);
   return {
@@ -152,7 +151,7 @@ test('观看结束后无观看心跳不发租约，缓存由单调观测TTL保�
   assert.equal(h.coordinator.status().usedPoints, 0);
 });
 
-test('一个绑定设备持续观看时，系统绑定的另一个设备缓存仍处在系统保留期', () => {
+test('每台设备只按自己的观看保留历史，另一设备持续观看不会延长其TTL', () => {
   const h = clockHarness();
   const exp = startExperiment(h.experiment);
   acceptExperiment(h, exp.lease, 1, [expPoint('T1')]);
@@ -165,7 +164,61 @@ test('一个绑定设备持续观看时，系统绑定的另一个设备缓存�
     h.bms.heartbeat(bmsDevice.deviceId);
     h.experiment.sweep();
   }
-  assert.equal(h.coordinator.retained(experimentDevice.deviceId, h.mono), true);
+  assert.equal(h.coordinator.retained(bmsDevice.deviceId, h.mono), true);
+  assert.equal(h.coordinator.retained(experimentDevice.deviceId, h.mono), false);
+  assert.equal(h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots.length, 0);
+});
+
+test('BMS和实验来源的最新样本以全局acceptedOrder区分同毫秒到达顺序', () => {
+  const h = clockHarness();
+  const bms = startBms(h.bms);
+  acceptBms(h, bms.lease, { sequence: 1, source: 'serial', capturedUtc: new Date(h.wall).toISOString() });
+  acceptBms(h, bms.lease, { sequence: 1, source: 'simulation', capturedUtc: new Date(h.wall).toISOString() });
+  let bmsSamples = h.bms.latest(bmsDevice.deviceId, [1]).packs;
+  const bmsSerialOrder = bmsSamples.find(item => item.snapshot.source === 'serial').acceptedOrder;
+  const bmsSimulationOrder = bmsSamples.find(item => item.snapshot.source === 'simulation').acceptedOrder;
+  assert(bmsSimulationOrder > bmsSerialOrder);
+  const bmsTrend = h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 10);
+  assert.deepEqual([...new Set(bmsTrend.points.map(point => point.source))].sort(), ['serial', 'simulation']);
+  assert(bmsTrend.points.every(point => point.connectionSessionId === 'bms-session-a'));
+  assert.deepEqual(acceptBms(h, bms.lease, { sequence: 1, source: 'simulation', capturedUtc: new Date(h.wall).toISOString() }), { accepted: true });
+  bmsSamples = h.bms.latest(bmsDevice.deviceId, [1]).packs;
+  assert.equal(bmsSamples.find(item => item.snapshot.source === 'simulation').acceptedOrder, bmsSimulationOrder);
+  const newerSerial = acceptBms(h, bms.lease, { sequence: 3, source: 'serial', capturedUtc: new Date(h.wall).toISOString() });
+  const newerSerialOrder = h.bms.latest(bmsDevice.deviceId, [1]).packs.find(item => item.snapshot.source === 'serial').acceptedOrder;
+  assert(newerSerialOrder > bmsSimulationOrder);
+  assert.deepEqual(acceptBms(h, bms.lease, { sequence: 2, source: 'serial', capturedUtc: new Date(h.wall).toISOString() }), { accepted: true });
+  assert.equal(h.bms.latest(bmsDevice.deviceId, [1]).packs.find(item => item.snapshot.source === 'serial').acceptedOrder, newerSerialOrder);
+  assert.deepEqual(newerSerial, { accepted: true });
+
+  const exp = startExperiment(h.experiment);
+  const base = expSnapshot(1, [expPoint('T1')], { source: 'serial' }, h.wall);
+  h.experiment.accept(experimentDevice.deviceId, exp.lease.subscriptionId, base);
+  const simulation = expSnapshot(1, [expPoint('T1', { acquisitionRound: 2 })], { source: 'simulation' }, h.wall);
+  h.experiment.accept(experimentDevice.deviceId, exp.lease.subscriptionId, simulation);
+  const expSamples = h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots;
+  const expSerialOrder = expSamples.find(item => item.snapshot.source === 'serial').acceptedOrder;
+  const expSimulationOrder = expSamples.find(item => item.snapshot.source === 'simulation').acceptedOrder;
+  assert(expSimulationOrder > expSerialOrder);
+  const expTrend = h.experiment.trend(experimentDevice.deviceId, 'PLC', 'T1', null, 10);
+  assert.deepEqual([...new Set(expTrend.points.map(point => point.source))].sort(), ['serial', 'simulation']);
+  assert(expTrend.points.every(point => point.equipmentId === 'PLC' && point.connectionSessionId === 'exp-connection-a'));
+  h.experiment.accept(experimentDevice.deviceId, exp.lease.subscriptionId, simulation);
+  assert.equal(h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots.find(item => item.snapshot.source === 'simulation').acceptedOrder, expSimulationOrder);
+  const newerSimulation = expSnapshot(3, [expPoint('T1', { acquisitionRound: 3, observedUtc: new Date(h.wall + 1000).toISOString() })], { source: 'simulation', capturedUtc: new Date(h.wall + 1000).toISOString() }, h.wall + 1000);
+  assert.deepEqual(h.experiment.accept(experimentDevice.deviceId, exp.lease.subscriptionId, newerSimulation), { accepted: true });
+  const newerSimulationOrder = h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots.find(item => item.snapshot.source === 'simulation').acceptedOrder;
+  assert(newerSimulationOrder > expSimulationOrder);
+  assert.deepEqual(h.experiment.accept(experimentDevice.deviceId, exp.lease.subscriptionId, simulation), { accepted: true });
+  assert.equal(h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots.find(item => item.snapshot.source === 'simulation').acceptedOrder, newerSimulationOrder);
+
+  h.bms.release(bms.viewer.viewerId, bms.owner); h.experiment.release(exp.viewer.viewerId, exp.owner);
+  h.advance(HOUR - 1);
+  assert.equal(h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 10).points.length, 3);
+  assert.equal(h.experiment.trend(experimentDevice.deviceId, 'PLC', 'T1', null, 10).points.length, 3);
+  h.advance(1);
+  assert.equal(h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 10).points.length, 0);
+  assert.equal(h.experiment.trend(experimentDevice.deviceId, 'PLC', 'T1', null, 10).points.length, 0);
 });
 
 test('趋势游标按稳定序号分页2000点，过期前缀不会造成缺页或重复', () => {
@@ -240,6 +293,7 @@ test('共享容量失败不提交快照、水位或新会话；修复容量后�
   const oldSession = device.currentSession;
   const oldSeen = device.sessionSeen;
   const oldWatermark = device.watermarks.get('exp-connection-a/serial/PLC');
+  const nextAcceptedOrder = h.coordinator.nextAcceptedOrder;
   const attempted = expPoint('T0', { observedUtc: new Date(h.wall).toISOString(), acquisitionRound: 2 });
   const second = expSnapshot(1, [attempted], { connectionSessionId: 'exp-connection-b', acquisitionSessionId: 'exp-acquisition-b' }, h.wall);
 
@@ -247,6 +301,7 @@ test('共享容量失败不提交快照、水位或新会话；修复容量后�
   assert.equal(device.currentSession, oldSession);
   assert.equal(device.sessionSeen, oldSeen);
   assert.equal(device.watermarks.get('exp-connection-a/serial/PLC'), oldWatermark);
+  assert.equal(h.coordinator.nextAcceptedOrder, nextAcceptedOrder);
   assert.equal(device.watermarks.has(`exp-connection-b/serial/PLC`), false);
   assert.deepEqual(h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots[0].snapshot, before.snapshot);
   assert.equal(h.coordinator.status().usedPoints, 1);

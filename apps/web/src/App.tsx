@@ -7,9 +7,8 @@ const loadAnalysisDashboard = () => import('./pages/AnalysisDashboardPage');
 const AnalysisDashboardPage = lazy(async () => ({
   default: (await loadAnalysisDashboard()).AnalysisDashboardPage,
 }));
-const BmsRealtimePage = lazy(async () => ({ default: (await import('./pages/BmsRealtimePage')).BmsRealtimePage }));
-const ExperimentRealtimePage = lazy(() => import('./pages/ExperimentRealtimePage').then(m => ({ default: m.ExperimentRealtimePage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
+const MonitoringDevicePage = lazy(() => import('./pages/MonitoringDevicePage').then(m => ({ default: m.MonitoringDevicePage })));
 const BmsManagePage = lazy(async () => ({ default: (await import('./pages/BmsManagePage')).BmsManagePage }));
 
 export function App() {
@@ -30,11 +29,12 @@ export function App() {
       <Routes>
         <Route path="/" element={<SchematicPage />} />
         <Route path="/analysis" element={<Suspense fallback={<div className="app-loading">正在加载数据分析大屏…</div>}><AnalysisDashboardPage /></Suspense>} />
-        <Route path="/bms/realtime" element={<Suspense fallback={<div className="app-loading">正在加载BMS实时监测…</div>}><BmsRealtimePage /></Suspense>} />
+        <Route path="/bms/realtime" element={<Navigate to="/monitoring?view=devices&module=bms" replace />} />
         <Route path="/monitoring" element={<Suspense fallback={<div className="app-loading">正在加载云端监控…</div>}><MonitoringPage /></Suspense>} />
-        <Route path="/experiment/realtime" element={<Suspense fallback={<div className="app-loading">正在加载系统实验监控…</div>}><ExperimentRealtimePage /></Suspense>} />
+        <Route path="/monitoring/devices/:deviceId" element={<Suspense fallback={<div className="app-loading">正在加载设备观测…</div>}><MonitoringDevicePage /></Suspense>} />
+        <Route path="/experiment/realtime" element={<Navigate to="/monitoring?view=devices&module=experiment" replace />} />
         <Route path="/monitoring/manage" element={<Suspense fallback={<div className="app-loading">正在加载设备管理…</div>}><BmsManagePage /></Suspense>} />
-        <Route path="/bms/manage" element={<Suspense fallback={<div className="app-loading">正在加载设备注册与接入…</div>}><BmsManagePage /></Suspense>} />
+        <Route path="/bms/manage" element={<Navigate to="/monitoring/manage" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       {/* ToastContainer 提到路由外层：此前只挂在原理图页，大屏调用 useToastStore 会静默无效 */}

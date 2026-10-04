@@ -24,7 +24,6 @@ export async function registerDevice(registry, body) {
     assert(!next.devices.some((d) => d.deviceId === body.deviceId), 409, 'DEVICE_EXISTS', '设备编号已注册，请核对设备或使用令牌轮换');
     assert(next.devices.length < (registry.config.maxDevices ?? 20), 409, 'DEVICE_LIMIT', '已注册设备数达到上限');
     next.devices.push({ deviceId: body.deviceId, alias: body.alias.trim(), module, ...permissions, deviceTokenHash: tokenHash(deviceToken), allowSimulation: body.allowSimulation ?? false, displayTimeZone: 'Asia/Shanghai' });
-    for (const user of next.users) if (user.role === 'admin') user.devices.push(body.deviceId);
     return { deviceId: body.deviceId, deviceToken };
   });
 }
@@ -32,15 +31,15 @@ export async function registerUser(registry, body) {
   accountInput(body);
   assert(body.role == null || body.role === 'viewer', 403, 'ROLE_FORBIDDEN', '此入口只创建观看账户');
   assert(Array.isArray(body.devices) && body.devices.length <= 100 && body.devices.every((id) => typeof id === 'string'), 400, 'DEVICE_PERMISSION_INVALID', '设备授权列表无效');
-  assert(body.monitoringAccess == null || typeof body.monitoringAccess === 'boolean', 400, 'MONITORING_PERMISSION_INVALID', '整体监控授权无效');
+  assert(body.monitoringAccess == null || body.monitoringAccess === false, 400, 'MONITORING_PERMISSION_INVALID', '新账户不支持整体监控授权');
   const hash = await passwordHash(body.password);
   return registry.mutate((next) => {
     assert(!next.users.some((u) => u.username === body.username), 409, 'USER_EXISTS', '用户名已存在');
     assert(next.users.length < 100, 409, 'USER_LIMIT', '注册账户数达到上限');
     const devices = [...new Set(body.devices)];
     assert(devices.every((id) => next.devices.some((d) => d.deviceId === id)), 400, 'DEVICE_PERMISSION_INVALID', '授权设备不存在');
-    next.users.push({ username: body.username, passwordHash: hash, role: 'viewer', devices, monitoringAccess: body.monitoringAccess ?? false, disabled: false });
-    return { username: body.username, role: 'viewer', devices };
+    next.users.push({ username: body.username, passwordHash: hash, role: 'viewer', devices, monitoringAccess: false, disabled: false });
+    return { username: body.username, role: 'viewer', devices, monitoringAccess: false };
   });
 }
 export function rotateDevice(registry, deviceId, body) {
@@ -65,7 +64,7 @@ export function deleteDevice(registry, deviceId, body) {
 
 export function updateUserDevices(registry, username, body) {
   assert(Array.isArray(body.devices)&&body.devices.length<=100&&body.devices.every(id=>typeof id==='string'),400,'DEVICE_PERMISSION_INVALID','授权设备列表无效');
-  return registry.mutate(next=>{const user=next.users.find(u=>u.username===username);assert(user,404,'USER_NOT_FOUND','账户不存在');assert((user.role??'viewer')==='viewer',403,'ROLE_FORBIDDEN','此入口只修改观看账户授权');const ids=[...new Set(body.devices)];assert(ids.every(id=>next.devices.some(d=>d.deviceId===id)),400,'DEVICE_PERMISSION_INVALID','设备不存在');user.devices=ids;});
+  return registry.mutate(next=>{const user=next.users.find(u=>u.username===username);assert(user,404,'USER_NOT_FOUND','账户不存在');assert((user.role??'viewer')==='viewer',403,'ROLE_FORBIDDEN','此入口只修改观看账户授权');const ids=[...new Set(body.devices)];assert(ids.every(id=>next.devices.some(d=>d.deviceId===id)),400,'DEVICE_PERMISSION_INVALID','设备不存在');user.devices=ids;user.monitoringAccess=false;});
 }
 
 export function updateSystem(registry, body) {
@@ -82,11 +81,21 @@ export function updateSystem(registry, body) {
 }
 
 export function updateUserMonitoring(registry, username, body) {
-  assert(object(body) && typeof body.monitoringAccess === 'boolean' && typeof body.disabled === 'boolean', 400, 'USER_ACCESS_INVALID', '账户整体权限或状态无效');
+  assert(object(body), 400, 'USER_ACCESS_INVALID', '账户权限或状态无效');
+  const deviceFormat = Array.isArray(body.devices) && typeof body.disabled === 'boolean' && (body.monitoringAccess == null || body.monitoringAccess === false);
+  const legacyFormat = typeof body.monitoringAccess === 'boolean' && typeof body.disabled === 'boolean' && !Object.hasOwn(body, 'devices');
+  assert(deviceFormat || legacyFormat, 400, 'USER_ACCESS_INVALID', '账户权限或状态无效');
   return registry.mutate((next) => {
     const user = next.users.find((u) => u.username === username); assert(user, 404, 'USER_NOT_FOUND', '账户不存在');
     assert((user.role ?? 'viewer') !== 'admin' || !body.disabled, 400, 'ADMIN_DISABLE_FORBIDDEN', '不能停用管理员账户');
-    user.monitoringAccess = body.monitoringAccess; user.disabled = body.disabled;
+    assert((user.role ?? 'viewer') === 'viewer' || (!deviceFormat && !body.disabled), 400, 'ROLE_FORBIDDEN', '此入口只修改观看账户');
+    if (deviceFormat) {
+      assert(body.devices.length <= 100 && body.devices.every(id => typeof id === 'string'), 400, 'DEVICE_PERMISSION_INVALID', '授权设备列表无效');
+      const ids = [...new Set(body.devices)];
+      assert(ids.every(id => next.devices.some(d => d.deviceId === id)), 400, 'DEVICE_PERMISSION_INVALID', '设备不存在');
+      user.devices = ids; user.monitoringAccess = false;
+    } else user.monitoringAccess = body.monitoringAccess;
+    user.disabled = body.disabled;
   });
 }
 

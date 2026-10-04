@@ -12,9 +12,8 @@ export class CacheCoordinator {
     this.pointBytes = 1024;
     this.now = clocks.now ?? (() => performance.now());
     this.entries = new Map(); this.heap = []; this.usedBytes = 0;
-    this.nextEntryId = 1;
-    this.watchers = new Map(); this.deviceRetainUntil = new Map(); this.systemRetainUntil = 0;
-    this.bindings = new Set(); this.listeners = new Set();
+    this.nextEntryId = 1; this.nextAcceptedOrder = 1;
+    this.watchers = new Map(); this.deviceRetainUntil = new Map(); this.listeners = new Set();
   }
   hash(value) { return createHash('sha256').update(value).digest('hex').slice(0, 32); }
   status() {
@@ -23,9 +22,7 @@ export class CacheCoordinator {
   changed() { const status = this.status(); for (const listener of this.listeners) listener(status); }
   onChange(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   hasKey(key) { return this.entries.has(key); }
-  setBindings(system = {}) {
-    this.bindings = new Set([system.bmsDeviceId, system.experimentDeviceId].filter(Boolean));
-  }
+  allocateAcceptedOrder() { return this.nextAcceptedOrder++; }
   _less(a, b) { return a.expiresAt < b.expiresAt || (a.expiresAt === b.expiresAt && a.key < b.key); }
   _push(node) {
     const heap = this.heap; heap.push(node); let i = heap.length - 1;
@@ -46,7 +43,6 @@ export class CacheCoordinator {
     for (const [id, w] of this.watchers) if (w.until <= now) { this.watchers.delete(id); expiredWatchers.set(w.deviceId, Math.max(expiredWatchers.get(w.deviceId) ?? 0, w.until)); }
     this._refreshRetention(now, expiredWatchers);
     for (const [id, until] of this.deviceRetainUntil) if (until <= now) this.deviceRetainUntil.delete(id);
-    if (this.systemRetainUntil <= now) this.systemRetainUntil = 0;
     if (changed) this.changed();
   }
   reserve(entries) {
@@ -79,13 +75,6 @@ export class CacheCoordinator {
   _refreshRetention(now, endedAt = new Map()) {
     const byDevice = new Map();
     for (const w of this.watchers.values()) if (w.until > now) byDevice.set(w.deviceId, Math.max(byDevice.get(w.deviceId) ?? 0, w.until));
-    const activeBound = [...this.bindings].map(id => byDevice.get(id) ?? 0).reduce((a, b) => Math.max(a, b), 0);
-    if (activeBound) this.systemRetainUntil = activeBound + this.ttlMs;
-    else if (this._systemWasActive) {
-      const lastEnd = [...this._wasActiveByDevice].filter(id => this.bindings.has(id)).map(id => endedAt.get(id) ?? now).reduce((a, b) => Math.max(a, b), 0);
-      this.systemRetainUntil = lastEnd + this.ttlMs;
-    }
-    this._systemWasActive = activeBound > 0;
     this._wasActiveByDevice ??= new Set();
     for (const id of new Set([...this._wasActiveByDevice, ...byDevice.keys()])) {
       const until = byDevice.get(id);
@@ -95,8 +84,7 @@ export class CacheCoordinator {
     this._wasActiveByDevice = new Set(byDevice.keys());
   }
   retained(deviceId, now = this.now()) {
-    const system = this.bindings.has(deviceId) ? this.systemRetainUntil : 0;
-    return Math.max(system, this.deviceRetainUntil.get(deviceId) ?? 0) > now;
+    return (this.deviceRetainUntil.get(deviceId) ?? 0) > now;
   }
   entryKey(deviceId, ...parts) { return `${deviceId}/${parts.join('/')}`; }
 }

@@ -75,10 +75,14 @@ test('重复幂等、跨Pack乱序、旧会话迟到与并发会话拒绝', asyn
   assert.equal((await h.send(next.lease.subscriptionId)).body.error.code,'SESSION_RETIRED');
 });
 test('401/403/409/422/400与字段边界，无越权设备', async (t) => {
-  const h=await harness(t); const {lease}=await viewing(h);
+  const h=await harness(t, { system: { name: 'legacy', bmsDeviceId: device.deviceId, experimentDeviceId: null, allowSimulation: false } }); const {lease}=await viewing(h);
   assert.equal((await h.call('/heartbeat','POST',{deviceId:device.deviceId,alias:''})).status,401); assert.equal((await h.call('/devices')).status,401);
   assert.equal((await h.call('/heartbeat','POST',{deviceId:'wrong',alias:''},h.deviceHeaders)).status,403);
-  for (const [patch,status] of [[{source:'simulation'},403],[{pack:2},403],[{address:3},403],[{schemaVersion:2},422],[{voltageCentivolts:'5331'},400],[{capturedUtc:'2026-02-30T00:00:00Z'},400],[{cellsMillivolts:Array(49).fill(3333)},400],[{temperaturesCelsius:Array(33).fill(20)},400]]) assert.equal((await h.send(lease.subscriptionId,sample(patch))).status,status);
+  for (const [patch,status] of [[{pack:2},403],[{address:3},403],[{schemaVersion:2},422],[{source:'invalid'},400],[{voltageCentivolts:'5331'},400],[{capturedUtc:'2026-02-30T00:00:00Z'},400],[{cellsMillivolts:Array(49).fill(3333)},400],[{temperaturesCelsius:Array(33).fill(20)},400]]) assert.equal((await h.send(lease.subscriptionId,sample(patch))).status,status);
+  assert.equal((await h.send(lease.subscriptionId,sample({source:'simulation',sequence:20}))).status,200); // device.allowSimulation=false不再阻断云端接收。
+  const latest=(await h.login('observer')).call;
+  const simulatedLatest=(await latest('/devices/lab-bms-01/latest?source=simulation')).body.packs[0];
+  assert.equal(simulatedLatest.snapshot.source,'simulation');assert.equal(typeof simulatedLatest.acceptedOrder,'number');
   assert.equal((await h.send('old-lease')).status,409);
   const other=await h.login('other'); assert.equal((await other.call('/devices')).body.devices.length,0); assert.equal((await other.call('/devices/lab-bms-01/latest')).status,403);
 });

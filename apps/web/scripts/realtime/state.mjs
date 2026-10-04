@@ -112,8 +112,8 @@ export class RealtimeState {
       d.currentSession = s.connectionSessionId;
     }
     d.sessionSeen = now; d.watermarks.set(watermarkKey, { sequence: s.sequence, mono: now });
-    if (expiresAt > now) {
-      const item = { snapshot: s, receivedAt: this.iso(), mono: now, expiresAt, entryId: entryIds.get(cacheKey), cacheKey };
+    if (expiresAt > now && entryIds.has(cacheKey)) {
+      const item = { snapshot: s, receivedAt: this.iso(), mono: now, expiresAt, entryId: entryIds.get(cacheKey), acceptedOrder: this.coordinator.allocateAcceptedOrder(), cacheKey };
       d.latest.set(channel, item);
       const ringKey = `${channel}/${s.connectionSessionId}`, ring = d.rings.get(ringKey) ?? { items: [], head: 0 };
       const compact = Object.fromEntries(['deviceId', 'source', 'address', 'pack', 'sequence', 'connectionSessionId', 'capturedUtc', 'voltageCentivolts', 'currentCentiamps', 'socPercent'].map(name => [name, s[name]]));
@@ -126,7 +126,7 @@ export class RealtimeState {
     const s = item.snapshot, d = this.device(s.deviceId);
     const staleMs = Math.min(this.config.cacheMs, Math.max(15000, (s.periodSeconds ?? 15) * 3000));
     const age = Math.max(0, this.wall() - Date.parse(s.capturedUtc), this.now() - item.mono);
-    return { snapshot: s, receivedAt: item.receivedAt, stale: !this.online(d) || age >= staleMs };
+    return { snapshot: s, receivedAt: item.receivedAt, stale: !this.online(d) || age >= staleMs, acceptedOrder: item.acceptedOrder };
   }
   latest(id, selected, source = null) {
     this.sweep(); const d = this.device(id);
