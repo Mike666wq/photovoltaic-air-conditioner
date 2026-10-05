@@ -1,6 +1,6 @@
 # Android 监控客户端
 
-Kotlin 原生 WebView；Android 10（API 29）以上，包名 `xyz.bbben.pvac.monitor`，固定入口 `https://pv-ac.bbben.xyz/monitoring`。
+Kotlin 原生 WebView；Android 10（API 29）以上，包名 `xyz.bbben.pvac.monitor`，固定入口 `https://pv-ac.bbben.xyz/`。
 
 ## 构建
 
@@ -29,3 +29,5 @@ Kotlin 原生 WebView；Android 10（API 29）以上，包名 `xyz.bbben.pvac.mo
 ## 待验收
 
 在具备 SDK 的环境运行 Debug／签名 Release 构建；Android 10 与较新 Android 真机验证旋转、登录持久化、后台租约恢复、系统返回与工具按钮、SAF 多选／取消／写入失败、站点外跳、证书失败、弱网重试，以及外站／子框架无法调用保存桥。客户端版本与网页部署版本分别展示，网页版本以页面页眉为准。
+
+完整功能demo默认原理图，第二行常驻原理图、数据分析、实时监控；模块使用SPA切换保留导入数据。

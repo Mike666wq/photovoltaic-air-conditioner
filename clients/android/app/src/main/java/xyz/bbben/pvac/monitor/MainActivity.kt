@@ -23,7 +23,7 @@ import org.json.JSONObject
 class MainActivity : ComponentActivity() {
     companion object {
         private const val ORIGIN = "https://pv-ac.bbben.xyz"
-        private const val HOME = "$ORIGIN/monitoring"
+        private const val HOME = "$ORIGIN/"
         private const val MAX_BYTES = 1024 * 1024
         private val MIME_TYPES = arrayOf("text/csv", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/pdf")
     }
@@ -65,10 +65,15 @@ class MainActivity : ComponentActivity() {
             insets
         }
         val tools = LinearLayout(this)
-        listOf("返回" to { goBack() }, "刷新" to { discardGuard { web.reload() } }, "监控" to { discardGuard { web.loadUrl(HOME) } }, "关于" to { about() }).forEach { (title, action) ->
+        listOf("返回" to { goBack() }, "刷新" to { discardGuard { web.reload() } }, "关于" to { about() }).forEach { (title, action) ->
             tools.addView(Button(this).apply { text = title; setOnClickListener { action() } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
         root.addView(tools)
+        val modules = LinearLayout(this)
+        listOf("原理图" to "/", "数据分析" to "/analysis", "实时监控" to "/monitoring").forEach { (title, path) ->
+            modules.addView(Button(this).apply { text = title; setOnClickListener { navigateModule(path) } }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        root.addView(modules)
         failure = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = android.view.View.GONE
@@ -131,6 +136,14 @@ class MainActivity : ComponentActivity() {
         }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() { goBack() } })
         web.loadUrl(HOME)
+    }
+
+    /** 固定模块使用SPA切换，避免整页加载清空导入数据；无需等待云端桥部署。 */
+    private fun navigateModule(path: String) {
+        if (path !in listOf("/", "/analysis", "/monitoring")) return
+        if (!trustedPage()) { discardGuard { web.loadUrl(ORIGIN + path) }; return }
+        val target = JSONObject.quote(path)
+        web.evaluateJavascript("(() => { if (location.pathname === $target && !location.search) return true; history.pushState({}, '', $target); window.dispatchEvent(new PopStateEvent('popstate')); return true; })()", null)
     }
 
     private fun trusted(uri: Uri): Boolean = uri.scheme == "https" && uri.host == "pv-ac.bbben.xyz" && (uri.port == -1 || uri.port == 443) && uri.userInfo == null

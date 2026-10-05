@@ -11,7 +11,7 @@ namespace PvAc.Client;
 internal sealed class MainForm : Form
 {
     private const string Origin = "https://pv-ac.bbben.xyz";
-    private const string Home = Origin + "/monitoring";
+    private const string Home = Origin + "/";
     private const string Downloads = "https://github.com/Mike666wq/photovoltaic-air-conditioner/releases";
     private const string RuntimeDownload = "https://developer.microsoft.com/microsoft-edge/webview2/#download-section";
     private readonly WebView2 browser = new() { Dock = DockStyle.Fill };
@@ -30,7 +30,9 @@ internal sealed class MainForm : Form
         Controls.Add(browser); Controls.Add(tools);
         AddButton("返回", async () => await Back());
         AddButton("刷新", async () => await NavigateGuarded(() => browser.Reload()));
-        AddButton("监控", async () => await NavigateGuarded(() => browser.CoreWebView2.Navigate(Home)));
+        AddButton("原理图", async () => await NavigateModule("/"));
+        AddButton("数据分析", async () => await NavigateModule("/analysis"));
+        AddButton("实时监控", async () => await NavigateModule("/monitoring"));
         AddButton("关于", () => {
             var assembly = Assembly.GetExecutingAssembly();
             var sha = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(x => x.Key == "BuildSha")?.Value;
@@ -147,6 +149,20 @@ internal sealed class MainForm : Form
         if (!ready || navigating) return;
         navigating = true;
         try { if (await DiscardAllowed("离开当前页面")) action(); }
+        finally { navigating = false; }
+    }
+
+    // 固定模块在当前SPA中切换，保留导入数据、登录与回放状态。
+    private async Task NavigateModule(string path)
+    {
+        if (!ready || navigating || saving || path is not ("/" or "/analysis" or "/monitoring")) return;
+        if (!Trusted(browser.CoreWebView2.Source)) { await NavigateGuarded(() => browser.CoreWebView2.Navigate(Origin + path)); return; }
+        navigating = true;
+        try
+        {
+            var target = JsonSerializer.Serialize(path);
+            await browser.CoreWebView2.ExecuteScriptAsync($"(() => {{ if (location.pathname === {target} && !location.search) return; history.pushState({{}}, '', {target}); window.dispatchEvent(new PopStateEvent('popstate')); }})()");
+        }
         finally { navigating = false; }
     }
 
