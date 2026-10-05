@@ -20,6 +20,24 @@ it('模拟期间缺失测点，返回实测仍通过来源段号断线；质量�
   expect(buildExperimentTrendLines('T1', 'W', points)[0].points.every(p => p.value === null)).toBe(true);
   expect(buildExperimentTrendLines('T1', '℃', [{ ...points[0], quality: 'timeout' }])[0].points[0].value).toBeNull();
 });
+it('实验趋势300秒间隔只保留实际点；来源、会话和实际null仍断线', () => {
+  const observations = [
+    { entryId: 1, observedUtc: new Date(0).toISOString(), value: 0, quality: 'good', unit: '℃', receivedAt: '', configVersion: 'c1', acquisitionRound: 1, connectionSessionId: 'session-a', source: 'serial' as const, equipmentId: 'PLC', sourceSegment: 0 },
+    { entryId: 2, observedUtc: new Date(300_000).toISOString(), value: 1, quality: 'good', unit: '℃', receivedAt: '', configVersion: 'c1', acquisitionRound: 2, connectionSessionId: 'session-a', source: 'serial' as const, equipmentId: 'PLC', sourceSegment: 0 },
+    { entryId: 3, observedUtc: new Date(600_000).toISOString(), value: 2, quality: 'good', unit: '℃', receivedAt: '', configVersion: 'c1', acquisitionRound: 3, connectionSessionId: 'session-b', source: 'serial' as const, equipmentId: 'PLC', sourceSegment: 0 },
+    { entryId: 4, observedUtc: new Date(900_000).toISOString(), value: null, quality: 'timeout', unit: '℃', receivedAt: '', configVersion: 'c1', acquisitionRound: 4, connectionSessionId: 'session-b', source: 'serial' as const, equipmentId: 'PLC', sourceSegment: 0 },
+    { entryId: 5, observedUtc: new Date(1_200_000).toISOString(), value: 4, quality: 'good', unit: '℃', receivedAt: '', configVersion: 'c1', acquisitionRound: 5, connectionSessionId: 'session-b', source: 'serial' as const, equipmentId: 'PLC', sourceSegment: 0 },
+  ];
+  const lines = buildExperimentTrendLines('T1', '℃', observations);
+  expect(lines[0].points.map(p => p.value)).toEqual([0, 1, 2, null, 4]);
+  expect(buildTrendSeries(lines, Infinity)[0].data).toEqual([
+    [0, 0], [300_000, 1], [600_000, null], [600_000, 2], [900_000, null], [1_200_000, 4],
+  ]);
+  const sourceSwitch = buildExperimentTrendLines('T1', '℃', [
+    observations[0], { ...observations[1], source: 'simulation' }, { ...observations[2], source: 'serial', connectionSessionId: 'session-a' },
+  ]);
+  expect(buildTrendSeries(sourceSwitch, Infinity)[0].data).toEqual([[0, 0], [600_000, null], [600_000, 2]]);
+});
 it('BMS图表封装到来源拆线再到共享构图器逐点保留采集周期', () => {
   const points = [0, 300_000, 600_000].map((time, i) => ({
     capturedUtc: new Date(time).toISOString(), value: 53 + i, periodSeconds: 300,

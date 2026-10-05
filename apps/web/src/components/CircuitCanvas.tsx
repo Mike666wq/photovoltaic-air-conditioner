@@ -514,7 +514,7 @@ function ComponentSlot({ comp, state, onClick, onDoubleClick, svgRef }: Componen
       data-component-id={comp.id}
       viewBox="0 0 240 240"
       preserveAspectRatio="xMidYMid meet"
-      onClick={isClickable ? (e) => {
+      onClick={isClickable || isDetailable ? (e) => {
         e.stopPropagation();
         onClick(comp.id, e);
       } : undefined}
@@ -763,6 +763,9 @@ export function CircuitCanvas() {
   const viewRef = useRef(view);
   viewRef.current = view;
   const fittedRef = useRef(false);
+  const touchGestureRef = useRef<{ startDistance: number; startView: typeof view; startPoint: Point; mode: 'pan' | 'pinch'; moved: boolean } | null>(null);
+  const ignoreTouchClickUntilRef = useRef(0);
+  const touchTapRef = useRef<{ componentId: string | null; startedAt: number; startX: number; startY: number; moved: boolean } | null>(null);
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
@@ -962,6 +965,20 @@ export function CircuitCanvas() {
   }, []);
 
   const handleComponentClick = (compId: string, e?: React.MouseEvent) => {
+    const touchTap = touchTapRef.current;
+    const sourceCapabilities = (e?.nativeEvent as MouseEvent & { sourceCapabilities?: { firesTouchEvents: boolean } } | undefined)?.sourceCapabilities;
+    const touchClick = sourceCapabilities?.firesTouchEvents === true
+      || (sourceCapabilities == null && touchTap != null && Date.now() - touchTap.startedAt < 700);
+    if (touchClick) {
+      touchTapRef.current = null;
+      cardDownRef.current = null;
+      if (touchTap?.componentId === compId && !touchTap.moved) {
+        setDetailMeterId(null);
+        setDetailCompId(compId);
+      }
+      return;
+    }
+    if (Date.now() < ignoreTouchClickUntilRef.current) return;
     // 守卫：如果本次按下到释放距离 > 4px 视为拖动，抑制 click 触发状态切换
     const down = cardDownRef.current;
     if (down && down.id === compId && e) {
@@ -1032,6 +1049,8 @@ export function CircuitCanvas() {
   const fitView = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    canvas.scrollTop = 0;
+    canvas.scrollLeft = 0;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
     const extraPoints = state.cables.flatMap((cable) => [
@@ -1046,7 +1065,7 @@ export function CircuitCanvas() {
     const availableHeight = Math.max(120, rect.height - insets.top - insets.bottom);
     const contentWidth = Math.max(1, bounds.maxX - bounds.minX);
     const contentHeight = Math.max(1, bounds.maxY - bounds.minY);
-    const zoom = Math.max(0.25, Math.min(1.25, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)));
+    const zoom = Math.max(0.1, Math.min(1.25, Math.min(availableWidth / contentWidth, availableHeight / contentHeight)));
     setView({
       x: insets.left + (availableWidth - (bounds.minX + bounds.maxX) * zoom) / 2,
       y: insets.top + (availableHeight - (bounds.minY + bounds.maxY) * zoom) / 2,
@@ -1066,6 +1085,68 @@ export function CircuitCanvas() {
     window.addEventListener('canvas-fit', onFit);
     return () => window.removeEventListener('canvas-fit', onFit);
   }, [fitView]);
+
+  // 手机只在空白处单指平移、双指缩放；不捕获 pointer，避免吞掉部件点击。
+  // 画布尺寸变化（包括旋转）不会重置 view。
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const distance = (touches: TouchList) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
+    const blankTarget = (target: EventTarget | null) => target instanceof Element && (target.classList.contains('canvas-area') || target.classList.contains('canvas-bg'));
+    const onStart = (event: TouchEvent) => {
+      if (event.touches.length === 1) {
+        const target = event.target instanceof Element ? event.target : null;
+        touchTapRef.current = { componentId: target?.closest('[data-component-id]')?.getAttribute('data-component-id') ?? null, startedAt: Date.now(), startX: event.touches[0].clientX, startY: event.touches[0].clientY, moved: false };
+      } else if (touchTapRef.current) touchTapRef.current.moved = true;
+      if (event.touches.length >= 2) {
+        const rect = canvas.getBoundingClientRect();
+        const midpoint = { x: (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left, y: (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top };
+        touchGestureRef.current = { startDistance: Math.max(1, distance(event.touches)), startView: viewRef.current, startPoint: midpoint, mode: 'pinch', moved: false };
+      } else if (event.touches.length === 1 && blankTarget(event.target)) {
+        touchGestureRef.current = { startDistance: 0, startView: viewRef.current, startPoint: { x: event.touches[0].clientX, y: event.touches[0].clientY }, mode: 'pan', moved: false };
+      }
+    };
+    const onMove = (event: TouchEvent) => {
+      const gesture = touchGestureRef.current;
+      if (touchTapRef.current && event.touches.length) {
+        const touch = event.touches[0];
+        if (event.touches.length > 1 || Math.hypot(touch.clientX - touchTapRef.current.startX, touch.clientY - touchTapRef.current.startY) > 8) touchTapRef.current.moved = true;
+      }
+      if (!gesture) return;
+      if (gesture.mode === 'pinch' && event.touches.length >= 2) {
+        event.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const zoom = Math.max(0.1, Math.min(2.5, gesture.startView.zoom * distance(event.touches) / gesture.startDistance));
+        const midpoint = { x: (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left, y: (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top };
+        const world = { x: (gesture.startPoint.x - gesture.startView.x) / gesture.startView.zoom, y: (gesture.startPoint.y - gesture.startView.y) / gesture.startView.zoom };
+        setView({ zoom, x: midpoint.x - world.x * zoom, y: midpoint.y - world.y * zoom });
+        gesture.moved = true;
+      } else if (gesture.mode === 'pan' && event.touches.length === 1) {
+        const dx = event.touches[0].clientX - gesture.startPoint.x;
+        const dy = event.touches[0].clientY - gesture.startPoint.y;
+        if (Math.hypot(dx, dy) > 3) {
+          event.preventDefault();
+          gesture.moved = true;
+          if (touchTapRef.current) touchTapRef.current.moved = true;
+          setView({ ...gesture.startView, x: gesture.startView.x + dx, y: gesture.startView.y + dy });
+        }
+      }
+    };
+    const onEnd = (event: TouchEvent) => {
+      if (touchGestureRef.current?.moved) ignoreTouchClickUntilRef.current = Date.now() + 450;
+      if (event.touches.length < 2) touchGestureRef.current = null;
+    };
+    canvas.addEventListener('touchstart', onStart, { passive: true });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onEnd, { passive: true });
+    canvas.addEventListener('touchcancel', onEnd, { passive: true });
+    return () => {
+      canvas.removeEventListener('touchstart', onStart);
+      canvas.removeEventListener('touchmove', onMove);
+      canvas.removeEventListener('touchend', onEnd);
+      canvas.removeEventListener('touchcancel', onEnd);
+    };
+  }, []);
 
   /** 同步所有部件卡片 + 仪表卡片的画布像素 rect 到 store（供 updateCableEnd 兑底用） */
   const syncCardPositionsToStore = useCallback(() => {
@@ -1316,7 +1397,7 @@ export function CircuitCanvas() {
     const rect = canvas.getBoundingClientRect();
     const old = viewRef.current;
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const zoom = Math.max(0.2, Math.min(2.5, old.zoom * factor));
+    const zoom = Math.max(0.1, Math.min(2.5, old.zoom * factor));
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
     const wx = (sx - old.x) / old.zoom;
@@ -1329,7 +1410,7 @@ export function CircuitCanvas() {
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const old = viewRef.current;
-    const zoom = Math.max(0.2, Math.min(2.5, old.zoom * factor));
+    const zoom = Math.max(0.1, Math.min(2.5, old.zoom * factor));
     const sx = rect.width / 2;
     const sy = rect.height / 2;
     setView({ zoom, x: sx - ((sx - old.x) / old.zoom) * zoom, y: sy - ((sy - old.y) / old.zoom) * zoom });
@@ -1431,6 +1512,7 @@ export function CircuitCanvas() {
       onDoubleClick={(e) => { if ((e.target as HTMLElement).classList.contains('canvas-area') || (e.target as HTMLElement).classList.contains('canvas-bg')) fitView(); }}
     >
       <div className="canvas-bg" style={state.showGrid ? { backgroundSize: `${state.gridSize * 5 * view.zoom}px ${state.gridSize * 5 * view.zoom}px, ${state.gridSize * 5 * view.zoom}px ${state.gridSize * 5 * view.zoom}px, ${state.gridSize * view.zoom}px ${state.gridSize * view.zoom}px, ${state.gridSize * view.zoom}px ${state.gridSize * view.zoom}px`, backgroundPosition: `${view.x}px ${view.y}px` } : undefined} />
+      <div className="mobile-canvas-hint">手机支持平移、缩放和查看部件；卡片拖动、接线与框选等复杂编辑建议使用电脑。</div>
       <div className="world-layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
 
       {/* 12 固定部件卡片（绝对定位，任何时候可拖） */}
@@ -1444,6 +1526,7 @@ export function CircuitCanvas() {
             ref={(el) => { cardRefs.current[comp.id] = el; }}
             style={{ position: 'absolute', left: pos.x, top: pos.y, width: COMPONENT_WORLD_SIZE.w, height: COMPONENT_WORLD_SIZE.h }}
             onMouseDown={(e) => {
+              if (touchTapRef.current && Date.now() - touchTapRef.current.startedAt < 700) return;
               // I1: editMode 关闭时卡片锁定，不能被拖动（点击仍透传到 SVG 触发状态切换）
               if (!state.editMode) return;
               e.preventDefault();
@@ -1490,6 +1573,7 @@ export function CircuitCanvas() {
             ref={(el) => { cardRefs.current[m.id] = el; }}
             style={{ position: 'absolute', left: pos.x, top: pos.y, width: METER_WORLD_SIZE.w, height: METER_WORLD_SIZE.h }}
             onMouseDown={(e) => {
+              if (touchTapRef.current && Date.now() - touchTapRef.current.startedAt < 700) return;
               // I1: editMode 关闭时仪表卡片锁定
               if (!state.editMode) return;
               e.preventDefault();
@@ -1506,6 +1590,20 @@ export function CircuitCanvas() {
               setDraggingCardId(m.id);
               setStoreDragging(m.id);
               startDragCard(e, m.id, [...nextSelection]);
+            }}
+            onClick={(event) => {
+              const touchTap = touchTapRef.current;
+              const sourceCapabilities = (event.nativeEvent as MouseEvent & { sourceCapabilities?: { firesTouchEvents: boolean } }).sourceCapabilities;
+              const touchClick = sourceCapabilities?.firesTouchEvents === true
+                || (sourceCapabilities == null && touchTap != null && Date.now() - touchTap.startedAt < 700);
+              if (!touchClick) return;
+              event.stopPropagation();
+              touchTapRef.current = null;
+              cardDownRef.current = null;
+              if (touchTap?.componentId === m.id && !touchTap.moved) {
+                setDetailMeterId(m.id);
+                setDetailCompId(m.type);
+              }
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();

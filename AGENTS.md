@@ -30,11 +30,13 @@
 | 测试 | `vitest run` 与 `node --test scripts/realtime/*.test.mjs` 均通过才算完成 |
 | 实时监控 | 实验与BMS设备独立注册、不配对；管理员工作台并列管理/观测入口，观察用户只见获授权列表；点击设备才创建租约，一页一设备；与仿真/分析状态隔离 |
 | 实时缓存 | BMS与实验点共用进程内缓存协调器；观测保留最多1小时、45秒观看租约；`BMS_REALTIME_MAX_CACHE_POINTS` 默认500,000点、`BMS_REALTIME_MAX_CACHE_BYTES` 默认128MiB估算预算，超限拒绝新数据；生产仅支持单Node进程/单副本Recreate |
-| 实时趋势断点 | BMS趋势逐观测保留可选`periodSeconds`；相邻间隔超过前点有效周期的1.5倍（至少30秒）才断线，前点无有效周期时次选当前点有效周期、两者都无效时回退30秒；实验趋势周期未知时沿用30秒；孤立有效点显示标记，密集曲线不逐点显示标记 |
+| 实时趋势断点 | BMS趋势逐观测保留可选`periodSeconds`；相邻间隔超过前点有效周期的1.5倍（至少30秒）才断线，前点无有效周期时次选当前点有效周期、两者都无效时回退30秒。实验趋势仅画实际观测，不按时间间隔插入断点或点；来源、会话和实际null/失败仍断线。孤立有效点显示标记，密集曲线不逐点显示标记 |
 | 管理与接入 | 管理员管理独立设备与账户、原子保存逐设备授权及启停状态、重置他人密码；旧整体权限只读映射，编辑账户后转为显式设备集合；设备令牌仅创建/轮换时显示并可下载Windows手动配置说明 |
 | 并发限制验收 | 每账户最多4个跨模块共享活动页面、最多10个活动观看账户；每账户8条SSE、每模块40条租约；无pageId旧客户端每条租约计为独立页面。10账户×4页双路80租约、约2800请求/分钟的生成负载测试已通过 |
 | 真实设备验收 | Windows真实客户端现场上传量和正式HTTPS联合验收仍待完成；生成负载夹具只验证服务端限额处理，不代表现场测点或真实上传量已实测 |
 | 大屏布局 | 桌面 12 列；窄屏 6 列并按断点调整指标卡和图表跨度，不生成隐式列；舞台内容超高时纵向滚动；实时折线图共享可滚动图例和防重叠时间轴 |
+| 移动端 | 窄屏（≤900px）原理图工具收纳进菜单、参数/部件抽屉互斥；手机首入全图，空白处单指平移、双指缩放，点按查看部件；复杂拖动/线缆/框选提示建议电脑操作；分析、监控、管理页按视口回流，宽表在自身横向滚动 |
+| 部署版本 | 所有页面页眉显示版本标识；Release Docker 构建注入 Git tag 与完整 SHA，点击查看短 SHA；本地开发显示开发版与短 SHA/未知，不从 package.json 或线上查询推断版本 |
 
 ## 2. 常用命令
 
@@ -129,6 +131,7 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 | `pv_on === derivePvOn(pv_power)` | `store/simulation.ts` | **`pv_power` 是权威，`pv_on` 是派生量**。UI 只有功率滑块，没有 pv_on 开关；`schematicFrame` 也由功率派生。所有写 `pv_power` 的路径必须同步派生 |
 | PCM 温度恒显实测值 | `engine/pcm.ts` | 曾把 1~49℃ 整段当"相变平台"恒显 `25.0℃`，已修。**不要用常数冒充测量读数** |
 | 实时数据隔离与口径 | `bmsRealtime*` / `experimentRealtime*` / `scripts/realtime/` | 独立设备观测均为只读：BMS保留centiV/centiA/centiAh与原始温度，实验源按 `point-contract.json` 保留质量、单位与逐点时间；不读写simulation/analysis/injector；设备只有有效观看租约时才上传，心跳不代表测点采集；租约TTL使用服务端单调时钟 |
+| 实验质量与缓存 | `experimentRealtimeTypes.ts` / `experiment-state.mjs` / `ExperimentRealtimePage.tsx` | 实验点好坏仅依本地quality；good值（含零值/RAW显示）不因年龄自动变无效，stale/失败/未知依原质量展示。单调年龄仅用于显示距采集时间与一小时缓存到期；缓存到期后点和值移除，缓存时长不代表数据新鲜度。趋势只绘制实际点，不按时间间隔插点或制造断点；来源、会话和实际null/失败仍断线 |
 | 独立设备授权与旧兼容 | `routes.mjs` / `registration.mjs` / `MonitoringPage.tsx` | 管理员有效权限为全部注册设备，观察用户仅逐设备权限与既有绑定的旧整体权限映射；启动不改写文件，新设备不自动授权；编辑账户原子保存最终设备集合并清除monitoringAccess；旧系统绑定PUT返回410；列表不创建租约，撤权只结束相应设备观看且保留其他合法会话；删除后同编号重注册不恢复旧授权 |
 | 共享缓存与容量 | `cache-coordinator.mjs` / `state.mjs` / `experiment-state.mjs` | BMS与实验观测共用1小时进程内缓存及容量账本；默认最多500,000点、每点按1,024字节估算、总估算128MiB，环境变量可设上限；超限以503拒绝新观测且不部分更新；当前仅单Node进程、K8s单副本Recreate，多实例前须共享租约、缓存、去重与发布订阅 |
 | 管理与注册 | `BmsManagePage.tsx` / `registration.mjs` / `registry.mjs` | 首个管理员须初始化密钥+同源CSRF且仅一次；管理员管理设备与账户、逐设备权限、停用和密码重置（不能自重置）；落盘成功才更新运行态；令牌只在注册/轮换成功时临时显示，禁止持久化或写日志；删除设备移除其逐设备授权、绑定与缓存，但保留账户整体监控授权；本地采集记录不删除 |
@@ -141,11 +144,13 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 | 数据场景持久化 | `components/ImportDataDialog.tsx` / `components/SaveManager.tsx` | 导入时默认发布到分析库；取消发布会明确提示场景不会保存该批数据。首次保存使用名称输入框，另存覆盖和删除都在应用内确认；确认期间锁定会改变目标/场景的操作，关闭或取消清除待确认项 |
 | 测试不依赖 `data/` | 全部 `*.test.ts` | 见 §0-2 |
 | 帧计数命名 | 大屏 | "时间对齐帧"与"热工字段齐备帧"是两个指标，**不要都叫「共同帧」** |
-| 自动来源与历史断点 | `realtimeSource.ts` / `experiment-state.mjs` / 实时页面 | 合法simulation上传不受旧许可开关限制；按仪器或地址/Pack以acceptedOrder自动跟随来源，不跨来源补值；当前含模拟时醒目标记；历史按来源、会话、空档分段，缺点期间来源翻转通过sourceSegment防重连；BMS最新观测保留1小时；连续失败最多8次自动重连，之后需手动恢复 |
-| 实时趋势采样周期 | `state.mjs` / `bmsRealtimeTypes.ts` / `MonitoringTrendChart.tsx` | BMS趋势API逐点保留原始`periodSeconds`，周期不从最新快照反推历史；断点判断优先使用前一观测的有效周期，前点周期缺失时才使用当前点，否则30秒；容差为`max(30秒, 声明周期×1.5)`；明确空值、来源/会话变化仍断线；孤立点（包括零值）必须可见，连续曲线避免全量标记；时间差提示可由时钟偏差、上传延迟或历史缓存回传造成，保留原始采样时间 |
+| 自动来源与历史断点 | `realtimeSource.ts` / `experiment-state.mjs` / 实时页面 | 合法simulation上传不受旧许可开关限制；按仪器或地址/Pack以acceptedOrder自动跟随来源，不跨来源补值；当前含模拟时醒目标记；BMS趋势按逐点`periodSeconds`阈值识别时间空档，周期缺失时沿用30秒规则；实验趋势不按时间间隔判空档或插点，仅在来源/会话变化及本地null/失败观测处断开，缺点期间来源翻转通过`sourceSegment`防重连；BMS最新观测保留1小时；连续失败最多8次自动重连，之后需手动恢复 |
+| 实时趋势采样周期 | `state.mjs` / `experiment-state.mjs` / `bmsRealtimeTypes.ts` / `MonitoringTrendChart.tsx` | BMS趋势API逐点保留原始`periodSeconds`，周期不从最新快照反推历史；断点判断优先使用前一观测的有效周期，前点周期缺失时才使用当前点，否则30秒；容差为`max(30秒, 声明周期×1.5)`。实验v1没有周期字段或周期驱动采样/断点；仅实际来源、会话、null/失败形成断点。孤立点（包括零值）必须可见，连续曲线避免全量标记；时间差提示可由时钟偏差、上传延迟或历史缓存回传造成，保留原始采样时间 |
 | 实时折线图布局 | `components/dashboard/lineChartLayout.ts` | 图例可横向滚动；时间刻度自动避让；网格为图例、绘图区和缩放条预留空间；双轴名称必须标出物理量和单位，不能把不同单位藏在同一轴名下 |
 | 大屏响应式网格 | `analysis-dashboard.css` | 列数变化时同步调整卡片跨度并解除固定行定位；避免隐式列挤压内容，手机上指标卡单列、图表整行显示。舞台按图表内容保底并可纵向滚动，页脚始终位于图表之后 |
 | `.m3-chart-empty` 必须被约束 | `analysis-dashboard.css` | 空态用 `position:absolute; inset:0` 覆盖在图表上。**任何可能容纳它的父级都必须是定位容器**（`.m3-chart-panel__body`、`.m3-chart-shell`）。否则绝对定位逃逸到视口、铺满 1600×857 盖住整页：文字重叠且整页无法点击。页面里除 EChart 外还有大量手写的 `<div className="m3-chart-empty">`。图表标题区允许标题换行，副标题单行省略并可悬停查看全文，图表主体占用剩余高度 |
+| 窄屏交互与状态 | `styles.css` / `CircuitCanvas.tsx` / `store/simulation.ts` | 首页手机首屏全图；触摸只在空白处平移或缩放，不捕获部件 pointer；真实触屏点按可查看部件/仪表详情、不切换仿真状态，桌面鼠标行为不变。旋转仅更新可视区域尺寸，不自动重置 pan/zoom 或业务数据。窄屏打开参数或部件抽屉会关闭另一个，Esc 可关闭并返回菜单焦点；不把全页遮罩用于抽屉。卡片拖动、线缆与框选仍建议电脑完成 |
+| 部署版本可信来源 | `DeploymentVersion.tsx` / `Dockerfile` / `.github/workflows/release.yml` | Release 界面版本与提交 SHA 来自 GitHub tag 和 `github.sha` 构建参数；点击版本徽标能看到短 SHA。开发未注入元数据时明确显示开发版与 SHA 未知；禁止从 `package.json` 固定版本或网络“最新版本”生成部署标识 |
 
 ## 6. 已知限制
 

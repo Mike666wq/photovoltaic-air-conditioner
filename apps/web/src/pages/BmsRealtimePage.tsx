@@ -5,6 +5,7 @@ import { BmsRealtimeController } from '../services/bmsRealtimeController';
 import { bmsTime, bmsNumber, clockSkew, bmsChannelKey, latestBmsSamples, sampleStale, sampleExpired } from '../services/bmsRealtimeTypes';
 import { useBmsRealtimeStore } from '../store/bmsRealtime';
 import { BmsTrendChart } from '../components/bmsRealtime/BmsTrendChart';
+import { DeploymentVersion } from '../components/DeploymentVersion';
 import type { BmsSetupStatus } from '../services/bmsRealtimeTypes';
 import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
 import { sourceLabel } from '../services/realtimeSource';
@@ -95,7 +96,7 @@ export function BmsRealtimePage({ embedded = false, identity: embeddedIdentity, 
   const channelPoints = (metric: 'voltage' | 'current' | 'soc') => (state.trends[state.pack]?.[metric] ?? []).filter((p) => `${p.address}/${state.pack}` === state.channel && Date.parse(p.capturedUtc) > now - 3600000);
 
   return <main className={`bms-page${embedded?' bms-page-embedded':''}`}>
-    {!embedded&&<header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>BMS 本地实时监测</h1></div><nav aria-label="页面导航"><Link to="/monitoring">本地监控</Link><Link to="/experiment/realtime">实验监控</Link><Link to="/bms/manage">设备注册与接入</Link><Link to="/">原理图</Link><Link to="/analysis">数据分析</Link>{state.identity && <><span>{state.identity.username}</span><button disabled={busy} onClick={() => void logout()}>退出观看登录</button></>}</nav></header>}
+    {!embedded&&<header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>BMS 本地实时监测</h1><DeploymentVersion /></div><nav aria-label="页面导航"><Link to="/monitoring">本地监控</Link><Link to="/experiment/realtime">实验监控</Link><Link to="/bms/manage">设备注册与接入</Link><Link to="/">原理图</Link><Link to="/analysis">数据分析</Link>{state.identity && <><span>{state.identity.username}</span><button disabled={busy} onClick={() => void logout()}>退出观看登录</button></>}</nav></header>}
     <div className="bms-content">
       <div className="bms-intro"><div><h2>{embedded?activeDevice?.alias??'BMS 电池监测':'连接实验室，查看当前采样'}</h2><p>本地程序负责采集和记录。这里查看实时值与一小时趋势；时间使用本地时区。</p></div><span className="bms-readonly">只读监测</span></div>
       {embedded&&!activeDevice&&<p className="bms-notice">此设备暂不可用，请返回设备列表。</p>}

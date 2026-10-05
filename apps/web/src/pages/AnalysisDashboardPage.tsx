@@ -43,6 +43,7 @@ import { applyTimelineFrame } from '../components/TimelineControls';
 import { EChart } from '../components/dashboard/EChart';
 import { ChartPanel } from '../components/dashboard/ChartPanel';
 import { MetricCard } from '../components/dashboard/MetricCard';
+import { DeploymentVersion } from '../components/DeploymentVersion';
 import { buildLineChartLayout } from '../components/dashboard/lineChartLayout';
 import '../analysis-dashboard.css';
 
@@ -892,7 +893,7 @@ export function AnalysisDashboardPage() {
     <main className="m3-dashboard">
       <div ref={stageRef} className="m3-dashboard__stage">
         <header className="m3-dashboard__header">
-          <div><span>光伏·空调仿真平台</span><h1>数据分析大屏</h1></div>
+          <div><span>光伏·空调仿真平台</span><h1>数据分析大屏</h1><DeploymentVersion /></div>
           <div className="m3-dashboard__header-meta"><span>{sources.length} 个数据源 · {points.length} 条有效记录</span><span>{currentTimestamp ? new Date(currentTimestamp).toLocaleString('zh-CN') : '未定位当前帧'}</span><Link className="m3-linkbtn" to="/monitoring">云端监控</Link><Link className="m3-linkbtn" to="/">← 原理图</Link><button onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void stageRef.current?.requestFullscreen(); }}>{isFullscreen ? '退出全屏' : '展示全屏'}</button></div>
         </header>
         <section className="m3-dashboard__toolbar">

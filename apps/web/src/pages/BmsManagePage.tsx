@@ -7,6 +7,7 @@ import { connectionInstructions, registrationNumbers } from '../services/bmsRegi
 import { BmsConnectionGuide } from '../components/bmsRealtime/BmsConnectionGuide';
 import { ExperimentConnectionGuide } from '../components/bmsRealtime/ExperimentConnectionGuide';
 import { EXPERIMENT_EQUIPMENT } from '../services/experimentRealtimeTypes';
+import { DeploymentVersion } from '../components/DeploymentVersion';
 import './bms-realtime.css';
 import './bms-manage.css';
 
@@ -119,7 +120,7 @@ export function BmsManagePage() {
   const logout = () => perform(async () => { await bmsApi.logout(); setIdentity(null); navigate('/monitoring', { replace: true }); });
 
   return <main className="bms-page bms-management">
-    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>设备与账户管理</h1></div><nav aria-label="管理导航"><Link to="/monitoring?view=devices">实时观测设备</Link><Link to="/">原理图</Link>{identity && <><span>{identity.username} · 管理员</span><button disabled={locked} onClick={() => void logout()}>退出登录</button></>}</nav></header>
+    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>设备与账户管理</h1><DeploymentVersion /></div><nav aria-label="管理导航"><Link to="/monitoring?view=devices">实时观测设备</Link><Link to="/">原理图</Link>{identity && <><span>{identity.username} · 管理员</span><button disabled={locked} onClick={() => void logout()}>退出登录</button></>}</nav></header>
     <div className="bms-content">
       {error && <p className="bms-error" role="alert">{error}</p>}{notice && <p className="bms-notice" role="status">{notice}</p>}
       {!ready ? <p>正在读取注册状态…</p> : !setup?.enabled ? <section className="bms-admin-card"><h2>站点尚未启用实时接入</h2><p>请先配置注册存储和初始化密钥。</p></section> : !setup.initialized ? <section className="bms-admin-card bms-first-admin"><h2>首次初始化管理员</h2><p>使用服务器提供的一次性初始化密钥创建首个管理员。</p>{!setup.bootstrapAvailable ? <p className="bms-warning">初始化密钥或持久化注册存储尚未配置，请联系运维人员。</p> : <form onSubmit={event => { event.preventDefault(); void bootstrap(event.currentTarget); }}><label>初始化密钥<input name="bootstrapToken" type="password" required autoComplete="off" minLength={32} maxLength={256} disabled={busy} /></label><label>管理员用户名<input name="username" required autoComplete="username" pattern="[a-zA-Z0-9_.-]{3,80}" minLength={3} maxLength={80} disabled={busy} /></label><label>管理员密码<input name="password" type="password" required autoComplete="new-password" minLength={12} maxLength={256} disabled={busy} /></label><label>确认管理员密码<input name="confirmPassword" type="password" required autoComplete="new-password" minLength={12} maxLength={256} disabled={busy} /></label><button className="bms-primary" disabled={busy}>{busy ? '正在初始化…' : '创建首个管理员'}</button></form>}</section> : identity?.role === 'admin' && <>

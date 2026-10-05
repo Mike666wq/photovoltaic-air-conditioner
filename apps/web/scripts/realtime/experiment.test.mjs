@@ -25,6 +25,7 @@ async function harness(t){let mono=0;const dir=mkdtempSync(join(tmpdir(),'pv-exp
 test('正式目录37点、4台仪器和七温度不从首帧推断；倍率与状态定义准确',()=>{
  assert.equal(catalog.points.length,37);assert.deepEqual(Object.fromEntries(EQUIPMENT.map(id=>[id,catalog.points.filter(p=>p.equipmentId===id).length])),{DS666:9,PLC:18,DDSU666:7,DJSF6682:3});
  assert.equal(catalog.points.filter(p=>p.metadata.Group==='温度').length,7);assert.equal(catalog.points.find(p=>p.id==='T1').metadata.Mode,'INT16');assert.equal(catalog.points.find(p=>p.id==='D6').metadata.Label,'功率因数');assert.equal(catalog.points.find(p=>p.id==='D3').metadata.ScaleConfirmed,false);
+ const legacy=validateExperimentSnapshot({subscriptionId:'legacy-lease',snapshot:snapshot()},expDevice);assert.equal(Object.hasOwn(legacy,'periodSeconds'),false);
 });
 test('共用登录但隔离设备身份与接口；无人观看只心跳，BMS返回原Pack格式',async(t)=>{const h=await harness(t),user=await h.login();assert.equal((await user.call('/api/experiment/auth/session')).body.user.username,'admin-fixture');assert.deepEqual((await h.beat()).body,{subscriptionId:'',leaseSeconds:0,requestedDevices:[]});assert.equal((await user.call('/api/experiment/devices')).body.devices.length,1);assert.equal((await user.call('/api/realtime/devices')).body.devices.length,1);assert.equal((await user.call('/api/experiment/catalog')).body.points.length,37);
  assert.equal((await h.call('/api/realtime/heartbeat','POST',{deviceId:expDevice.deviceId,alias:'x'},{Authorization:'Bearer '+token})).status,403);

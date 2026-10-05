@@ -69,3 +69,24 @@
 .bms-channel { max-width: 300px; margin-bottom: 18px; }
 @media (max-width: 1100px) { .bms-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); } .bms-trends { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bms-trends > :last-child { grid-column: 1 / -1; } .bms-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .bms-content { padding: 20px 16px; } .bms-header { padding: 16px; } .bms-header h1 { font-size: 20px; } .bms-intro { align-items: start; } .bms-intro h2 { font-size: 18px; } .bms-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bms-trends, .bms-details-grid { grid-template-columns: minmax(0, 1fr); } .bms-status-grid { gap: 20px 12px; } .bms-toolbar { padding: 16px; gap: 14px; } .bms-toolbar label:nth-child(2) { flex: 1 1 100px; } .bms-toolbar-actions { width: 100%; } .bms-toolbar-actions button { flex: 1; } .bms-metrics article { padding: 16px; } .bms-login { padding: 24px; } }
+
+.bms-page { width: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto; }
+.bms-page *, .bms-page *::before, .bms-page *::after { min-width: 0; }
+.bms-header > div { min-width: 0; }
+.bms-header nav { min-width: 0; }
+.bms-header .deployment-version { width: fit-content; max-width: 100%; margin-top: 6px; padding: 4px 8px; border-radius: 999px; color: #bfdbfe; background: #1e293b; font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.bms-header .deployment-version-popover { color: #e2e8f0; }
+.bms-page table { display: block; max-width: 100%; overflow-x: auto; }
+.bms-admin-card, .bms-guide, .bms-credential, .bms-login, .bms-details, .bms-alarm { min-width: 0; }
+@media (max-width: 760px) {
+  .bms-header { align-items: flex-start; }
+  .bms-header nav { width: 100%; gap: 8px 12px; }
+  .bms-header nav > * { max-width: 100%; overflow-wrap: anywhere; }
+  .monitoring-list-toolbar { align-items: flex-start; padding: 14px; gap: 12px; }
+  .monitoring-list-actions { width: 100%; flex-wrap: wrap; }
+  .monitoring-list-actions label { flex: 1 1 140px; }
+  .monitoring-device-card { grid-template-columns: auto minmax(0,1fr); gap: 8px; }
+  .monitoring-device-card__status, .monitoring-device-card__action { grid-column: 2; }
+  .monitoring-grid a { padding: 18px; }
+  .bms-user-list li { align-items: flex-start; }
+}

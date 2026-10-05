@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-import {experimentCatalog,pointStatus,latestExperimentSamples} from './experimentRealtimeTypes';
+import {experimentCatalog,pointStatus,experimentAgeLabel,latestExperimentSamples} from './experimentRealtimeTypes';
 import type {ExperimentPoint,ExperimentSample} from './experimentRealtimeTypes';
 import {useExperimentRealtimeStore as store} from '../store/experimentRealtime';
 import {useBmsRealtimeStore} from '../store/bmsRealtime';
@@ -18,7 +18,17 @@ it('未采集、真零、RAW/null、失败和未知质量不混淆',()=>{
  expect(pointStatus(undefined,100).value).toBe('—');expect(pointStatus({...point,value:0},100).value).toBe('0');expect(pointStatus({...point,value:null,displayValue:'U16=0 / I16=0'},100).value).toBe('U16=0 / I16=0');
  expect(pointStatus({...point,quality:'timeout',value:null},100)).toMatchObject({value:'—',label:'通信超时',good:false});expect(pointStatus({...point,quality:'vendor-unknown'},100)).toMatchObject({value:'—',label:'未知质量：vendor-unknown',good:false});
 });
-it('逐点30秒自动过期，不依赖新消息或浏览器壁钟',()=>{expect(pointStatus(point,30099).good).toBe(true);expect(pointStatus(point,30100)).toMatchObject({stale:true,good:false,value:'—'});expect(pointStatus({...point,ageMs:30000},100).stale).toBe(true);});
+it('good只服从本地quality；年龄仅显示，到一小时缓存期限才移除',()=>{
+ for(const ageMs of [30_001,45_001,600_001,3_599_999])expect(pointStatus({...point,ageMs},100)).toMatchObject({good:true,value:'25.125',expired:false});
+ expect(pointStatus({...point,value:0,ageMs:600_000},100)).toMatchObject({good:true,value:'0'});
+ expect(pointStatus({...point,value:null,displayValue:'U16=0 / I16=0',ageMs:600_000},100)).toMatchObject({good:true,value:'U16=0 / I16=0'});
+ expect(pointStatus({...point,ageMs:3_600_000},100)).toMatchObject({label:'短缓存已到期',value:'—',expired:true,good:false,stale:false});
+ expect(pointStatus({...point,quality:'stale',value:25.125},100)).toMatchObject({label:'旧数据',value:'—',stale:true,good:false,expired:false});
+ expect(pointStatus({...point,quality:'timeout',value:null},100)).toMatchObject({label:'通信超时',value:'—',stale:false,good:false});
+ expect(pointStatus({...point,quality:'vendor-unknown',value:99},100)).toMatchObject({label:'未知质量：vendor-unknown',value:'—',good:false});
+ expect(pointStatus(undefined,100)).toMatchObject({label:'未采集',value:'—',expired:false});
+ expect(pointStatus({...point,ageMs:30_000},60_100).ageMs).toBe(90_000);expect(experimentAgeLabel({...point,ageMs:30_000},60_100)).toBe('距采集 1 分钟');
+});
 it('来源与仪器分区，接收顺序跟随来源且新会话保留历史，不改变BMS',()=>{
  const bms=useBmsRealtimeStore.getState();store.getState().accept(sample());store.getState().accept(sample({source:'simulation',sequence:2}));store.getState().accept(sample({equipmentId:'DS666'}));
  expect(Object.keys(store.getState().samples)).toHaveLength(3);

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSimStore } from './simulation';
 import { CABLES as STANDARD_CABLES } from '../data/cables';
 import { COMPONENT_ANCHORS } from '../data/anchors';
@@ -11,7 +11,23 @@ describe('手控与回放写入边界', () => {
     pv_power: 3,
     pv_on: true,
     timelinePlaying: false,
+    leftPanelOpen: false,
+    rightPanelOpen: false,
+    fullscreen: false,
   }));
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('窄屏抽屉互斥，桌面仍允许同时展开', () => {
+    vi.stubGlobal('window', { matchMedia: vi.fn(() => ({ matches: true })) });
+    useSimStore.getState().toggleLeftPanel();
+    useSimStore.getState().toggleRightPanel();
+    expect(useSimStore.getState()).toMatchObject({ leftPanelOpen: false, rightPanelOpen: true });
+
+    vi.stubGlobal('window', { matchMedia: vi.fn(() => ({ matches: false })) });
+    useSimStore.getState().toggleLeftPanel();
+    expect(useSimStore.getState()).toMatchObject({ leftPanelOpen: true, rightPanelOpen: true });
+  });
 
   it('初始画布不预置线缆，标准拓扑由用户显式载入', () => {
     expect(useSimStore.getState().cables).toEqual([]);

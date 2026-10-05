@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { bmsApi, BmsApiError, monitoringApi } from '../services/bmsRealtimeApi';
+import { DeploymentVersion } from '../components/DeploymentVersion';
 import { bmsTime } from '../services/bmsRealtimeTypes';
 import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
 import './bms-realtime.css';
@@ -111,7 +112,7 @@ export function MonitoringPage() {
   };
 
   return <main className="bms-page monitoring-page">
-    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>实时观测</h1></div><nav aria-label="页面导航"><Link to="/">原理图</Link><Link to="/analysis">文件数据分析</Link>{identity?.role === 'admin' && <Link to="/monitoring/manage">设备与账户管理</Link>}{identity && <><span>{identity.username} · {identity.role === 'admin' ? '管理员' : '观察者'}</span><button disabled={busy} onClick={() => void logout()}>退出登录</button></>}</nav></header>
+    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>实时观测</h1><DeploymentVersion /></div><nav aria-label="页面导航"><Link to="/">原理图</Link><Link to="/analysis">文件数据分析</Link>{identity?.role === 'admin' && <Link to="/monitoring/manage">设备与账户管理</Link>}{identity && <><span>{identity.username} · {identity.role === 'admin' ? '管理员' : '观察者'}</span><button disabled={busy} onClick={() => void logout()}>退出登录</button></>}</nav></header>
     <div className="bms-content">
       {error && <p className="bms-error" role="alert">{error}</p>}
       {routeNotice && <p className="bms-notice" role="status">{routeNotice}</p>}

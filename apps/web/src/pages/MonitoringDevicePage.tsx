@@ -4,6 +4,7 @@ import { bmsApi, BmsApiError, monitoringApi } from '../services/bmsRealtimeApi';
 import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
 import { BmsRealtimePage } from './BmsRealtimePage';
 import { ExperimentRealtimePage } from './ExperimentRealtimePage';
+import { DeploymentVersion } from '../components/DeploymentVersion';
 import './bms-realtime.css';
 import './experiment-realtime.css';
 
@@ -56,7 +57,7 @@ export function MonitoringDevicePage() {
   }), [navigate, device?.alias, requestedId]);
 
   return <main className="bms-page monitoring-detail-page">
-    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>{device?.alias ?? '设备观测'}</h1></div><nav aria-label="观测导航"><Link to={`/monitoring?view=devices&module=${moduleFilter}`}>← 返回设备列表</Link>{identity && <span>{identity.username}</span>}</nav></header>
+    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>{device?.alias ?? '设备观测'}</h1><DeploymentVersion /></div><nav aria-label="观测导航"><Link to={`/monitoring?view=devices&module=${moduleFilter}`}>← 返回设备列表</Link>{identity && <span>{identity.username}</span>}</nav></header>
     <div className="bms-content">
       {!ready ? <section className="bms-login">正在读取设备权限…</section> : error ? <section className="monitoring-empty"><h2>设备列表暂不可用</h2><p role="alert">{error}</p><button onClick={() => navigate('/monitoring', { replace: true })}>返回实时观测</button></section> : !device ? <section className="monitoring-empty"><h2>无权查看此设备</h2><p>设备不存在或当前账户没有观测权限。请联系管理员；设备列表只展示你获准查看的设备。</p><button onClick={backToList}>返回设备列表</button></section> : device.module === 'experiment' ? <ExperimentRealtimePage key={device.deviceId} embedded identity={identity!} device={device} autostart pageId={pageId} onUnauthorized={onUnauthorized} onPermissionRevoked={onPermissionRevoked} /> : <BmsRealtimePage key={device.deviceId} embedded identity={identity!} device={device} autostart pageId={pageId} onUnauthorized={onUnauthorized} onPermissionRevoked={onPermissionRevoked} />}
     </div>

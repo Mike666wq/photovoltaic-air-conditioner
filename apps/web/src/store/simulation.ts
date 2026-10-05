@@ -757,15 +757,17 @@ export const useSimStore = create<SimStore>((set) => ({
   setCableDrag: (drag) => set({ cableDrag: drag }),
 
   // === 侧栏 / 全屏切换 ===
-  toggleLeftPanel: () => set((s) => ({
-    leftPanelOpen: !s.leftPanelOpen,
-    fullscreen: false,
-  })),
+  toggleLeftPanel: () => set((s) => {
+    const narrow = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 900px), (max-height: 500px) and (max-width: 1000px)').matches;
+    const next = !s.leftPanelOpen;
+    return { leftPanelOpen: next, rightPanelOpen: narrow && next ? false : s.rightPanelOpen, fullscreen: false };
+  }),
 
-  toggleRightPanel: () => set((s) => ({
-    rightPanelOpen: !s.rightPanelOpen,
-    fullscreen: false,
-  })),
+  toggleRightPanel: () => set((s) => {
+    const narrow = typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 900px), (max-height: 500px) and (max-width: 1000px)').matches;
+    const next = !s.rightPanelOpen;
+    return { rightPanelOpen: next, leftPanelOpen: narrow && next ? false : s.leftPanelOpen, fullscreen: false };
+  }),
 
   toggleFullscreen: () => set((s) => {
     const next = !s.fullscreen;

@@ -16,6 +16,12 @@ RUN pnpm install --frozen-lockfile
 COPY base-elements ./base-elements
 COPY apps/web ./apps/web
 
+# Release 页面版本必须来自 Git 标签与提交 SHA；本地/CI 默认明确标记为开发版。
+ARG APP_VERSION=development
+ARG APP_SHA=unknown
+ENV VITE_BUILD_VERSION=${APP_VERSION}
+ENV VITE_BUILD_SHA=${APP_SHA}
+
 # 跑构建（产物在 apps/web/dist，含 copy-svgs.mjs 复制 SVG）
 RUN pnpm --filter web build
 

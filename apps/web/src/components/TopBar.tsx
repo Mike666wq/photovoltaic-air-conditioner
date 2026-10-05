@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSimStore } from '../store/simulation';
 import { SaveManager } from './SaveManager';
 import { Link, useNavigate } from 'react-router-dom';
+import { DeploymentVersion } from './DeploymentVersion';
 
 export function TopBar() {
   const navigate = useNavigate();
   const [time, setTime] = useState(new Date());
   const [saveManagerOpen, setSaveManagerOpen] = useState(false);
+  const toolsMenuRef = useRef<HTMLDetailsElement>(null);
+  const drawerWasOpenRef = useRef(false);
   const state = useSimStore();
   const animationOn = useSimStore((s) => s.animationOn);
   const toggleAnimation = useSimStore((s) => s.toggleAnimation);
@@ -31,6 +34,48 @@ export function TopBar() {
     return () => clearInterval(t);
   }, []);
 
+  useLayoutEffect(() => {
+    const compact = window.matchMedia('(max-width: 900px), (max-height: 500px) and (max-width: 1000px)');
+    const syncMenuMode = () => {
+      if (toolsMenuRef.current) toolsMenuRef.current.open = !compact.matches;
+    };
+    syncMenuMode();
+    compact.addEventListener?.('change', syncMenuMode);
+    return () => compact.removeEventListener?.('change', syncMenuMode);
+  }, []);
+
+  useEffect(() => {
+    const panelsOpen = leftPanelOpen || rightPanelOpen;
+    const narrow = window.matchMedia('(max-width: 900px), (max-height: 500px) and (max-width: 1000px)');
+    if (!panelsOpen) {
+      if (drawerWasOpenRef.current && narrow.matches) requestAnimationFrame(() => toolsMenuRef.current?.querySelector('summary')?.focus({ preventScroll: true }));
+      drawerWasOpenRef.current = false;
+      return;
+    }
+    drawerWasOpenRef.current = true;
+    const closeSelector = leftPanelOpen ? '.palette-collapse-btn' : '.control-collapse-btn';
+    const focusDrawerClose = () => {
+      if (narrow.matches) document.querySelector<HTMLButtonElement>(closeSelector)?.focus({ preventScroll: true });
+    };
+    const frame = requestAnimationFrame(focusDrawerClose);
+    const onEscape = (event: KeyboardEvent) => {
+      if (!narrow.matches || event.key !== 'Escape') return;
+      // 让已打开的顶层弹窗（由 useModalA11y 管理）优先消费 Esc。
+      if (document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')) return;
+      event.preventDefault();
+      useSimStore.setState({ leftPanelOpen: false, rightPanelOpen: false });
+      toolsMenuRef.current && (toolsMenuRef.current.open = false);
+    };
+    const onMediaChange = () => {
+      const current = useSimStore.getState();
+      if (narrow.matches && current.leftPanelOpen && current.rightPanelOpen) useSimStore.setState({ leftPanelOpen: false });
+      else focusDrawerClose();
+    };
+    window.addEventListener('keydown', onEscape);
+    narrow.addEventListener?.('change', onMediaChange);
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('keydown', onEscape); narrow.removeEventListener?.('change', onMediaChange); };
+  }, [leftPanelOpen, rightPanelOpen]);
+
   const hh = String(time.getHours()).padStart(2, '0');
   const mm = String(time.getMinutes()).padStart(2, '0');
   const ss = String(time.getSeconds()).padStart(2, '0');
@@ -47,7 +92,15 @@ export function TopBar() {
         <span>光伏·空调仿真平台 — 原理图</span>
       </div>
 
-      <div className="topbar-actions">
+      <details ref={toolsMenuRef} className="topbar-tools">
+        <summary>☰ 工具</summary>
+      <div className="topbar-actions" onClick={(event) => {
+        if (!window.matchMedia('(max-width: 900px), (max-height: 500px) and (max-width: 1000px)').matches) return;
+        const target = event.target as HTMLElement;
+        if (!target.closest('button, a') || target.closest('.snap-menu > summary')) return;
+        toolsMenuRef.current?.querySelector('summary')?.focus({ preventScroll: true });
+        if (toolsMenuRef.current) toolsMenuRef.current.open = false;
+      }}>
         <button
           className={`topbar-btn ${animationOn ? 'primary' : ''}`}
           onClick={toggleAnimation}
@@ -154,6 +207,7 @@ export function TopBar() {
           □ 空白图
         </button>
       </div>
+      </details>
 
       <div className="topbar-stats">
         <span>PV: <span className="stat-value">{showInjected('pv_power') ? `${state.pv_power.toFixed(2)} kW` : '—'}</span></span>
@@ -161,6 +215,7 @@ export function TopBar() {
         <span>Tank: <span className="stat-value">{showInjected('tank_temp') ? `${Math.round(state.tank_temp)}℃` : '—'}</span></span>
         <span>时钟: <span className="stat-value">{hh}:{mm}:{ss}</span></span>
       </div>
+      <DeploymentVersion />
       <SaveManager open={saveManagerOpen} onClose={() => setSaveManagerOpen(false)} />
     </div>
   );

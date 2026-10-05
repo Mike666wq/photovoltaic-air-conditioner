@@ -125,5 +125,40 @@
   .m3-dashboard__view > .m3-metric-card { grid-column: span 6; }
 }
 
+@media (max-width: 700px) {
+  .m3-dashboard { width: 100%; height: 100%; min-height: 100%; overflow-x: hidden; }
+  .m3-dashboard__stage { min-height: 100%; height: auto; padding: 8px; grid-template-rows: auto auto auto minmax(min-content,1fr) auto; gap: 8px; }
+  .m3-dashboard__header { align-items: flex-start; flex-direction: column; gap: 8px; padding: 10px; }
+  .m3-dashboard__header h1 { font-size: 19px; letter-spacing: .04em; }
+  .m3-dashboard__header-meta { width: 100%; flex-wrap: wrap; }
+  .m3-dashboard__toolbar { display: grid; min-width: 0; padding: 8px; }
+  .m3-toolbar__actions { display: flex; min-width: 0; flex-wrap: wrap; gap: 6px; }
+  .m3-toolbar__actions > span:not(.m3-source-filters) { margin-left: 2px; }
+  .m3-dashboard button, .m3-dashboard .m3-linkbtn, .m3-dashboard select { min-height: 34px; max-width: 100%; padding: 6px; font-size: 11px; white-space: normal; }
+  .m3-direction { white-space: normal; flex-wrap: wrap; }
+  .m3-scope-status { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .m3-scope-status span { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .m3-dashboard__view { grid-template-columns: minmax(0,1fr); grid-template-rows: none; grid-auto-rows: auto; gap: 8px; }
+  .m3-dashboard__view > .m3-metric-card,
+  .m3-dashboard__view > .m3-chart-panel,
+  .m3-dashboard__view--energy > .m3-chart-panel,
+  .m3-dashboard__view--ratio > .m3-chart-panel,
+  .m3-dashboard__view--diagnostics > .m3-chart-panel,
+  .m3-dashboard__view--energy > .m3-chart-panel--wide,
+  .m3-dashboard__view--realtime .m3-chart-panel,
+  .m3-dashboard__view--realtime .m3-chart-panel--thermal { grid-column: 1; grid-row: auto; }
+  .m3-dashboard__view > .m3-metric-card { min-height: 84px; padding: 12px; }
+  .m3-dashboard__view > .m3-chart-panel { min-height: 300px; }
+  .m3-quality-overlay { padding: 8px; }
+  .m3-quality-dialog { width: 100%; max-height: 92dvh; }
+  .m3-quality-dialog > header { gap: 8px; padding: 12px; }
+  .m3-quality-dialog h2 { font-size: 16px; }
+  .m3-quality-list { max-height: calc(92dvh - 68px); overflow: auto; padding: 8px; }
+  .m3-quality-list table { min-width: 650px; }
+  .m3-quality-source-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .m3-experiment-table { min-width: 560px; }
+  .m3-experiment-compare-controls, .m3-experiment-compare-summary { align-items: flex-start; flex-wrap: wrap; }
+}
+
 .m3-dash-speeds { display: inline-flex; gap: 2px; }
 .m3-dash-speeds button { padding: 4px 6px; font-size: 11px; }
