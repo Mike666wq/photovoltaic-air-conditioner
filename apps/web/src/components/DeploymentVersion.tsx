@@ -1,3 +1,4 @@
+import { copyNativeText } from '../services/nativeClient';
 import { useState } from 'react';
 
 const build = import.meta.env.VITE_BUILD_VERSION as string | undefined;
@@ -10,7 +11,10 @@ export function DeploymentVersion() {
   const copySha = async () => {
     if (!sha || sha === 'unknown') return;
     try {
-      await navigator.clipboard.writeText(sha.slice(0, 7));
+      const result = copyNativeText(sha.slice(0, 7));
+      if (result) {
+        if (await result !== 'saved') { setCopied(false); return; }
+      } else await navigator.clipboard.writeText(sha.slice(0, 7));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1400);
     } catch { setCopied(false); }

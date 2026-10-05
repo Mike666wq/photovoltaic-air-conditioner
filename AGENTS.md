@@ -36,6 +36,7 @@
 | 真实设备验收 | Windows真实客户端现场上传量和正式HTTPS联合验收仍待完成；生成负载夹具只验证服务端限额处理，不代表现场测点或真实上传量已实测 |
 | 大屏布局 | 桌面 12 列；窄屏 6 列并按断点调整指标卡和图表跨度，不生成隐式列；舞台内容超高时纵向滚动；实时折线图共享可滚动图例和防重叠时间轴 |
 | 移动端 | 窄屏（≤900px）原理图工具收纳进菜单、参数/部件抽屉互斥；手机首入全图，空白处单指平移、双指缩放，点按查看部件；复杂拖动/线缆/框选提示建议电脑操作；分析、监控、管理页按视口回流，宽表在自身横向滚动 |
+| 原生客户端 | Android10+ Kotlin WebView与Windows10/11x64 WinForms WebView2外壳在clients目录；独立client-v标签构建安装包，后台生命周期/返回/文本保存通过固定HTTPS同源主框架桥；尚待平台构建及两端真机验收，不代表已发布 |
 | 部署版本 | 所有页面页眉显示版本标识；Release Docker 构建注入 Git tag 与完整 SHA，点击查看短 SHA；本地开发显示开发版与短 SHA/未知，不从 package.json 或线上查询推断版本 |
 
 ## 2. 常用命令
@@ -151,6 +152,8 @@ File → preparedImport（xlsx 走 Worker / pdf+csv 走主线程）
 | `.m3-chart-empty` 必须被约束 | `analysis-dashboard.css` | 空态用 `position:absolute; inset:0` 覆盖在图表上。**任何可能容纳它的父级都必须是定位容器**（`.m3-chart-panel__body`、`.m3-chart-shell`）。否则绝对定位逃逸到视口、铺满 1600×857 盖住整页：文字重叠且整页无法点击。页面里除 EChart 外还有大量手写的 `<div className="m3-chart-empty">`。图表标题区允许标题换行，副标题单行省略并可悬停查看全文，图表主体占用剩余高度 |
 | 窄屏交互与状态 | `styles.css` / `CircuitCanvas.tsx` / `store/simulation.ts` | 首页手机首屏全图；触摸只在空白处平移或缩放，不捕获部件 pointer；真实触屏点按可查看部件/仪表详情、不切换仿真状态，桌面鼠标行为不变。旋转仅更新可视区域尺寸，不自动重置 pan/zoom 或业务数据。窄屏打开参数或部件抽屉会关闭另一个，Esc 可关闭并返回菜单焦点；不把全页遮罩用于抽屉。卡片拖动、线缆与框选仍建议电脑完成 |
 | 部署版本可信来源 | `DeploymentVersion.tsx` / `Dockerfile` / `.github/workflows/release.yml` | Release 界面版本与提交 SHA 来自 GitHub tag 和 `github.sha` 构建参数；点击版本徽标能看到短 SHA。开发未注入元数据时明确显示开发版与 SHA 未知；禁止从 `package.json` 固定版本或网络“最新版本”生成部署标识 |
+
+| 客户端桥与发布 | `clients/` / `nativeClient.ts` / `client-build.yml` | 固定HTTPS同源主框架，限制消息类型、文件名及1MiB文本；不输出令牌正文；后台暂停监控和回放，前台回放需手动继续；签名密钥不进仓库，未配置则拒绝release。client-v标签独立于云端镜像发布，真机试装通过后才正式发布 |
 
 ## 6. 已知限制
 

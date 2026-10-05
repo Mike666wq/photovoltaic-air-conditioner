@@ -52,3 +52,18 @@ yarn-error.log*
 # 临时文件
 tmp/
 temp/
+
+# 原生客户端构建与签名材料
+**/.gradle/
+clients/android/**/build/
+clients/windows/**/bin/
+clients/windows/**/obj/
+clients/artifacts/
+*.keystore
+*.jks
+*.p12
+*.pfx
+clients/android/local.properties
+clients/windows/publish/
+clients/windows/artifacts/
+clients/scripts/__pycache__/

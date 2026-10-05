@@ -1,3 +1,4 @@
+import { useNativeForeground } from '../services/clientForeground';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { COMPONENTS, SVG_FILES, type ComponentDef } from '../data/components';
 import { useSimStore, type SimulationState } from '../store/simulation';
@@ -718,7 +719,9 @@ function captureAlignSnapshot(state: SimulationState): AlignUndoSnapshot {
 }
 
 export function CircuitCanvas() {
-  const state = useSimStore();
+  const storedState = useSimStore();
+  const foreground = useNativeForeground();
+  const state = foreground ? storedState : { ...storedState, animationOn: false };
   const positions = useSimStore((s) => s.positions);
   const meters = useSimStore((s) => s.meters);
   const selectedCable = useSimStore((s) => s.selectedCable);
@@ -1772,7 +1775,9 @@ function CableOverlay({
   const setCableDrag = useSimStore((s) => s.setCableDrag);
   const setCableWaypoints = useSimStore((s) => s.setCableWaypoints);
   const cableDrag = useSimStore((s) => s.cableDrag);
-  const state = useSimStore((s) => s);
+  const storedState = useSimStore((s) => s);
+  const foreground = useNativeForeground();
+  const state = foreground ? storedState : { ...storedState, animationOn: false };
   const particleLayerRef = useRef<SVGGElement>(null);
   const [draggingWaypoint, setDraggingWaypoint] = useState<{ cableId: string; index: number } | null>(null);
   const [cableAxisGuide, setCableAxisGuide] = useState<AlignmentGuide | null>(null);

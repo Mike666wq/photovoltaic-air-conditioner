@@ -1,0 +1,10 @@
+<!-- 与 clients/shared/icon.svg 使用相同几何与配色。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="256" android:viewportHeight="256">
+    <path android:fillColor="#0f233e" android:pathData="M52,0H204Q256,0 256,52V204Q256,256 204,256H52Q0,256 0,204V52Q0,0 52,0Z" />
+    <path android:fillColor="#facc15" android:pathData="M184,39A26,26 0,1 0,184,91A26,26 0,1 0,184,39Z" />
+    <path android:fillColor="#22b9e8" android:strokeColor="#e0f2fe" android:strokeWidth="6" android:pathData="M38,86H166L150,168H22Z" />
+    <path android:strokeColor="#0f233e" android:strokeWidth="5" android:pathData="M76,87L60,167M117,87L101,167M33,113H160M28,141H155" />
+    <path android:fillColor="#e0f2fe" android:pathData="M125,158H222Q235,158 235,171V203Q235,216 222,216H125Q112,216 112,203V171Q112,158 125,158Z" />
+    <path android:strokeColor="#0f233e" android:strokeWidth="6" android:strokeLineCap="round" android:pathData="M127,179H219M130,197H216" />
+    <path android:strokeColor="#e0f2fe" android:strokeWidth="7" android:strokeLineCap="round" android:pathData="M54,185V208M37,208H75" />
+</vector>

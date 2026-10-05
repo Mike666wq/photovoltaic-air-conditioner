@@ -1,3 +1,4 @@
+import { saveNativeText, copyNativeText, registerDiscardGuard } from '../services/nativeClient';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { bmsApi, BmsApiError } from '../services/bmsRealtimeApi';
@@ -30,6 +31,10 @@ export function BmsManagePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!credential) return;
+    return registerDiscardGuard(() => false);
+  }, [credential]);
   const serviceRoot = setup?.serviceRoot ?? window.location.origin;
   const locked = busy || !!credential || !!pendingPasswordReset || !!deleting || !!rotating;
 
@@ -101,9 +106,33 @@ export function BmsManagePage() {
     form.reset(); await reload(); setNotice(devices.length ? '观察账户已创建。请通过安全渠道交付初始密码。' : '账户已创建，当前未分配观测设备。请通过安全渠道交付初始密码。');
   });
 
-  const download = () => {
+  const copyCredential = async () => {
     if (!credential) return;
-    const url = URL.createObjectURL(new Blob([connectionInstructions(credential, serviceRoot)], { type: 'text/plain;charset=utf-8' }));
+    try {
+      const result = copyNativeText(credential.deviceToken);
+      if (result) {
+        if (await result !== 'saved') throw new Error('复制未完成');
+      } else await navigator.clipboard.writeText(credential.deviceToken);
+      setNotice('令牌已复制，请只填入本地客户端');
+    } catch { setError('复制失败，请显示令牌后手动复制'); }
+  };
+
+  const download = async () => {
+    if (!credential) return;
+    const text = connectionInstructions(credential, serviceRoot);
+    const fileName = `${credential.device.module === 'experiment' ? 'experiment' : 'bms'}-connection-${credential.device.deviceId}.txt`;
+    const result = saveNativeText(fileName, text);
+    if (result) {
+      setBusy(true);
+      try {
+        const status = await result;
+        if (status === 'saved') { setNotice('配置说明已保存'); setCredential(null); setReveal(false); }
+        else if (status === 'failed') setError('保存失败，请重试；设备令牌仍保留在当前页面');
+        else setNotice('已取消保存；设备令牌仍保留在当前页面');
+      } finally { setBusy(false); }
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${credential.device.module === 'experiment' ? 'experiment' : 'bms'}-connection-${credential.device.deviceId}.txt`; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
@@ -126,7 +155,7 @@ export function BmsManagePage() {
       {!ready ? <p>正在读取注册状态…</p> : !setup?.enabled ? <section className="bms-admin-card"><h2>站点尚未启用实时接入</h2><p>请先配置注册存储和初始化密钥。</p></section> : !setup.initialized ? <section className="bms-admin-card bms-first-admin"><h2>首次初始化管理员</h2><p>使用服务器提供的一次性初始化密钥创建首个管理员。</p>{!setup.bootstrapAvailable ? <p className="bms-warning">初始化密钥或持久化注册存储尚未配置，请联系运维人员。</p> : <form onSubmit={event => { event.preventDefault(); void bootstrap(event.currentTarget); }}><label>初始化密钥<input name="bootstrapToken" type="password" required autoComplete="off" minLength={32} maxLength={256} disabled={busy} /></label><label>管理员用户名<input name="username" required autoComplete="username" pattern="[a-zA-Z0-9_.-]{3,80}" minLength={3} maxLength={80} disabled={busy} /></label><label>管理员密码<input name="password" type="password" required autoComplete="new-password" minLength={12} maxLength={256} disabled={busy} /></label><label>确认管理员密码<input name="confirmPassword" type="password" required autoComplete="new-password" minLength={12} maxLength={256} disabled={busy} /></label><button className="bms-primary" disabled={busy}>{busy ? '正在初始化…' : '创建首个管理员'}</button></form>}</section> : identity?.role === 'admin' && <>
         {!registry?.writable && <p className="bms-warning">当前部署使用只读注册配置，无法新增设备、账户或轮换令牌。</p>}
         <section className="bms-admin-card bms-system-settings"><h2>独立设备接入</h2><p>每台设备对应一个 Windows 上传程序。实验设备包含其授权仪器，BMS 设备包含其全部 Pack；授权账户后可查看该设备的全部内容。</p><p>注册后保存一次性令牌和 Windows 手动配置说明，再从实时观测设备列表打开设备验证数据。</p></section>
-        {credential && <section className="bms-credential" aria-label="新设备接入凭据"><h2>保存设备上传令牌与 Windows 配置说明</h2><p>设备：{credential.device.alias} · {credential.device.deviceId}。令牌仅显示一次，关闭后云端只保留散列。</p><label>设备上传令牌（仅显示一次）<input type={reveal ? 'text' : 'password'} value={credential.deviceToken} readOnly autoComplete="off" /></label><div className="bms-admin-actions"><button onClick={() => setReveal(!reveal)}>{reveal ? '隐藏令牌' : '显示令牌'}</button><button onClick={() => void navigator.clipboard.writeText(credential.deviceToken).then(() => setNotice('令牌已复制，请只填入本地客户端')).catch(() => setError('复制失败，请显示令牌后手动复制'))}>复制令牌</button><button className="bms-primary" onClick={download}>下载 Windows 配置说明（含令牌）</button><button onClick={() => { setCredential(null); setReveal(false); }}>已安全保存，关闭凭据</button></div><p>配置文件含私密上传令牌，请保存在 Windows 用户的安全目录。</p></section>}
+        {credential && <section className="bms-credential" aria-label="新设备接入凭据"><h2>保存设备上传令牌与 Windows 配置说明</h2><p>设备：{credential.device.alias} · {credential.device.deviceId}。令牌仅显示一次，关闭后云端只保留散列。</p><label>设备上传令牌（仅显示一次）<input type={reveal ? 'text' : 'password'} value={credential.deviceToken} readOnly autoComplete="off" /></label><div className="bms-admin-actions"><button onClick={() => setReveal(!reveal)}>{reveal ? '隐藏令牌' : '显示令牌'}</button><button disabled={busy} onClick={() => void copyCredential()}>复制令牌</button><button className="bms-primary" disabled={busy} onClick={() => void download()}>下载 Windows 配置说明（含令牌）</button><button disabled={busy} onClick={() => { setCredential(null); setReveal(false); }}>已安全保存，关闭凭据</button></div><p>配置文件含私密上传令牌，请保存在 Windows 用户的安全目录。</p></section>}
         <div className="bms-admin-forms"><section className="bms-admin-card"><h2>注册本地设备</h2><form onSubmit={event => { event.preventDefault(); void registerDevice(event.currentTarget); }}><label>采集模块<select value={registrationModule} disabled={locked} onChange={event => setRegistrationModule(event.target.value as 'bms' | 'experiment')}><option value="bms">BMS 电池监控</option><option value="experiment">实验监控（37测点）</option></select></label><label>设备编号 deviceId<input name="deviceId" required pattern="[a-zA-Z0-9_-]{1,80}" maxLength={80} placeholder="复制 Windows 客户端中的 deviceId" disabled={locked || !registry?.writable} /></label><label>设备名称<input name="alias" required maxLength={128} placeholder="例如：实验室1号设备" disabled={locked || !registry?.writable} /></label>{registrationModule === 'bms' ? <><label>BMS 地址（逗号分隔）<input name="addresses" required placeholder="例如 1" disabled={locked || !registry?.writable} /></label><label>Pack 编号（逗号分隔）<input name="packs" required placeholder="例如 1,2" disabled={locked || !registry?.writable} /></label></> : <fieldset disabled={locked || !registry?.writable}><legend>该程序采集的仪器</legend>{EXPERIMENT_EQUIPMENT.map(id => <label className="bms-checkbox" key={id}><input type="checkbox" name="equipment" value={id} defaultChecked />{id}</label>)}</fieldset>}<button className="bms-primary" disabled={locked || !registry?.writable}>注册设备并生成上传令牌</button></form></section>
           <section className="bms-admin-card"><h2>创建观察账户</h2><p>可以暂不分配设备，之后再编辑设备权限。</p><form onSubmit={event => { event.preventDefault(); void registerUser(event.currentTarget); }}><label>用户名<input name="username" required pattern="[a-zA-Z0-9_.-]{3,80}" minLength={3} maxLength={80} autoComplete="off" disabled={locked || !registry?.writable} /></label><label>初始密码<input name="password" type="password" required minLength={12} maxLength={256} autoComplete="new-password" disabled={locked || !registry?.writable} /></label><label>确认初始密码<input name="confirmPassword" type="password" required minLength={12} maxLength={256} autoComplete="new-password" disabled={locked || !registry?.writable} /></label><fieldset disabled={locked || !registry?.writable}><legend>授权设备（可不选）</legend>{!devices.length ? <p>目前没有设备。</p> : devices.map(device => <label className="bms-checkbox" key={device.deviceId}><input type="checkbox" name="devices" value={device.deviceId} />{device.alias} · {device.module === 'experiment' ? '实验采集' : 'BMS'} · {device.deviceId}</label>)}</fieldset><button className="bms-primary" disabled={locked || !registry?.writable}>创建观察账户</button></form></section></div>
         <section className="bms-admin-card"><h2>已注册设备</h2>{!devices.length ? <p>还没有设备，请先完成设备注册。</p> : <div className="bms-device-list">{devices.map(device => <article key={device.deviceId}><h3>{device.alias}</h3><code>{device.deviceId}</code><p>{device.module === 'experiment' ? `实验采集 · 仪器：${device.allowedEquipment?.join('、')}` : `BMS · 地址：${device.allowedAddresses?.join('、')} · Pack：${device.allowedPacks.join('、')}`}</p><p>{device.online ? '客户端心跳在线' : '客户端心跳离线'}</p><small>最后心跳：{bmsTime(device.lastHeartbeatAt)}（心跳不代表测点新鲜）</small><div className="bms-admin-actions"><button disabled={locked} onClick={() => setGuideDevice(device.deviceId)}>查看 Windows 配置步骤</button>{rotating === device.deviceId ? <><span>旧令牌会立即失效，当前观看也会结束。</span><button disabled={busy} onClick={() => void perform(async () => { const next = await bmsApi.rotateDevice(device.deviceId); setCredential(next); setReveal(false); setGuideDevice(device.deviceId); setRotating(''); await reload(); })}>确认轮换</button><button disabled={busy} onClick={() => setRotating('')}>取消</button></> : <button disabled={locked || !registry?.writable} onClick={() => { setDeleting(''); setRotating(device.deviceId); }}>轮换上传令牌</button>}{deleting === device.deviceId ? <><span>删除将撤销该设备令牌和所有账户对该设备的授权，并清除云端短缓存。本地采集记录保留。</span><button disabled={busy} onClick={() => void perform(async () => { await bmsApi.deleteDevice(device.deviceId); setDeleting(''); setGuideDevice(id => id === device.deviceId ? '' : id); await reload(); setNotice('设备已删除；本地采集记录保留。'); })}>确认删除设备</button><button disabled={busy} onClick={() => setDeleting('')}>取消删除</button></> : <button disabled={locked || !registry?.writable} onClick={() => { setRotating(''); setDeleting(device.deviceId); }}>删除设备</button>}</div></article>)}</div>}</section>

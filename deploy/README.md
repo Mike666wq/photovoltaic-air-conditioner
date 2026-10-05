@@ -250,3 +250,7 @@ PORT=8080 node scripts/serve-prod.mjs
 当前未接入SQLite/PostgreSQL等数据库。账户、scrypt密码散列、设备令牌SHA-256散列、逐设备授权与disabled状态保存于独立PVC的registry.json；旧monitoringAccess与系统绑定仅兼容读取。浏览器不使用localStorage保存认证凭据。管理员不能停用管理员账户。注册账户上限100，同时观看账户上限10，每账户最多4个活动页面。生成负载测试验证配额，不代表真实上传量和现场HTTPS已验收。
 
 登录会话是服务器内存Map：随机会话ID对应用户与CSRF nonce，最长8小时。浏览器持有HttpOnly/Secure/SameSite=Strict Cookie，Cookie内容仅会话ID；每个API请求在服务器校验会话与当前设备权限。登录时更换会话ID，退出时撤销服务器会话及观看。服务重启保留账户、清除会话，用户需重新登录。这是文件持久化注册加服务器会话实现，不能称为已接入账户数据库。
+
+## Android与Windows轻量客户端
+
+独立客户端工程在`clients/`，构建与试装流程见[客户端安装说明](./CLIENT-INSTALL.md)。客户端固定加载正式HTTPS网页，云端部署须先包含客户端桥接支持。Client Packages手动构建试装产物；正式`client-vX.Y.Z`标签只发布APK/安装EXE，不更新镜像或Kubernetes。平台编译与真机验收尚需实际执行，不以网页测试代替安装包验收。

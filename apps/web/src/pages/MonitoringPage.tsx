@@ -1,3 +1,4 @@
+import { isClientForeground, subscribeClientForeground } from '../services/clientForeground';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { bmsApi, BmsApiError, monitoringApi } from '../services/bmsRealtimeApi';
@@ -72,15 +73,15 @@ export function MonitoringPage() {
     const stop = () => { if (timer) clearInterval(timer); timer = undefined; };
     const start = () => {
       stop();
-      if (!document.hidden) {
+      if (isClientForeground()) {
         void refresh();
         timer = setInterval(() => { void refresh(); }, 5000);
       }
     };
-    const onVisibility = () => document.hidden ? stop() : start();
+    const onVisibility = () => !isClientForeground() ? stop() : start();
     start();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
+    const unsubscribeForeground = subscribeClientForeground(onVisibility);
+    return () => { stop(); unsubscribeForeground(); };
   }, [identity, deviceListView, refresh]);
 
   const login = async (form: HTMLFormElement) => {

@@ -1,3 +1,4 @@
+import { useNativeForeground } from '../services/clientForeground';
 import { TopBar } from '../components/TopBar';
 import { CircuitCanvas } from '../components/CircuitCanvas';
 import { ControlPanel } from '../components/ControlPanel';
@@ -9,7 +10,8 @@ import { useSimStore } from '../store/simulation';
 
 /** 保持原理图页原有结构，M3 大屏不复用其专用 grid 样式。 */
 export function SchematicPage() {
-  const animationOn = useSimStore((s) => s.animationOn);
+  const foreground = useNativeForeground();
+  const animationOn = useSimStore((s) => s.animationOn) && foreground;
   const leftPanelOpen = useSimStore((s) => s.leftPanelOpen);
   const rightPanelOpen = useSimStore((s) => s.rightPanelOpen);
   const fullscreen = useSimStore((s) => s.fullscreen);

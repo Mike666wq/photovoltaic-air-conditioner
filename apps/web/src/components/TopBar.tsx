@@ -1,3 +1,4 @@
+import { registerBackLayer } from '../hooks/useModalA11y';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSimStore } from '../store/simulation';
 import { SaveManager } from './SaveManager';
@@ -58,6 +59,15 @@ export function TopBar() {
       if (narrow.matches) document.querySelector<HTMLButtonElement>(closeSelector)?.focus({ preventScroll: true });
     };
     const frame = requestAnimationFrame(focusDrawerClose);
+    let unregisterBack: (() => void) | undefined;
+    const syncBackLayer = () => {
+      unregisterBack?.();
+      unregisterBack = narrow.matches ? registerBackLayer(() => {
+        useSimStore.setState({ leftPanelOpen: false, rightPanelOpen: false });
+        if (toolsMenuRef.current) toolsMenuRef.current.open = false;
+      }, 'drawer') : undefined;
+    };
+    syncBackLayer();
     const onEscape = (event: KeyboardEvent) => {
       if (!narrow.matches || event.key !== 'Escape') return;
       // 让已打开的顶层弹窗（由 useModalA11y 管理）优先消费 Esc。
@@ -67,13 +77,14 @@ export function TopBar() {
       toolsMenuRef.current && (toolsMenuRef.current.open = false);
     };
     const onMediaChange = () => {
+      syncBackLayer();
       const current = useSimStore.getState();
       if (narrow.matches && current.leftPanelOpen && current.rightPanelOpen) useSimStore.setState({ leftPanelOpen: false });
       else focusDrawerClose();
     };
     window.addEventListener('keydown', onEscape);
     narrow.addEventListener?.('change', onMediaChange);
-    return () => { cancelAnimationFrame(frame); window.removeEventListener('keydown', onEscape); narrow.removeEventListener?.('change', onMediaChange); };
+    return () => { unregisterBack?.(); cancelAnimationFrame(frame); window.removeEventListener('keydown', onEscape); narrow.removeEventListener?.('change', onMediaChange); };
   }, [leftPanelOpen, rightPanelOpen]);
 
   const hh = String(time.getHours()).padStart(2, '0');

@@ -1,3 +1,4 @@
+import { markClientStateSaved } from '../services/nativeClient';
 import { useEffect, useState } from 'react';
 import { useModalA11y } from '../hooks/useModalA11y';
 import {
@@ -118,6 +119,7 @@ export function SaveManager({ open: isOpen, onClose }: Props) {
     try {
       const doc = serializeState(targetName.replace(/\.json$/i, ''));
       await saveScenario(targetName, doc);
+      markClientStateSaved();
       setCurrentFileName(targetName);
       await refresh();
       toast.success(`已保存到 ${targetName}`);
@@ -145,6 +147,7 @@ export function SaveManager({ open: isOpen, onClose }: Props) {
     try {
       const doc = serializeState(base);
       await saveScenario(targetName, doc);
+      markClientStateSaved();
       setScenarioName(base);
       setCurrentFileName(targetName);
       setPendingOverwrite(null);

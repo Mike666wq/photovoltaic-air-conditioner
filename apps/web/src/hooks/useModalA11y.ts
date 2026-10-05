@@ -9,7 +9,23 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-const modalStack: symbol[] = [];
+const modalStack: Array<{ id: symbol; close: () => void; kind: 'modal' | 'drawer' }> = [];
+
+/** 客户端返回键与 Esc 使用同一个栈，避免向页面合成键盘事件。 */
+export function consumeModalBack(): boolean {
+  const top = modalStack[modalStack.length - 1];
+  if (!top) return false;
+  top.close();
+  return true;
+}
+
+export function registerBackLayer(close: () => void, kind: 'modal' | 'drawer' = 'modal') {
+  const entry = { id: Symbol('layer'), close, kind };
+  const firstModal = modalStack.findIndex(layer => layer.kind === 'modal');
+  if (kind === 'drawer' && firstModal >= 0) modalStack.splice(firstModal, 0, entry);
+  else modalStack.push(entry);
+  return () => { const index = modalStack.indexOf(entry); if (index >= 0) modalStack.splice(index, 1); };
+}
 
 /**
  * 弹窗无障碍：Esc 关闭 + 打开时移焦 + Tab 焦点陷阱 + 关闭后焦点归位。
@@ -28,8 +44,8 @@ export function useModalA11y(open: boolean, onClose: () => void) {
   useEffect(() => {
     if (!open) return;
 
-    const modalId = Symbol('modal');
-    modalStack.push(modalId);
+    const unregister = registerBackLayer(() => onCloseRef.current());
+    const modalId = modalStack[modalStack.length - 1].id;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     // 移焦用 setTimeout 而非 requestAnimationFrame：
     // rAF 在后台标签页 / 无头浏览器中会被节流甚至不触发，弹窗打开后焦点会永远留在 BODY。
@@ -37,7 +53,7 @@ export function useModalA11y(open: boolean, onClose: () => void) {
     let retryTimer = 0;
     let attempts = 0;
     const focusFirst = () => {
-      if (modalStack[modalStack.length - 1] !== modalId) return;
+      if (modalStack[modalStack.length - 1]?.id !== modalId) return;
       attempts += 1;
       const target = ref.current?.querySelector<HTMLElement>(FOCUSABLE);
       if (target) {
@@ -49,7 +65,7 @@ export function useModalA11y(open: boolean, onClose: () => void) {
     const focusTimer = window.setTimeout(focusFirst, 0);
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (modalStack[modalStack.length - 1] !== modalId) return;
+      if (modalStack[modalStack.length - 1]?.id !== modalId) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -79,8 +95,7 @@ export function useModalA11y(open: boolean, onClose: () => void) {
       window.clearTimeout(focusTimer);
       window.clearTimeout(retryTimer);
       document.removeEventListener('keydown', onKeyDown);
-      const stackIndex = modalStack.lastIndexOf(modalId);
-      if (stackIndex >= 0) modalStack.splice(stackIndex, 1);
+      unregister();
       previouslyFocused?.focus?.();
     };
   }, [open]);

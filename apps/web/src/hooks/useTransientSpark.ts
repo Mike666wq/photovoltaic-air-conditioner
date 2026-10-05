@@ -1,3 +1,4 @@
+import { useNativeForeground } from '../services/clientForeground';
 import { useEffect, useRef, type RefObject } from 'react';
 import { useSimStore } from '../store/simulation';
 
@@ -20,7 +21,8 @@ export function useTransientSpark(
   durationMs = 800,
 ) {
   const flag = useSimStore((s) => s[stateKey]);
-  const animationOn = useSimStore((s) => s.animationOn);
+  const foreground = useNativeForeground();
+  const animationOn = useSimStore((s) => s.animationOn) && foreground;
   const flagRef = useRef(flag);
 
   useEffect(() => {

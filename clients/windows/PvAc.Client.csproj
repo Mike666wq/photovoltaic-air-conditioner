@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <AssemblyName>PvAc.Client</AssemblyName>
+    <ClientVersion Condition="'$(ClientVersion)' == ''">0.0.0</ClientVersion>
+    <Version>$(ClientVersion)</Version>
+    <InformationalVersion>client-v$(ClientVersion)</InformationalVersion>
+    <ApplicationIcon Condition="Exists('../shared/app.ico')">../shared/app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildSha" Value="$(ClientBuildSha)" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3124.44" />
+  </ItemGroup>
+</Project>

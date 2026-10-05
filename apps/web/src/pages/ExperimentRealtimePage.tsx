@@ -1,3 +1,4 @@
+import { isClientForeground, subscribeClientForeground } from '../services/clientForeground';
 import { useEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { experimentApi } from '../services/experimentRealtimeApi';
@@ -46,17 +47,17 @@ function ExperimentObservation({ identity, device, autostart, pageId, onUnauthor
     if (old.deviceId !== device.deviceId || old.identity?.username !== identity.username) old.clearData();
     const first = experimentCatalog.points.find(p => device.allowedEquipment?.includes(p.equipmentId));
     store.setState({ identity, devices: [device], deviceId: device.deviceId, error: '', selection: device.allowedEquipment?.includes(old.selection.split('/')[0]) ? old.selection : first ? `${first.equipmentId}/${first.id}` : 'PLC/T0' });
-    resume.current = !!autostart && document.hidden;
-    if (autostart && !document.hidden) void current.start(pageId);
+    resume.current = !!autostart && !isClientForeground();
+    if (autostart && isClientForeground()) void current.start(pageId);
     const timer = setInterval(() => { setNow(Date.now()); setMono(performance.now()); }, 1000);
     const visibility = () => {
-      if (document.hidden) {
+      if (!isClientForeground()) {
         resume.current = ['connecting', 'watching', 'reconnecting'].includes(store.getState().phase);
         if (resume.current) current.stop('paused');
       } else if (resume.current) { resume.current = false; void current.start(pageId); }
     };
-    document.addEventListener('visibilitychange', visibility);
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', visibility); resume.current = false; current.stop(); };
+    const unsubscribeForeground = subscribeClientForeground(visibility);
+    return () => { clearInterval(timer); unsubscribeForeground(); resume.current = false; current.stop(); };
   }, [device.deviceId, identity.username, autostart, pageId]);
 
   const trend = (definition: typeof experimentCatalog.points[number]) => {
