@@ -4,8 +4,8 @@ import { CacheCoordinator } from './cache-coordinator.mjs';
 import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice, deleteDevice, updateUserDevices, updateUserMonitoring, resetUserPassword } from './registration.mjs';
 import { RealtimeState } from './state.mjs';
 import { ExperimentState } from './experiment-state.mjs';
-import { catalog, equipment, validateExperimentSnapshot } from './experiment-contract.mjs';
-import { ApiError, assert, object, identifier, packs, validateSnapshot } from './contract.mjs';
+import { catalog, equipment, historyPoints, validateExperimentSnapshot, validateExperimentBackfill } from './experiment-contract.mjs';
+import { ApiError, assert, object, identifier, packs, validateSnapshot, validateBmsBackfill } from './contract.mjs';
 
 const PREFIX = '/api/realtime';
 const COOKIE = 'cloud_viewer';
@@ -25,10 +25,10 @@ export function writeSse(res, event, payload) {
   if (res.writableLength + Buffer.byteLength(packet) > 65536) return false;
   res.write(packet); return true;
 }
-async function readJson(req) {
+async function readJson(req, maxBytes = 65536) {
   assert(/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? ''), 400, 'JSON_REQUIRED', '需要application/json正文');
   assert(!req.headers['content-encoding'] || req.headers['content-encoding'] === 'identity', 400, 'ENCODING_UNSUPPORTED', '不支持压缩正文');
-  assert(!req.headers['content-length'] || Number(req.headers['content-length']) <= 65536, 413, 'BODY_TOO_LARGE', '正文超过64KiB');
+  assert(!req.headers['content-length'] || Number(req.headers['content-length']) <= maxBytes, 413, 'BODY_TOO_LARGE', `正文超过${Math.floor(maxBytes / 1024)}KiB`);
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const body = await new Promise((resolve, reject) => {
     let text = ''; let size = 0;
@@ -39,7 +39,7 @@ async function readJson(req) {
     };
     const data = (chunk) => {
       size += chunk.length;
-      if (size > 65536) { finish(new ApiError(413, 'BODY_TOO_LARGE', '正文超过64KiB')); return; }
+      if (size > maxBytes) { finish(new ApiError(413, 'BODY_TOO_LARGE', `正文超过${Math.floor(maxBytes / 1024)}KiB`)); return; }
       try { text += decoder.decode(chunk, { stream: true }); } catch { finish(new ApiError(400, 'JSON_INVALID', 'JSON正文不是有效UTF-8')); }
     };
     const end = () => finish(); const fail = () => finish(new ApiError(400, 'BODY_INCOMPLETE', '请求正文不完整'));
@@ -220,6 +220,11 @@ export function createRealtimeApi(options = {}) {
       const snapshot = isExperiment?validateExperimentSnapshot(b,deviceAuth(req,module)):validateSnapshot(b, deviceAuth(req, module));
       return json(res, 200, state.accept(d.deviceId, b.subscriptionId, snapshot));
     }
+    if (pathname === '/backfill' && req.method === 'POST') {
+      const d = deviceAuth(req, module); rate(`backfill:${d.deviceId}`, 300); const b = await readJson(req, 131072);
+      const payload = isExperiment ? validateExperimentBackfill(b, deviceAuth(req,module)) : validateBmsBackfill(b, deviceAuth(req,module));
+      return json(res, 200, state.backfill(d.deviceId, payload.subscriptionId, payload.points));
+    }
     if (pathname === '/auth/session' && req.method === 'GET') {
       rate(`session:${req.socket.remoteAddress}`, 120);
       let s;
@@ -320,7 +325,8 @@ export function createRealtimeApi(options = {}) {
       const principals = new Set(allActive.map(({ viewer }) => viewer.principal));
       assert(principals.has(s.user.username) || principals.size < (config.maxActiveUsers ?? 10), 429, 'ACTIVE_USER_LIMIT', '同时观看账户数已达上限');
       const source = Object.hasOwn(b, 'source') ? sourceFilter(b.source) : null;
-      return json(res, 201, state.createViewer(s.id, d.deviceId, isExperiment?equipment(b.equipmentIds,d.allowedEquipment):packs(b.packs, d.allowedPacks), s.user.username, source, pageId));
+      const requestedHistory = isExperiment ? (Object.hasOwn(b, 'historySelections') ? historyPoints(b.historySelections, d.allowedEquipment) : null) : null;
+      return json(res, 201, state.createViewer(s.id, d.deviceId, isExperiment?equipment(b.equipmentIds,d.allowedEquipment):packs(b.packs, d.allowedPacks), s.user.username, source, pageId, requestedHistory));
     }
     const viewerMatch = pathname.match(/^\/viewers\/([^/]+)$/);
     if (viewerMatch && ['PUT', 'DELETE'].includes(req.method)) {
@@ -328,7 +334,8 @@ export function createRealtimeApi(options = {}) {
       if (req.method === 'DELETE') { state.release(id, s.id); return json(res, 204); }
       const v = state.viewer(id, s.id); const d = authorized(s, v.deviceId, state); const b = await readJson(req);
       const source = Object.hasOwn(b, 'source') ? sourceFilter(b.source) : undefined;
-      return json(res, 200, state.renew(id, s.id, isExperiment?equipment(b.equipmentIds,d.allowedEquipment):packs(b.packs, d.allowedPacks), source));
+      const requestedHistory = isExperiment && Object.hasOwn(b, 'historySelections') ? historyPoints(b.historySelections, d.allowedEquipment) : undefined;
+      return json(res, 200, state.renew(id, s.id, isExperiment?equipment(b.equipmentIds,d.allowedEquipment):packs(b.packs, d.allowedPacks), source, requestedHistory));
     }
     const deviceMatch = pathname.match(/^\/devices\/([^/]+)\/(latest|trend|cache)$/);
     if (deviceMatch) {

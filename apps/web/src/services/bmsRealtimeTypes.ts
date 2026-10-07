@@ -38,6 +38,19 @@ export interface ViewerLease { viewerId: string; expiresAt: string; renewAfterSe
 export interface TrendPoint { entryId:number; capturedUtc: string; receivedAt: string; sequence: number; connectionSessionId: string; value: number; source: BmsSnapshot['source']; address: number; periodSeconds?: number | null }
 export type BmsMetric = 'voltage' | 'current' | 'soc';
 export const BMS_METRICS: BmsMetric[] = ['voltage', 'current', 'soc'];
+export interface BmsValueSummary { count: number; min: number; max: number; spread: number; minIndex: number; maxIndex: number }
+/** 只对协议实际上传的有限数值做统计；不丢弃0、不套用未经确认的健康阈值。 */
+export function summarizeBmsValues(values?: number[] | null): BmsValueSummary | null {
+  if (!values?.length) return null;
+  let count = 0, min = Number.POSITIVE_INFINITY, max = Number.NEGATIVE_INFINITY, minIndex = -1, maxIndex = -1;
+  values.forEach((value, index) => {
+    if (!Number.isFinite(value)) return;
+    count++;
+    if (value < min) { min = value; minIndex = index; }
+    if (value > max) { max = value; maxIndex = index; }
+  });
+  return count ? { count, min, max, spread: max - min, minIndex, maxIndex } : null;
+}
 export const BMS_TIME_ZONE = 'Asia/Shanghai';
 export function bmsTime(value?: string | null): string {
   if (!value || !Number.isFinite(Date.parse(value))) return '—';

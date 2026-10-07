@@ -34,7 +34,8 @@ async function harness(t, overrides = {}) {
   const deviceHeaders = { Authorization: `Bearer ${token}` };
   const beat = () => call('/heartbeat', 'POST', { deviceId: device.deviceId, alias: device.alias }, deviceHeaders);
   const send = (id, snapshot = sample()) => call('/snapshots', 'POST', { subscriptionId: id, snapshot }, deviceHeaders);
-  return { api, root, call, login, beat, send, deviceHeaders, advance: (ms) => mono += ms };
+  const backfill = (id, points) => call('/backfill', 'POST', { subscriptionId: id, schemaVersion: 1, module: 'bms', points }, deviceHeaders);
+  return { api, root, call, login, beat, send, backfill, deviceHeaders, advance: (ms) => mono += ms };
 }
 async function viewing(h, selected = [1], username) {
   const user = await h.login(username); const viewer = (await user.call('/viewers', 'POST', { deviceId: device.deviceId, packs: selected })).body;
@@ -45,8 +46,8 @@ test('模块默认关闭JSON503，其他路径正常，未知API不返回HTML', 
   const enabled = await harness(t); assert.equal((await enabled.call('/missing')).status, 404);
 });
 test('无观看仅心跳；创建、采样、转换与同租约续期', async (t) => {
-  const h = await harness(t); assert.deepEqual((await h.beat()).body, { subscriptionId: '', leaseSeconds: 0, requestedPacks: [] });
-  const { user, lease } = await viewing(h); assert.equal(lease.leaseSeconds, 45); assert.deepEqual(lease.requestedPacks, [1]);
+  const h = await harness(t); assert.deepEqual((await h.beat()).body, { subscriptionId: '', leaseSeconds: 0, requestedPacks: [], backfillSeconds: 0 });
+  const { user, lease } = await viewing(h); assert.equal(lease.leaseSeconds, 45); assert.equal(lease.backfillSeconds, 300); assert.deepEqual(lease.requestedPacks, [1]);
   assert.deepEqual((await user.call('/devices/lab-bms-01/latest')).body.packs, []);
   assert.equal((await h.send(lease.subscriptionId)).status, 200);
   const latest = (await user.call('/devices/lab-bms-01/latest')).body.packs[0];
@@ -56,11 +57,24 @@ test('无观看仅心跳；创建、采样、转换与同租约续期', async (t
   assert.equal(trend.periodSeconds, fixture.periodSeconds, 'HTTP趋势响应应逐点保留采集周期');
   assert.equal((await h.beat()).body.subscriptionId, lease.subscriptionId);
 });
+test('BMS 5分钟历史回填接口只预热趋势且重试不重复', async (t) => {
+  const h = await harness(t); const { user, lease } = await viewing(h);
+  const point = { source:'serial', address:1, pack:1, connectionSessionId:'history-session', sequence:77, capturedUtc:'2026-10-03T07:57:00.000Z', periodSeconds:15, voltageCentivolts:5000, currentCentiamps:-50, socPercent:70 };
+  assert.deepEqual((await h.backfill(lease.subscriptionId,[point])).body,{accepted:true,added:1});
+  assert.deepEqual((await h.backfill(lease.subscriptionId,[point])).body,{accepted:true,added:0});
+  const duplicate={...point,sequence:79,capturedUtc:'2026-10-03T07:58:00.000Z'};assert.deepEqual((await h.backfill(lease.subscriptionId,[duplicate,duplicate])).body,{accepted:true,added:1});
+  assert.equal((await h.backfill(lease.subscriptionId,Array(129).fill(point))).status,400);
+  assert.deepEqual((await user.call('/devices/lab-bms-01/latest')).body.packs,[]);
+  const trend=(await user.call('/devices/lab-bms-01/trend?pack=1&metric=voltage')).body.points;
+  assert.equal(trend.length,2);assert.equal(trend[0].value,50);assert.equal(trend[0].connectionSessionId,'history-session');
+  const tooOld={...point,sequence:78,capturedUtc:'2026-10-03T07:54:00.000Z'};const rejected=await h.backfill(lease.subscriptionId,[tooOld]);assert.equal(rejected.status,422);assert.equal(rejected.body.error.code,'BACKFILL_WINDOW');
+});
+
 test('多观看者并集、所有权、续期、释放、过期、新租约', async (t) => {
   const h = await harness(t); const a = await viewing(h); const b = await viewing(h, [2], 'observer');
-  assert.deepEqual(b.lease.requestedPacks, [1,2]);
+  assert.deepEqual(b.lease.requestedPacks, [1,2]); assert.notEqual(b.lease.subscriptionId, a.lease.subscriptionId, '请求Pack并集扩大时必须轮换subscription以触发新Pack预热');
   assert.equal((await a.user.call(`/viewers/${b.viewer.viewerId}`, 'PUT', { packs: [1] })).status, 403);
-  await a.user.call(`/viewers/${a.viewer.viewerId}`, 'PUT', { packs: [2] }); assert.deepEqual((await h.beat()).body.requestedPacks, [2]);
+  await a.user.call(`/viewers/${a.viewer.viewerId}`, 'PUT', { packs: [2] }); const narrowed = (await h.beat()).body; assert.deepEqual(narrowed.requestedPacks, [2]); assert.notEqual(narrowed.subscriptionId, b.lease.subscriptionId, '请求Pack集合收缩时旧subscription也不得继续代表旧范围');
   await b.user.call(`/viewers/${b.viewer.viewerId}`, 'DELETE'); await a.user.call(`/viewers/${a.viewer.viewerId}`, 'DELETE');
   assert.equal((await h.send(a.lease.subscriptionId, sample({pack:2}))).status, 409); assert.equal((await h.beat()).body.leaseSeconds, 0);
   assert.equal((await a.user.call(`/viewers/${a.viewer.viewerId}`, 'DELETE')).status, 204);

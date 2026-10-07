@@ -28,5 +28,5 @@ export function BmsTrendChart({ title, unit, points }: {
   points: BmsChartPoint[];
   localTime?: boolean;
 }) {
-  return <MonitoringTrendChart title={title} unit={unit} series={buildBmsTrendLines(title, unit, points)} emptyText="等待本地采样后显示最近一小时趋势" />;
+  return <MonitoringTrendChart title={title} unit={unit} series={buildBmsTrendLines(title, unit, points)} emptyText="等待本地采样后显示趋势" />;
 }

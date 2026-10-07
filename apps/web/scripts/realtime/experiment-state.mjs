@@ -4,7 +4,10 @@ import { assert } from './contract.mjs';
 /** 实验测点按真实观测时间保留一小时，和BMS共用全局容量协调器。 */
 export class ExperimentState extends RealtimeState {
   info(d) { return { deviceId: d.registration.deviceId, alias: d.registration.alias, module: 'experiment', allowedPacks: [], allowedAddresses: [], allowedEquipment: d.registration.allowedEquipment, allowSimulation: d.registration.allowSimulation, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt }; }
-  heartbeat(id) { const r = super.heartbeat(id); const { requestedPacks, ...rest } = r; return { ...rest, requestedDevices: requestedPacks }; }
+  heartbeat(id) {
+    const r = super.heartbeat(id), requestedHistoryPoints = this.requestedHistory(id); const { requestedPacks, ...rest } = r;
+    return rest.leaseSeconds <= 0 || requestedHistoryPoints == null ? { ...rest, requestedDevices: requestedPacks } : { ...rest, requestedDevices: requestedPacks, requestedHistoryPoints };
+  }
   dto(item) {
     const now = this.now();
     const points = item.snapshot.points.filter(p => (item.pointMeta.get(p.id)?.expiresAt ?? 0) > now).map(p => {
@@ -15,6 +18,30 @@ export class ExperimentState extends RealtimeState {
   _pointEntryKey(deviceId, snapshot, point) {
     const fingerprint = JSON.stringify([point.quality, point.value, point.rawValue, point.displayValue, point.unit, point.description]);
     return this.coordinator.entryKey(deviceId, snapshot.source, snapshot.equipmentId, point.id, snapshot.acquisitionSessionId, point.configVersion, point.acquisitionRound, point.observedUtc, fingerprint);
+  }
+  backfill(id, subscriptionId, points) {
+    this.sweep(); const d = this.device(id), now = this.now(), receivedAt = this.iso();
+    assert(d.lease?.id === subscriptionId && d.lease.until > now, 409, 'LEASE_EXPIRED', '观看租约已失效');
+    const ordered = [...points].sort((a, b) => Date.parse(a.observedUtc) - Date.parse(b.observedUtc) || a.acquisitionRound - b.acquisitionRound || a.id.localeCompare(b.id));
+    const pending = ordered.map((p) => {
+      assert(this.acceptedFor(id, p.source, p.equipmentId), 403, 'EQUIPMENT_FORBIDDEN', '历史回填包含当前未观看的实验仪器或来源');
+      const age = this.backfillAge(p.observedUtc, d.lease), expiresAt = now + this.config.cacheMs - age;
+      const signature = this.coordinator.hash(JSON.stringify([p.source,p.equipmentId,p.id,p.connectionSessionId,p.acquisitionSessionId,p.observedUtc,p.value,p.quality,p.unit,p.configVersion,p.acquisitionRound]));
+      const cacheKey = this.coordinator.entryKey(id, 'experiment-backfill', signature);
+      return { p, expiresAt, cacheKey };
+    });
+    const unique = [...new Map(pending.map(item => [item.cacheKey, item])).values()];
+    const entryIds = this.coordinator.reserve(unique.map(item => ({ key: item.cacheKey, expiresAt: item.expiresAt })));
+    let added = 0;
+    for (const item of unique) {
+      const entryId = entryIds.get(item.cacheKey); if (!entryId) continue;
+      const p = item.p, channel = `${p.source}/${p.equipmentId}`, ringKey = `${p.connectionSessionId}/${channel}/${p.id}`;
+      const ring = d.rings.get(ringKey) ?? { items: [], head: 0 };
+      ring.items.push({ entryId, cacheKey: item.cacheKey, expiresAt: item.expiresAt, receivedAt, observedUtc: p.observedUtc, connectionSessionId: p.connectionSessionId, sourceSegment: 0, source: p.source, equipmentId: p.equipmentId, point: { id: p.id, value: p.value, quality: p.quality, unit: p.unit, configVersion: p.configVersion, acquisitionRound: p.acquisitionRound } });
+      d.rings.set(ringKey, ring); added++;
+    }
+    if (added) this.emit('trend-backfill', id, { deviceId: id, module: 'experiment', added });
+    return { accepted: true, added };
   }
   accept(id, subscriptionId, s) {
     const d = this.device(id), now = this.now();

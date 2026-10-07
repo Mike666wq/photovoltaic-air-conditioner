@@ -5,6 +5,8 @@ import {useExperimentRealtimeStore as store} from '../store/experimentRealtime';
 import type {ExperimentSample} from './experimentRealtimeTypes';
 import type {ViewerLease} from './bmsRealtimeTypes';
 
+const trendableSelections=new Set(experimentCatalog.points.filter(p=>p.metadata.Group!=='运行状态'&&p.metadata.Group!=='诊断').map(p=>`${p.equipmentId}/${p.id}`));
+const historySelections=(selection:string)=>trendableSelections.has(selection)?[selection]:[];
 const pageQueues = new WeakMap<object, Map<string, Promise<void>>>();
 function pageQueue(api: object, pageId?: string) {
   let queues = pageQueues.get(api);
@@ -47,7 +49,7 @@ export class ExperimentRealtimeController {
     const abort=new AbortController();this.abort=abort;const pageId=this.pageId;store.setState({phase:'connecting',error:''});
     try{const lease=await pageQueue(this.api,pageId).run(async()=>{
       if(g!==this.generation||abort.signal.aborted)return null;
-      const created=await this.api.create(s.deviceId,allowedEquipment,abort.signal,pageId);
+      const created=await this.api.create(s.deviceId,allowedEquipment,historySelections(s.selection),abort.signal,pageId);
       if(g!==this.generation||abort.signal.aborted){await boundedRelease(()=>this.api.release(created.viewerId),this.releaseWaitMs);return null;}
       store.setState({lease:created,phase:'watching'});return created;
     });if(!lease||g!==this.generation)return;
@@ -62,11 +64,12 @@ export class ExperimentRealtimeController {
     if(this.retryCount>=8){this.stop('expired');store.setState({error:'自动重连已达8次，请检查网络后手动开始观测。'});return;}
     this.generation++;const g=this.generation;this.cleanup('reconnecting');const delay=Math.min(30000,1000*2**Math.min(this.retryCount++,5));store.setState({error:error instanceof Error?error.message:'实验数据连接中断，正在重连'});this.retry=setTimeout(()=>{if(g===this.generation)void this.connect(g);},delay);
   }
-  private renew(lease:ViewerLease,g:number){clearTimeout(this.timer);this.timer=setTimeout(async()=>{if(g!==this.generation)return;const s=store.getState(),d=s.devices.find(d=>d.deviceId===s.deviceId);try{const next=await this.api.renew(lease.viewerId,d?.allowedEquipment??[]);if(g!==this.generation)return;store.setState({lease:next});this.renew(next,g);}catch(e){if(g===this.generation)this.fail(e);}},lease.renewAfterSeconds*1000);}
+  private renew(lease:ViewerLease,g:number){clearTimeout(this.timer);this.timer=setTimeout(async()=>{if(g!==this.generation)return;const s=store.getState(),d=s.devices.find(d=>d.deviceId===s.deviceId),queue=pageQueue(this.api,this.pageId);try{const next=await queue.run(()=>this.api.renew(lease.viewerId,d?.allowedEquipment??[],historySelections(s.selection)));if(g!==this.generation)return;store.setState({lease:next});this.renew(next,g);}catch(e){if(g===this.generation)this.fail(e);}},lease.renewAfterSeconds*1000);}
+  async updateHistorySelection(selection:string){const g=this.generation,s=store.getState(),lease=s.lease,d=s.devices.find(d=>d.deviceId===s.deviceId),allowedEquipment=d?.allowedEquipment;if(!lease||!allowedEquipment?.length)return;try{const next=await pageQueue(this.api,this.pageId).run(()=>this.api.renew(lease.viewerId,allowedEquipment,historySelections(selection)));if(g!==this.generation||store.getState().selection!==selection)return;store.setState({lease:next});this.renew(next,g);}catch(e){if(g===this.generation)this.fail(e);}}
   async refreshTrend(replace=false){const s=store.getState();return this.refreshTrendSeries([s.selection],replace);}
   async refreshTrendSeries(selections:string[],replace=false){const g=this.generation;await Promise.all([...new Set(selections)].map(selection=>this.loadTrend(selection,g,replace)));}
   private async loadTrend(selection:string,g:number,replace:boolean){
-    const s=store.getState();if(g!==this.generation||!s.lease)return;
+    const s=store.getState();if(g!==this.generation||!s.lease||!trendableSelections.has(selection))return;
     const key=experimentTrendKey(s.deviceId,selection),requestKey=`${g}/${key}`,existing=this.fetching.get(requestKey);if(existing){await existing;return;}
     const [equipmentId,pointId]=selection.split('/');if(!equipmentId||!pointId)return;
     const task=(async()=>{let cursor=replace?null:(this.cursors.get(key)??null);let first=true;
@@ -81,13 +84,13 @@ export class ExperimentRealtimeController {
     const s=store.getState(),latest=await this.api.latest(s.deviceId);if(g!==this.generation)return;
     store.setState({websiteConnected:true,devices:s.devices.map(d=>d.deviceId===s.deviceId?{...d,online:latest.online,lastHeartbeatAt:latest.lastHeartbeatAt}:d)});for(const sample of latest.snapshots)store.getState().accept(sample);
     const equipment=new Set(s.devices.find(d=>d.deviceId===s.deviceId)?.allowedEquipment??[]);
-    const primary=experimentCatalog.points.filter(p=>(p.metadata.Group==='温度'||p.metadata.Group==='太阳能')&&equipment.has(p.equipmentId)).map(p=>`${p.equipmentId}/${p.id}`);
-    await this.refreshTrendSeries([...primary,...(equipment.has(s.selection.split('/')[0])?[s.selection]:[])]);
+    if(equipment.has(s.selection.split('/')[0])) await this.refreshTrendSeries([s.selection]);
   }
   private subscribe(lease:ViewerLease,g:number){
     this.events?.close();const events=this.openEvents(`/api/experiment/events?viewerId=${encodeURIComponent(lease.viewerId)}`);this.events=events;
-    events.onopen=()=>{if(g===this.generation){this.retryCount=0;store.setState({phase:'watching',websiteConnected:true,error:''});}};
-    events.addEventListener('snapshot',event=>{if(g!==this.generation)return;try{store.getState().accept(JSON.parse((event as MessageEvent).data) as ExperimentSample);if(!this.refreshTimer)this.refreshTimer=setTimeout(()=>{this.refreshTimer=undefined;const s=store.getState(),equipment=new Set(s.devices.find(d=>d.deviceId===s.deviceId)?.allowedEquipment??[]);const primary=experimentCatalog.points.filter(p=>(p.metadata.Group==='温度'||p.metadata.Group==='太阳能')&&equipment.has(p.equipmentId)).map(p=>`${p.equipmentId}/${p.id}`);void this.refreshTrendSeries([...primary,...(equipment.has(s.selection.split('/')[0])?[s.selection]:[])]);},1200);}catch{this.fail(new Error('实验采样响应无效'));}});
+    events.onopen=()=>{if(g!==this.generation)return;this.retryCount=0;store.setState({phase:'watching',websiteConnected:true,error:''});const s=store.getState(),equipment=new Set(s.devices.find(d=>d.deviceId===s.deviceId)?.allowedEquipment??[]);if(equipment.has(s.selection.split('/')[0]))void this.refreshTrendSeries([s.selection]);};
+    events.addEventListener('snapshot',event=>{if(g!==this.generation)return;try{store.getState().accept(JSON.parse((event as MessageEvent).data) as ExperimentSample);if(!this.refreshTimer)this.refreshTimer=setTimeout(()=>{this.refreshTimer=undefined;const s=store.getState(),equipment=new Set(s.devices.find(d=>d.deviceId===s.deviceId)?.allowedEquipment??[]);if(equipment.has(s.selection.split('/')[0]))void this.refreshTrendSeries([s.selection]);},1200);}catch{this.fail(new Error('实验采样响应无效'));}});
+    events.addEventListener('trend-backfill',()=>{if(g!==this.generation)return;const s=store.getState(),equipment=new Set(s.devices.find(d=>d.deviceId===s.deviceId)?.allowedEquipment??[]);if(equipment.has(s.selection.split('/')[0]))void this.refreshTrendSeries([s.selection]);});
     events.addEventListener('device-status',event=>{if(g!==this.generation)return;try{const d=JSON.parse((event as MessageEvent).data);if(d.viewing===false){this.fail(new BmsApiError(410,'VIEWER_EXPIRED','观看租约结束，正在重新连接'));return;}store.setState({devices:store.getState().devices.map(old=>old.deviceId===d.deviceId?{...old,online:d.online,lastHeartbeatAt:d.lastHeartbeatAt}:old)});}catch{this.fail(new Error('实验设备状态无效'));}});
     events.addEventListener('permission-revoked',event=>{if(g!==this.generation)return;try{const data=JSON.parse((event as MessageEvent).data) as {deviceId?:string},deviceId=store.getState().deviceId;if(!deviceId||data.deviceId!==deviceId)return;this.stop('unauthorized');store.setState({error:'管理员已撤销此设备的观测权限。'});this.permissionRevoked?.(deviceId);}catch{this.fail(new Error('权限变更通知无效'));}});
     events.addEventListener('cache-status',event=>{if(g===this.generation){try{store.setState({cacheStatus:JSON.parse((event as MessageEvent).data)});}catch{}}});

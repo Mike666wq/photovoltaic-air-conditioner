@@ -25,6 +25,7 @@ export interface MonitoringTrendChartProps {
   retentionMs?: number;
   gapMs?: number;
   emptyText?: string;
+  showWindowControls?: boolean;
 }
 
 export interface BuiltTrendSeries {
@@ -33,6 +34,53 @@ export interface BuiltTrendSeries {
   data: Array<[number, number | null]>;
   /** 仅单点分段需要标记，密集曲线保持无标记。 */
   isolatedPointIndices: number[];
+}
+
+export type TrendWindowMode = 'auto' | '5m' | '15m' | '30m' | '60m';
+
+const TREND_WINDOW_MS: Record<Exclude<TrendWindowMode, 'auto'>, number> = {
+  '5m': 5 * 60_000,
+  '15m': 15 * 60_000,
+  '30m': 30 * 60_000,
+  '60m': 60 * 60_000,
+};
+
+export interface TrendDataStats {
+  validCount: number;
+  firstTimestamp: number | null;
+  lastTimestamp: number | null;
+  coverageMs: number;
+  declaredPeriodMs: number | null;
+}
+
+export function trendDataStats(series: MonitoringTrendSeries[]): TrendDataStats {
+  const timestamps: number[] = [];
+  const periods: number[] = [];
+  for (const line of series) for (const point of line.points) {
+    const timestamp = Date.parse(point.time);
+    if (point.value != null && Number.isFinite(point.value) && Number.isFinite(timestamp)) timestamps.push(timestamp);
+    const period = validPeriodMs(point.periodSeconds);
+    if (period) periods.push(period);
+  }
+  timestamps.sort((a, b) => a - b);
+  const firstTimestamp = timestamps[0] ?? null;
+  const lastTimestamp = timestamps.length ? timestamps[timestamps.length - 1] : null;
+  return {
+    validCount: timestamps.length,
+    firstTimestamp,
+    lastTimestamp,
+    coverageMs: firstTimestamp != null && lastTimestamp != null ? Math.max(0, lastTimestamp - firstTimestamp) : 0,
+    declaredPeriodMs: periods.length ? Math.max(...periods) : null,
+  };
+}
+
+export function resolveTrendWindowMs(mode: TrendWindowMode, stats: TrendDataStats, retentionMs: number): number {
+  const retention = Math.max(1, retentionMs);
+  if (mode !== 'auto') return Math.min(retention, TREND_WINDOW_MS[mode]);
+  const minimum = Math.min(retention, TREND_WINDOW_MS['5m']);
+  const target = Math.max(minimum, stats.coverageMs * 1.25, (stats.declaredPeriodMs ?? 0) * 3);
+  const presets = [TREND_WINDOW_MS['5m'], TREND_WINDOW_MS['15m'], TREND_WINDOW_MS['30m'], TREND_WINDOW_MS['60m']];
+  return Math.min(retention, presets.find(windowMs => windowMs >= target) ?? retention);
 }
 
 function validPeriodMs(value: number | null | undefined): number | undefined {
@@ -131,6 +179,7 @@ export function MonitoringTrendChart({
   retentionMs = 60 * 60 * 1000,
   gapMs = 30_000,
   emptyText = '等待采样后显示趋势',
+  showWindowControls = true,
 }: MonitoringTrendChartProps) {
   const elementRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
@@ -140,8 +189,11 @@ export function MonitoringTrendChart({
   const applyingOptionRef = useRef(false);
   const legendSelectionRef = useRef<Record<string, boolean>>({});
   const [viewingHistory, setViewingHistory] = useState(false);
+  const [windowMode, setWindowMode] = useState<TrendWindowMode>('auto');
 
   const compatible = series.every((line) => line.unit === unit);
+  const stats = trendDataStats(compatible ? series : []);
+  const visibleWindowMs = resolveTrendWindowMs(windowMode, stats, retentionMs);
   modelRef.current = { title, unit, series, retentionMs, gapMs, emptyText, compatible };
 
   renderRef.current = () => {
@@ -170,15 +222,18 @@ export function MonitoringTrendChart({
     const chart = chartRef.current;
     chart.resize();
     const retention = Math.max(1, model.retentionMs);
-    // 即使设备最新观测较早，实时窗口末端仍跟随当前墙钟时间。
+    // 保留域仍是一小时（或调用方给定TTL），实时可视窗按已有数据量自适应，避免少量点挤在整小时最右侧。
     const dataEnd = latestTimestamp(model.compatible ? model.series : []);
     const liveEnd = Math.max(Date.now(), Number.isFinite(dataEnd) ? dataEnd : Date.now());
-    const liveWindow = { start: liveEnd - retention, end: liveEnd };
+    const currentStats = trendDataStats(model.compatible ? model.series : []);
+    const currentWindowMs = resolveTrendWindowMs(windowMode, currentStats, retention);
+    const liveWindow = { start: liveEnd - currentWindowMs, end: liveEnd };
+    const retentionDomain = { start: liveEnd - retention, end: liveEnd };
     const window = frozenWindowRef.current ?? liveWindow;
-    // 坐标轴涵盖完整保留域，并在冻结视窗位于域外时扩展；slider仍可浏览域内其它时间。
+    // slider覆盖完整保留域；用户查看历史时再扩展到冻结窗口，实时模式只改变可视窗，不丢缓存历史。
     const domain = frozenWindowRef.current
-      ? { start: Math.min(liveWindow.start, window.start), end: Math.max(liveWindow.end, window.end) }
-      : liveWindow;
+      ? { start: Math.min(retentionDomain.start, window.start), end: Math.max(retentionDomain.end, window.end) }
+      : retentionDomain;
     const built = buildTrendSeries(model.compatible ? model.series : [], model.gapMs);
     const hasData = built.some((line) => line.data.some((point) => point[1] != null));
     const legendSelected = Object.fromEntries(built.map((line) => [
@@ -267,23 +322,53 @@ export function MonitoringTrendChart({
     };
   }, []);
 
-  useEffect(() => { renderRef.current(); }, [title, unit, series, retentionMs, gapMs]);
+  useEffect(() => { renderRef.current(); }, [title, unit, series, retentionMs, gapMs, windowMode]);
 
-  const hasData = compatible && series.some((line) => line.points.some((point) => point.value != null && Number.isFinite(point.value)));
+  const hasData = compatible && stats.validCount > 0;
   const message = compatible ? emptyText : '序列单位不一致，已停止绘制以避免混用坐标轴';
+  const visibleMinutes = Math.max(1, Math.round(visibleWindowMs / 60_000));
+  const retentionMinutes = Math.max(1, Math.round(retentionMs / 60_000));
+  const progressText = stats.validCount === 0
+    ? '尚未收到有效采样'
+    : stats.validCount === 1
+      ? '已收到首个采样 · 等待下一点形成折线'
+      : stats.validCount === 2
+        ? '2 个有效采样点 · 趋势正在形成'
+        : String(stats.validCount) + ' 个有效采样点';
 
   return <section className="monitoring-trend-card">
     <header className="monitoring-trend-card__head">
-      <h2>{title}</h2>
-      {viewingHistory && <div className="monitoring-trend-card__history" role="status">
-        <span>历史查看中</span>
-        <button type="button" onClick={() => { frozenWindowRef.current = null; setViewingHistory(false); renderRef.current(); }}>回到实时</button>
+      <div className="monitoring-trend-card__title"><h2>{title}</h2><span>{progressText}</span></div>
+      {(showWindowControls || viewingHistory) && <div className="monitoring-trend-card__actions">
+        {showWindowControls && <div className="monitoring-trend-card__windows" aria-label="趋势时间窗口">
+          {([
+            ['auto', '自动'],
+            ['5m', '5分'],
+            ['15m', '15分'],
+            ['30m', '30分'],
+            ['60m', '60分'],
+          ] as Array<[TrendWindowMode, string]>).map(([mode, label]) => <button
+            key={mode}
+            type="button"
+            className={windowMode === mode ? 'is-active' : ''}
+            aria-pressed={windowMode === mode}
+            onClick={() => {
+              frozenWindowRef.current = null;
+              setViewingHistory(false);
+              setWindowMode(mode);
+            }}
+          >{label}</button>)}
+        </div>}
+        {viewingHistory && <div className="monitoring-trend-card__history" role="status">
+          <span>历史查看中</span>
+          <button type="button" onClick={() => { frozenWindowRef.current = null; setViewingHistory(false); renderRef.current(); }}>回到实时</button>
+        </div>}
       </div>}
     </header>
     <div className="monitoring-trend-card__body">
       <div ref={elementRef} className="monitoring-trend-card__chart" role="img" aria-label={`${title}趋势，纵轴单位${unit}`} />
       {!hasData && <div className="monitoring-trend-card__empty">{message}</div>}
     </div>
-    <p className="monitoring-trend-card__caption">最近 {Math.round(retentionMs / 60_000)} 分钟 · 本地时间</p>
+    <p className="monitoring-trend-card__caption">{windowMode === 'auto' ? '自动显示最近 ' + visibleMinutes + ' 分钟' : '显示最近 ' + visibleMinutes + ' 分钟'} · 云端短缓存最多 {retentionMinutes} 分钟 · 本地时间</p>
   </section>;
 }

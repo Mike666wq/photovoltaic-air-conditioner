@@ -49,13 +49,29 @@ it('趋势分页中重复entryId只保留一条观测',()=>{
  store.getState().appendTrend('fixture/PLC/T0',[trendPoint,trendPoint],true);store.getState().appendTrend('fixture/PLC/T0',[trendPoint]);expect(store.getState().trendByPoint['fixture/PLC/T0']).toHaveLength(1);
 });
 function fakeApi(){return {...experimentApi,create:vi.fn().mockResolvedValue(lease),release:vi.fn().mockResolvedValue(undefined),renew:vi.fn().mockResolvedValue(lease),latest:vi.fn().mockResolvedValue({online:true,lastHeartbeatAt:null,snapshots:[]}),trend:vi.fn().mockResolvedValue({points:[],nextCursor:null,hasMore:false})};}
+it('实验趋势只按当前选中测点懒加载，不再预取温度和太阳能全集',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource;
+ store.setState({selection:'PLC/T0',devices:[{deviceId:'fixture',module:'experiment',alias:'夹具',allowedEquipment:['PLC','DS666','DDSU666','DJSF6682'],allowedPacks:[],online:true,lastHeartbeatAt:null}]});
+ const controller=new ExperimentRealtimeController(api,()=>source);await controller.start('lazy-trend');
+ expect(api.trend).toHaveBeenCalledTimes(1);expect(api.trend).toHaveBeenCalledWith('fixture','PLC','T0',null);controller.stop();
+});
+it('主趋势切换会立即更新历史预热选择，状态/诊断则清空预热且不加载趋势',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);await controller.start('history-selection');
+ expect(api.create).toHaveBeenCalledWith('fixture',['PLC'],['PLC/T0'],expect.any(AbortSignal),'history-selection');store.setState({selection:'PLC/T1'});await controller.updateHistorySelection('PLC/T1');expect(api.renew).toHaveBeenLastCalledWith(lease.viewerId,['PLC'],['PLC/T1']);
+ const stateDef=experimentCatalog.points.find(p=>p.equipmentId==='PLC'&&p.metadata.Group==='运行状态')!;const stateSelection=`PLC/${stateDef.id}`;store.setState({selection:stateSelection});await controller.updateHistorySelection(stateSelection);expect(api.renew).toHaveBeenLastCalledWith(lease.viewerId,['PLC'],[]);const trendCalls=api.trend.mock.calls.length;await controller.refreshTrend();expect(api.trend).toHaveBeenCalledTimes(trendCalls);controller.stop();
+});
+it('实验SSE建链时补拉当前趋势，覆盖bootstrap与订阅之间完成的Warm Start',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn(),onopen:null as null|((event:Event)=>void),onerror:null} as unknown as EventSource;
+ const controller=new ExperimentRealtimeController(api,()=>source);await controller.start('warm-start-race');expect(api.trend).toHaveBeenCalledTimes(1);
+ source.onopen?.(new Event('open'));await flushQueue();expect(api.trend).toHaveBeenCalledTimes(2);controller.stop();
+});
 it('挂载不自动观看；停止时清SSE/续期/租约，迟到租约会被释放',async()=>{
- vi.useFakeTimers();const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);expect(api.create).not.toHaveBeenCalled();await controller.start('same-monitor-page');expect(api.create).toHaveBeenCalledWith('fixture',['PLC'],expect.any(AbortSignal),'same-monitor-page');await vi.advanceTimersByTimeAsync(15000);expect(api.renew).toHaveBeenCalledTimes(1);controller.stop('paused');expect(source.close).toHaveBeenCalled();await vi.advanceTimersByTimeAsync(60000);expect(api.renew).toHaveBeenCalledTimes(1);expect(store.getState().phase).toBe('paused');
+ vi.useFakeTimers();const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);expect(api.create).not.toHaveBeenCalled();await controller.start('same-monitor-page');expect(api.create).toHaveBeenCalledWith('fixture',['PLC'],['PLC/T0'],expect.any(AbortSignal),'same-monitor-page');await vi.advanceTimersByTimeAsync(15000);expect(api.renew).toHaveBeenCalledTimes(1);controller.stop('paused');expect(source.close).toHaveBeenCalled();await vi.advanceTimersByTimeAsync(60000);expect(api.renew).toHaveBeenCalledTimes(1);expect(store.getState().phase).toBe('paused');
  let resolve!:(value:typeof lease)=>void;api.create.mockReturnValue(new Promise(r=>{resolve=r;}));const started=controller.start();controller.stop();resolve(lease);await started;expect(api.release).toHaveBeenCalledWith(lease.viewerId);
 });
 it('释放未完成时快速暂停再连接会先释放旧租约再创建新租约',async()=>{
  const api=fakeApi(),order:string[]=[];let finishRelease!:()=>void;
- api.create.mockImplementation(async(_id,_equipment,_signal,source)=>{order.push(`create:${source}`);return {...lease,viewerId:`viewer-${api.create.mock.calls.length}`};});
+ api.create.mockImplementation(async(_id,_equipment,_history,_signal,source)=>{order.push(`create:${source}`);return {...lease,viewerId:`viewer-${api.create.mock.calls.length}`};});
  api.release.mockImplementation(()=>{order.push('release-start');return new Promise<void>(resolve=>{finishRelease=()=>{order.push('release-done');resolve();};});});
  const source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);
  await controller.start('logical-page');controller.stop();await flushQueue();const restart=controller.start('logical-page');await flushQueue();expect(api.create).toHaveBeenCalledTimes(1);finishRelease();await restart;

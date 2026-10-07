@@ -8,6 +8,8 @@ export function assert(condition, status = 400, code = 'INVALID_REQUEST', messag
 export const object = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 export const integer = (v, min = -2147483648, max = 2147483647) => Number.isSafeInteger(v) && v >= min && v <= max;
 export const identifier = (v) => typeof v === 'string' && v.length >= 1 && v.length <= 128;
+export const BACKFILL_SECONDS = 300;
+export const BACKFILL_BATCH_MAX = 128;
 export function utcDate(v) {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/.test(v)) return false;
   const n = Date.parse(v);
@@ -43,4 +45,20 @@ export function validateSnapshot(body, device) {
   }
   // 输出只白名单字段，避免额外内容进入SSE或内存缓存。
   return Object.fromEntries(['schemaVersion', 'deviceId', 'connectionSessionId', 'sequence', 'acquisitionRound', 'periodSeconds', 'capturedUtc', 'source', 'address', 'pack', 'voltageCentivolts', 'currentCentiamps', 'socPercent', 'sohPercent', 'remainingCentiAh', 'totalCentiAh', 'cycles', 'humidityPercent', 'cellsMillivolts', 'temperaturesCelsius', 'alarmObservationAvailable', 'alarmObservation'].filter((k) => k in s).map((k) => [k, s[k]]));
+}
+
+export function validateBmsBackfill(body, device) {
+  assert(object(body) && identifier(body.subscriptionId));
+  assert(body.schemaVersion === 1, 422, 'SCHEMA_UNSUPPORTED', '不支持的历史回填协议版本');
+  assert(body.module === 'bms', 400, 'MODULE_INVALID', '历史回填模块无效');
+  assert(Array.isArray(body.points) && body.points.length >= 1 && body.points.length <= BACKFILL_BATCH_MAX, 400, 'BACKFILL_BATCH_INVALID', `单批历史回填必须包含1到${BACKFILL_BATCH_MAX}个观测`);
+  const points = body.points.map((p) => {
+    assert(object(p) && ['serial', 'simulation'].includes(p.source));
+    assert(device.allowedPacks.includes(p.pack) && device.allowedAddresses.includes(p.address), 403, 'PACK_FORBIDDEN', '历史回填包含未注册的地址或Pack');
+    assert(identifier(p.connectionSessionId) && integer(p.sequence, 1, Number.MAX_SAFE_INTEGER) && utcDate(p.capturedUtc));
+    assert(p.periodSeconds == null || integer(p.periodSeconds, 1, 86400));
+    assert(integer(p.voltageCentivolts, 0) && integer(p.currentCentiamps) && integer(p.socPercent));
+    return Object.fromEntries(['source', 'address', 'pack', 'connectionSessionId', 'sequence', 'capturedUtc', 'periodSeconds', 'voltageCentivolts', 'currentCentiamps', 'socPercent'].filter((k) => k in p).map((k) => [k, p[k]]));
+  });
+  return { subscriptionId: body.subscriptionId, points };
 }

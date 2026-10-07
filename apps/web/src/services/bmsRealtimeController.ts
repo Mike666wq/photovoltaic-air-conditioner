@@ -184,13 +184,22 @@ export class BmsRealtimeController {
     this.events?.close();
     const events = this.openEvents(`/api/realtime/events?viewerId=${encodeURIComponent(lease.viewerId)}`);
     this.events = events;
-    events.onopen = () => { if (generation === this.generation) { this.retryCount = 0; store.setState({ phase: 'watching', websiteConnected: true, error: '' }); } };
+    events.onopen = () => {
+      if (generation !== this.generation) return;
+      this.retryCount = 0; store.setState({ phase: 'watching', websiteConnected: true, error: '' });
+      // 补偿 bootstrap 与 SSE 建链之间完成的 Warm Start，避免错过 trend-backfill 事件。
+      void this.refreshTrends(generation);
+    };
     events.addEventListener('snapshot', (event) => {
       if (generation !== this.generation) return;
       try {
         store.getState().accept(JSON.parse((event as MessageEvent).data) as BmsSample);
         if (!this.trendRefresh) this.trendRefresh = setTimeout(() => { this.trendRefresh = undefined; void this.refreshTrends(generation); }, 1200);
       } catch { this.fail(new Error('收到无效的实时采样，请重新连接')); }
+    });
+    events.addEventListener('trend-backfill', () => {
+      if (generation !== this.generation) return;
+      if (!this.trendRefresh) this.trendRefresh = setTimeout(() => { this.trendRefresh = undefined; void this.refreshTrends(generation); }, 150);
     });
     events.addEventListener('device-status', (event) => {
       if (generation !== this.generation) return;

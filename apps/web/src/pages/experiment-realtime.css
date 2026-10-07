@@ -1,3 +1,76 @@
+
+/* Experiment cloud observation: latest values first, trend on demand, diagnostics last. */
+.experiment-observation{display:grid;gap:18px;min-width:0}
+.experiment-observation>.bms-notice,.experiment-observation>.bms-error,.experiment-observation>.bms-toolbar,.experiment-observation>.bms-status{margin-bottom:0}
+.experiment-observe-toolbar{align-items:center;justify-content:space-between}
+.experiment-observe-toolbar>div{display:grid;gap:4px}
+.experiment-observe-toolbar>div>span{font-size:11px;color:#718096;letter-spacing:.08em}
+.experiment-observe-toolbar>div>strong{font-size:16px;color:#243b57}
+.experiment-observe-toolbar>div>small{font-size:12px;color:#718096}
+.experiment-overview,.experiment-live-section,.experiment-main-trend,.experiment-diagnostics{background:#fff;border:1px solid #dfe7f1;border-radius:16px;padding:20px;min-width:0}
+.experiment-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.experiment-section-head>div{display:grid;gap:4px}
+.experiment-section-head>div>span{color:#64748b;font-size:11px;letter-spacing:.08em}
+.experiment-section-head h2{margin:0;color:#20344f;font-size:17px}
+.experiment-section-head p{max-width:760px;margin:0;color:#718096;font-size:12px;line-height:1.65}
+.experiment-overview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.experiment-overview-grid article{display:grid;gap:7px;padding:14px 15px;border-radius:11px;background:#f6f8fb}
+.experiment-overview-grid span,.experiment-overview-grid small{color:#68798d;font-size:12px}
+.experiment-overview-grid strong{font-size:24px;font-variant-numeric:tabular-nums;color:#213b5a}
+.experiment-source-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.experiment-source-strip span{display:inline-flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid #e0e7ef;border-radius:999px;background:#fafbfd;color:#77869a;font-size:11px}
+.experiment-source-strip span.is-seen{background:#eef8f5;border-color:#cde7dd;color:#31705a}
+.experiment-live-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.experiment-live-grid--temperature{grid-template-columns:repeat(7,minmax(0,1fr))}
+.experiment-page button.experiment-live-card{display:grid;gap:7px;padding:14px;text-align:left;border:1px solid #e0e7ef;border-radius:12px;background:#fbfcfe;color:#263b54;box-shadow:none;min-width:0}
+.experiment-page button.experiment-live-card:hover{background:#f3f8fd;border-color:#a9c4e1}
+.experiment-page button.experiment-live-card.is-selected{background:#eef6ff;border-color:#6e9fd3;box-shadow:inset 0 0 0 1px #6e9fd333}
+.experiment-page button.experiment-live-card.is-muted{background:#f8fafc}
+.experiment-live-card__head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.experiment-live-card__head b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.experiment-live-card__head code{font-size:10px;color:#78889b}
+.experiment-live-card__value{display:flex;align-items:baseline;gap:6px;min-height:34px}
+.experiment-live-card__value strong{font-size:24px;line-height:1;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.experiment-live-card__value em{font-size:11px;color:#68798d;font-style:normal}
+.experiment-live-card__quality,.experiment-live-card__meta,.experiment-live-card__hint,.experiment-live-card__historic{font-size:10px;line-height:1.45;color:#68798d}
+.experiment-live-card__quality{color:#047857}
+.experiment-live-card__quality.is-warning{color:#9a5b11}
+.experiment-live-card__hint{color:#806229}
+.experiment-live-card__historic{padding-top:6px;border-top:1px dashed #dde5ee}
+.experiment-electrical-groups{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.experiment-electrical-groups>section{min-width:0;padding:14px;border:1px solid #e5ebf2;border-radius:12px;background:#fbfcfe}
+.experiment-electrical-groups h3{margin:0 0 12px;color:#344b66;font-size:14px}
+.experiment-electrical-groups .experiment-live-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.experiment-state-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.experiment-state-card{display:grid;gap:7px;padding:14px;border:1px solid #e0e7ef;border-radius:12px;background:#faf9f6;color:#263b54;min-width:0}
+.experiment-state-card.is-muted{background:#f8fafc}
+.experiment-page button.experiment-live-card.is-state{background:#faf9f6}
+.experiment-main-trend>.experiment-section-head{align-items:center}
+.experiment-main-trend label{min-width:min(360px,100%);display:grid;gap:6px;color:#64748b;font-size:12px}
+.experiment-main-trend select{width:100%;padding:9px 10px;border:1px solid #cad6e5;border-radius:8px;background:#fff;color:#253a54}
+.experiment-main-trend>.monitoring-trend-card{box-shadow:none}
+.experiment-main-trend>p{margin:12px 0 0;color:#64748b;font-size:12px;line-height:1.7}
+.experiment-diagnostics>details{border:1px solid #e1e8f0;border-radius:11px;padding:0 14px;margin-top:9px}
+.experiment-diagnostics>details>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 0;cursor:pointer;font-weight:600;color:#344963}
+.experiment-diagnostics>details>summary span{font-size:11px;font-weight:400;color:#758499}
+.experiment-diagnostic-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:0 0 14px}
+.experiment-diagnostic-grid>article{padding:13px;border-radius:10px;background:#f8fafc;border:1px solid #e7edf3;min-width:0}
+.experiment-diagnostic-grid>article.is-muted{background:#faf9f6}
+.experiment-diagnostic-grid article>header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.experiment-diagnostic-grid article>header>div{display:grid;gap:3px}
+.experiment-diagnostic-grid h3{margin:0;font-size:13px;color:#314760}
+.experiment-diagnostic-grid code,.experiment-diagnostic-grid small{font-size:10px;color:#77869a}
+.experiment-diagnostic-grid article>header button{padding:5px 8px;font-size:10px}
+.experiment-diagnostic-grid p{font-size:11px;color:#5f7085;line-height:1.6;overflow-wrap:anywhere}
+.experiment-diagnostic-grid p strong{font-size:17px;color:#263b54}
+.experiment-diagnostic-grid details{margin-top:8px;font-size:11px;color:#5f7085}
+.experiment-diagnostic-grid details summary{cursor:pointer}
+.experiment-diagnostic-warning{color:#9a5b11!important}
+@media(max-width:1380px){.experiment-live-grid--temperature{grid-template-columns:repeat(4,minmax(0,1fr))}.experiment-electrical-groups{grid-template-columns:1fr}.experiment-electrical-groups .experiment-live-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:1000px){.experiment-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.experiment-live-grid--temperature,.experiment-electrical-groups .experiment-live-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.experiment-diagnostic-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.experiment-overview,.experiment-live-section,.experiment-main-trend,.experiment-diagnostics{padding:16px}.experiment-live-grid--temperature,.experiment-electrical-groups .experiment-live-grid,.experiment-state-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.experiment-diagnostic-grid{grid-template-columns:1fr}.experiment-main-trend>.experiment-section-head{align-items:flex-start}}
+@media(max-width:480px){.experiment-overview-grid,.experiment-live-grid--temperature,.experiment-electrical-groups .experiment-live-grid,.experiment-state-grid{grid-template-columns:1fr}}
+
 .experiment-group-links{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.experiment-group-links a{padding:10px 14px;background:#fff;border:1px solid #dbe3ee;border-radius:10px;color:#334155;text-decoration:none}.experiment-group{margin:28px 0;scroll-margin-top:20px}.experiment-group h2{font-size:20px}.experiment-group h2 small{font-size:13px;font-weight:400;color:#64748b}.experiment-point-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.experiment-point{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-width:0;overflow-wrap:anywhere}.experiment-point header{display:flex;justify-content:space-between;gap:10px}.experiment-point h3{margin:0;font-size:16px}.experiment-point code{font-size:12px;color:#64748b}.experiment-point-value{margin:16px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}.experiment-point-value strong{font-size:28px;line-height:1.3}.experiment-point-value span,.experiment-point small,.experiment-point-time{font-size:12px;color:#64748b}.experiment-quality{font-size:12px;color:#047857}.experiment-quality.is-warning{color:#92400e}.experiment-point.is-muted{background:#f8fafc}.experiment-point details{font-size:12px;color:#475569}.experiment-point summary{cursor:pointer}.experiment-trend{margin:28px 0}.experiment-trend>label{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.experiment-trend select{padding:10px;border:1px solid #dbe3ee;border-radius:8px;max-width:100%}.experiment-trend .bms-chart-card{margin-top:16px}.experiment-trend>p{font-size:13px;color:#64748b;line-height:1.8}.monitoring-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.monitoring-grid a{display:block;background:#fff;padding:24px;border:1px solid #dbe3ee;border-radius:14px;text-decoration:none;color:#1e293b}.monitoring-grid p{color:#64748b;line-height:1.8}
 @media(max-width:1100px){.experiment-point-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.experiment-point-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.monitoring-grid{grid-template-columns:1fr}}@media(max-width:480px){.experiment-point-grid{grid-template-columns:minmax(0,1fr)}.experiment-point-value strong{font-size:26px}}
 

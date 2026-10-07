@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fixture from '../../scripts/realtime/fixtures/snapshot-v1.json';
-import { bmsNumber, bmsTime, sampleStale, sampleExpired, clockSkew, latestBmsSamples } from './bmsRealtimeTypes';
+import { bmsNumber, bmsTime, sampleStale, sampleExpired, clockSkew, latestBmsSamples, summarizeBmsValues } from './bmsRealtimeTypes';
 import type { BmsSample, BmsSnapshot } from './bmsRealtimeTypes';
 import { useBmsRealtimeStore as store } from '../store/bmsRealtime';
 import { BmsRealtimeController } from './bmsRealtimeController';
@@ -17,6 +17,11 @@ describe('BMS显示口径与有界状态', () => {
     expect(bmsTime('2026-10-02T08:00:00.123Z')).toContain('16:00:00');
     const s=item({temperaturesCelsius:[-5],alarmObservationAvailable:false,alarmObservation:null}); store.getState().accept(s);
     expect(store.getState().samples[0].snapshot.temperaturesCelsius).toEqual([-5]); expect(store.getState().samples[0].snapshot.alarmObservation).toBeNull();
+  });
+  it('电芯与温度摘要只统计真实有限值，保留0并给出原始测点索引', () => {
+    expect(summarizeBmsValues([3301, 0, 3298, 3307])).toEqual({ count: 4, min: 0, max: 3307, spread: 3307, minIndex: 1, maxIndex: 3 });
+    expect(summarizeBmsValues([-5, 18, 12])).toEqual({ count: 3, min: -5, max: 18, spread: 23, minIndex: 0, maxIndex: 1 });
+    expect(summarizeBmsValues([])).toBeNull();
   });
   it('重复和低接收顺序不覆盖，来源自动跟随，地址与Pack独立', () => {
     store.getState().accept(item()); store.getState().accept(item({sequence:11,currentCentiamps:999}));
@@ -95,6 +100,12 @@ it('释放遇到网络错误后，PAGE_MODULE_EXISTS按退避重试并恢复',as
   await controller.start('retry-page');let attempts=0;api.create.mockImplementation(async()=>{attempts++;if(attempts===1)throw new BmsApiError(409,'PAGE_MODULE_EXISTS','页面模块仍有租约');return lease;});api.release.mockRejectedValue(new Error('网络中断'));vi.useFakeTimers();
   const restarted=controller.start('retry-page');await restarted;expect(attempts).toBe(1);expect(store.getState().phase).toBe('reconnecting');await vi.advanceTimersByTimeAsync(1000);
   expect(attempts).toBe(2);expect(store.getState().phase).toBe('watching');api.release.mockResolvedValue(undefined);controller.stop();
+});
+
+it('SSE建链时补拉一次趋势，覆盖bootstrap与订阅之间完成的Warm Start',async()=>{
+  const api=fakeApi();const source={close:vi.fn(),addEventListener:vi.fn(),onopen:null as null|((event:Event)=>void),onerror:null} as unknown as EventSource;
+  const controller=new BmsRealtimeController(api,()=>source);await controller.start('warm-start-race');expect(api.trend).toHaveBeenCalledTimes(3);
+  source.onopen?.(new Event('open'));await flushQueue();expect(api.trend).toHaveBeenCalledTimes(6);controller.stop();
 });
 
 it('历史趋势顺序读取全部游标页并合并观测',async()=>{

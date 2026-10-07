@@ -63,6 +63,10 @@ function startBms(state, selected = [1], owner = 'owner-bms') {
   const lease = state.heartbeat(bmsDevice.deviceId);
   return { viewer, lease, owner };
 }
+function bmsHistoryPoint(patch = {}, wall = BASE - 60_000) {
+  const s = bmsSnapshot(patch, wall);
+  return Object.fromEntries(['source','address','pack','connectionSessionId','sequence','capturedUtc','periodSeconds','voltageCentivolts','currentCentiamps','socPercent'].map(key => [key, s[key]]));
+}
 
 function definition(pointId) {
   return catalog.points.find(point => point.equipmentId === 'PLC' && point.id === pointId);
@@ -106,6 +110,10 @@ function startExperiment(state, owner = 'owner-exp') {
   const lease = state.heartbeat(experimentDevice.deviceId);
   return { viewer, lease, owner };
 }
+function experimentHistoryPoint(pointId = 'T1', patch = {}, wall = BASE - 60_000) {
+  const def = definition(pointId);
+  return { source:'serial', equipmentId:'PLC', id:pointId, connectionSessionId:'local-exp-session', acquisitionSessionId:'local-exp-session', observedUtc:new Date(wall).toISOString(), value:5, quality:'good', unit:def.metadata.Unit, configVersion:'acceptance-catalog-1', acquisitionRound:1, ...patch };
+}
 
 function acceptBms(h, lease, patch = {}) {
   const snapshot = bmsSnapshot(patch, h.wall);
@@ -132,13 +140,62 @@ test('超过旧600点阈值时，每个真实BMS观测仍进入趋势与共享�
   assert.equal(page.hasMore, false);
 });
 
+test('BMS 5分钟Warm Start只写趋势、重试幂等且不污染实时会话', () => {
+  const h = clockHarness(); const { lease } = startBms(h.bms);
+  assert.equal(lease.backfillSeconds, 300);
+  const points = [
+    bmsHistoryPoint({ sequence: 10, voltageCentivolts: 5200 }, BASE - 4 * 60_000),
+    bmsHistoryPoint({ sequence: 11, voltageCentivolts: 5300 }, BASE - 60_000),
+  ];
+  assert.deepEqual(h.bms.backfill(bmsDevice.deviceId, lease.subscriptionId, points), { accepted: true, added: 2 });
+  assert.deepEqual(h.bms.backfill(bmsDevice.deviceId, lease.subscriptionId, points), { accepted: true, added: 0 });
+  assert.deepEqual(h.bms.backfill(bmsDevice.deviceId, lease.subscriptionId, [points[0], points[0]]), { accepted: true, added: 0 });
+  const duplicate = bmsHistoryPoint({ sequence: 13, voltageCentivolts: 5400 }, BASE - 30_000);
+  assert.deepEqual(h.bms.backfill(bmsDevice.deviceId, lease.subscriptionId, [duplicate, duplicate]), { accepted: true, added: 1 });
+  assert.equal(h.bms.latest(bmsDevice.deviceId, [1]).packs.length, 0);
+  assert.equal(h.bms.device(bmsDevice.deviceId).currentSession, null);
+  assert.equal(h.bms.device(bmsDevice.deviceId).watermarks.size, 0);
+  assert.deepEqual(h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 10).points.map(p => p.value), [52, 53, 54]);
+  assert.throws(() => h.bms.backfill(bmsDevice.deviceId, lease.subscriptionId, [bmsHistoryPoint({ sequence: 12 }, BASE - 300_001)]), error => error.code === 'BACKFILL_WINDOW');
+  h.advance(20_000);
+  const delayed = bmsHistoryPoint({ sequence: 14, voltageCentivolts: 5500 }, BASE - 299_999);
+  assert.deepEqual(h.bms.backfill(bmsDevice.deviceId, lease.subscriptionId, [delayed]), { accepted: true, added: 1 });
+  acceptBms(h, lease, { sequence: 1, connectionSessionId: 'live-session' });
+  assert.equal(h.bms.latest(bmsDevice.deviceId, [1]).packs.length, 1);
+  assert.equal(h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 10).points.length, 5);
+});
+
+test('实验 5分钟Warm Start保留失败断点且不污染latest或采集会话', () => {
+  const h = clockHarness(); const { lease } = startExperiment(h.experiment);
+  assert.equal(lease.backfillSeconds, 300);
+  const points = [
+    experimentHistoryPoint('T1', { value: 21.5, acquisitionRound: 1 }, BASE - 4 * 60_000),
+    experimentHistoryPoint('T1', { value: null, quality: 'timeout', acquisitionRound: 2 }, BASE - 60_000),
+  ];
+  assert.deepEqual(h.experiment.backfill(experimentDevice.deviceId, lease.subscriptionId, points), { accepted: true, added: 2 });
+  assert.deepEqual(h.experiment.backfill(experimentDevice.deviceId, lease.subscriptionId, points), { accepted: true, added: 0 });
+  assert.deepEqual(h.experiment.backfill(experimentDevice.deviceId, lease.subscriptionId, [points[0], points[0]]), { accepted: true, added: 0 });
+  const duplicate = experimentHistoryPoint('T1', { value: 23, acquisitionRound: 3 }, BASE - 30_000);
+  assert.deepEqual(h.experiment.backfill(experimentDevice.deviceId, lease.subscriptionId, [duplicate, duplicate]), { accepted: true, added: 1 });
+  assert.equal(h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots.length, 0);
+  assert.equal(h.experiment.device(experimentDevice.deviceId).currentSession, null);
+  assert.equal(h.experiment.device(experimentDevice.deviceId).watermarks.size, 0);
+  assert.deepEqual(h.experiment.trend(experimentDevice.deviceId, 'PLC', 'T1', null, 10).points.map(p => p.value), [21.5, null, 23]);
+  h.advance(20_000);
+  const delayed = experimentHistoryPoint('T1', { value: 24, acquisitionRound: 4 }, BASE - 299_999);
+  assert.deepEqual(h.experiment.backfill(experimentDevice.deviceId, lease.subscriptionId, [delayed]), { accepted: true, added: 1 });
+  acceptExperiment(h, lease, 1, [expPoint('T1')]);
+  assert.equal(h.experiment.latest(experimentDevice.deviceId, ['PLC']).snapshots.length, 1);
+  assert.equal(h.experiment.trend(experimentDevice.deviceId, 'PLC', 'T1', null, 10).points.length, 5);
+});
+
 test('观看结束后无观看心跳不发租约，缓存由单调观测TTL保留且不受墙钟跳变影响', () => {
   const h = clockHarness();
   const { viewer, lease, owner } = startBms(h.bms);
   acceptBms(h, lease, { sequence: 1 });
   h.bms.release(viewer.viewerId, owner);
 
-  assert.deepEqual(h.bms.heartbeat(bmsDevice.deviceId), { subscriptionId: '', leaseSeconds: 0, requestedPacks: [] });
+  assert.deepEqual(h.bms.heartbeat(bmsDevice.deviceId), { subscriptionId: '', leaseSeconds: 0, requestedPacks: [], backfillSeconds: 0 });
   h.jumpWall(7 * 24 * HOUR);
   h.advance(HOUR - 1);
   const beforeExpiry = h.bms.trend(bmsDevice.deviceId, 1, 'voltage', 10);

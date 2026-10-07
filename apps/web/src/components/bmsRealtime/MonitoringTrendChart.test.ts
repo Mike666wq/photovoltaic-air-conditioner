@@ -1,11 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { buildTrendSeries } from './MonitoringTrendChart';
+import { buildTrendSeries, resolveTrendWindowMs, trendDataStats } from './MonitoringTrendChart';
 
 const point = (time: number, value: number | null, session = 'session-a') => ({
   time: new Date(time).toISOString(), value, session,
 });
 const bmsPoint = (time: number, value: number | null, periodSeconds?: number, session = 'session-a') => ({
   ...point(time, value, session), periodSeconds,
+});
+
+describe('adaptive realtime trend window', () => {
+  const line = (points: ReturnType<typeof point>[]) => [{ id: 'line', name: '温度', unit: '℃', points }];
+
+  it('starts with a five minute window for a first fast sample instead of an empty hour', () => {
+    const stats = trendDataStats(line([point(60_000, 20)]));
+    expect(stats.validCount).toBe(1);
+    expect(resolveTrendWindowMs('auto', stats, 60 * 60_000)).toBe(5 * 60_000);
+  });
+
+  it('expands auto window for a slow declared sampling period', () => {
+    const stats = trendDataStats([{ id: 'bms', name: 'SOC', unit: '%', points: [bmsPoint(60_000, 80, 300)] }]);
+    expect(stats.declaredPeriodMs).toBe(300_000);
+    expect(resolveTrendWindowMs('auto', stats, 60 * 60_000)).toBe(15 * 60_000);
+  });
+
+  it('expands with real data coverage while never exceeding retention', () => {
+    const stats = trendDataStats(line([point(0, 20), point(20 * 60_000, 21)]));
+    expect(resolveTrendWindowMs('auto', stats, 60 * 60_000)).toBe(30 * 60_000);
+    expect(resolveTrendWindowMs('60m', stats, 10 * 60_000)).toBe(10 * 60_000);
+  });
 });
 
 describe('buildTrendSeries', () => {

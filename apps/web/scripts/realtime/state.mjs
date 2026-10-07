@@ -1,12 +1,12 @@
 import { performance } from 'node:perf_hooks';
 import { opaque } from './auth.mjs';
 import { CacheCoordinator } from './cache-coordinator.mjs';
-import { assert } from './contract.mjs';
+import { assert, BACKFILL_SECONDS } from './contract.mjs';
 
 // 每个观测保留一小时；全局容量由跨模块协调器原子预留。
 export class RealtimeState {
   constructor(config, clocks = {}) {
-    this.config = { cacheMs: 3600000, maxPoints: 600, viewerMs: 45000, maxViewers: 4, maxViewerLeases: 40, ...config };
+    this.config = { cacheMs: 3600000, backfillMs: BACKFILL_SECONDS * 1000, maxPoints: 600, viewerMs: 45000, maxViewers: 4, maxViewerLeases: 40, ...config };
     this.now = clocks.now ?? (() => performance.now()); this.wall = clocks.wall ?? (() => Date.now());
     this.coordinator = config.coordinator ?? new CacheCoordinator(this.config, clocks);
     this.devices = new Map(); this.viewers = new Map(); this.listeners = new Set(); this.lastDeepPrune = -Infinity;
@@ -35,7 +35,11 @@ export class RealtimeState {
   online(d) { return this.now() - d.heartbeat < 45000; }
   info(d) { return { deviceId: d.registration.deviceId, alias: d.registration.alias, allowedPacks: d.registration.allowedPacks, allowedAddresses: d.registration.allowedAddresses, allowSimulation: d.registration.allowSimulation, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt }; }
   active(id) { return [...this.viewers.values()].filter(v => v.deviceId === id && v.until > this.now()); }
-  requested(id) { return [...new Set(this.active(id).flatMap(v => v.packs))].sort((a, b) => a - b); }
+  requested(id) { return [...new Set(this.active(id).flatMap(v => v.packs))].sort((a, b) => typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))); }
+  requestedHistory(id) {
+    const viewers = this.active(id); if (viewers.some(v => v.historyPoints == null)) return null;
+    return [...new Set(viewers.flatMap(v => v.historyPoints ?? []))].sort();
+  }
   sweep(now = this.now()) {
     this.coordinator.sweep(now);
     for (const [id, v] of this.viewers) if (v.until <= now) { this.viewers.delete(id); this.coordinator.viewerEnded(id, v.until); this.emit('viewer-ended', v.deviceId, { viewerId: id }); }
@@ -55,13 +59,13 @@ export class RealtimeState {
     }
     if (now - this.lastDeepPrune >= 60000) this.lastDeepPrune = now;
   }
-  createViewer(owner, deviceId, selected, principal = owner, source = null, pageId = opaque()) {
+  createViewer(owner, deviceId, selected, principal = owner, source = null, pageId = opaque(), historySelections = null) {
     this.sweep(); this.device(deviceId);
     const activePages = new Set([...this.viewers.values()].filter(v => v.principal === principal && v.until > this.now()).map(v => v.pageId));
     assert(activePages.has(pageId) || activePages.size < this.config.maxViewers, 429, 'VIEWER_LIMIT', '观看页面数已达上限');
     assert(this.viewers.size < this.config.maxViewerLeases, 429, 'VIEWER_LIMIT', '服务观看连接数已达上限');
     const viewerId = opaque(), sources = source == null ? null : [source];
-    const viewer = { viewerId, owner, principal, pageId, deviceId, packs: selected, sources, until: this.now() + this.config.viewerMs };
+    const viewer = { viewerId, owner, principal, pageId, deviceId, packs: selected, sources, historyPoints: historySelections, until: this.now() + this.config.viewerMs };
     this.viewers.set(viewerId, viewer); this.coordinator.viewerStarted(viewer);
     return this.viewerReply(viewer);
   }
@@ -70,8 +74,8 @@ export class RealtimeState {
     this.sweep(); const v = this.viewers.get(id); assert(v, 410, 'VIEWER_EXPIRED', '观看租约已过期');
     assert(v.owner === owner, 403, 'VIEWER_FORBIDDEN', '不能访问其他用户的观看租约'); return v;
   }
-  renew(id, owner, selected, source) {
-    const v = this.viewer(id, owner); v.packs = selected; if (source !== undefined) v.sources = source == null ? null : [source]; v.until = this.now() + this.config.viewerMs;
+  renew(id, owner, selected, source, historySelections = undefined) {
+    const v = this.viewer(id, owner); v.packs = selected; if (source !== undefined) v.sources = source == null ? null : [source]; if (historySelections !== undefined) v.historyPoints = historySelections; v.until = this.now() + this.config.viewerMs;
     this.coordinator.viewerRenewed(v); return this.viewerReply(v);
   }
   release(id, owner) {
@@ -81,16 +85,45 @@ export class RealtimeState {
     if (!this.active(v.deviceId).length) this.device(v.deviceId).lease = null;
   }
   heartbeat(id) {
-    this.sweep(); const d = this.device(id); d.heartbeat = this.now(); d.lastHeartbeatAt = this.iso(); this.emit('device-status', id, this.info(d));
+    this.sweep(); const d = this.device(id), now = this.now(); d.heartbeat = now; d.lastHeartbeatAt = this.iso(); this.emit('device-status', id, this.info(d));
     const active = this.active(id), requestedPacks = this.requested(id);
-    const remaining = active.length ? Math.floor((Math.max(...active.map(v => v.until)) - this.now()) / 1000) : 0;
+    const remaining = active.length ? Math.floor((Math.max(...active.map(v => v.until)) - now) / 1000) : 0;
     const leaseSeconds = Math.min(45, remaining);
-    if (leaseSeconds <= 0) { d.lease = null; return { subscriptionId: '', leaseSeconds: 0, requestedPacks: [] }; }
-    const subscriptionId = d.lease && d.lease.until > this.now() ? d.lease.id : opaque();
-    d.lease = { id: subscriptionId, until: this.now() + leaseSeconds * 1000 };
-    return { subscriptionId, leaseSeconds, requestedPacks };
+    if (leaseSeconds <= 0) { d.lease = null; return { subscriptionId: '', leaseSeconds: 0, requestedPacks: [], backfillSeconds: 0 }; }
+    const requestedHistory = this.requestedHistory(id), scopeKey = `${requestedPacks.join(',')}|${requestedHistory == null ? '*' : requestedHistory.join(',')}`, reusable = d.lease && d.lease.until > now && d.lease.scopeKey === scopeKey;
+    const subscriptionId = reusable ? d.lease.id : opaque();
+    const backfillFromWall = reusable ? d.lease.backfillFromWall : this.wall() - this.config.backfillMs;
+    d.lease = { id: subscriptionId, until: now + leaseSeconds * 1000, scopeKey, backfillFromWall };
+    return { subscriptionId, leaseSeconds, requestedPacks, backfillSeconds: Math.floor(this.config.backfillMs / 1000) };
   }
   acceptedFor(id, _source, selected) { return this.active(id).some(v => v.packs.includes(selected)); }
+  backfillAge(utc, lease) {
+    const observed = Date.parse(utc), wall = this.wall();
+    assert(lease && Number.isFinite(lease.backfillFromWall) && observed >= lease.backfillFromWall && observed <= wall + 60000, 422, 'BACKFILL_WINDOW', `历史回填仅接受本次订阅开始时最近${Math.floor(this.config.backfillMs / 60000)}分钟观测`);
+    return Math.max(0, wall - observed);
+  }
+  backfill(id, subscriptionId, points) {
+    this.sweep(); const d = this.device(id), now = this.now(), receivedAt = this.iso();
+    assert(d.lease?.id === subscriptionId && d.lease.until > now, 409, 'LEASE_EXPIRED', '观看租约已失效');
+    const ordered = [...points].sort((a, b) => Date.parse(a.capturedUtc) - Date.parse(b.capturedUtc) || a.sequence - b.sequence);
+    const pending = ordered.map((p) => {
+      assert(this.acceptedFor(id, p.source, p.pack), 403, 'PACK_FORBIDDEN', '历史回填包含当前未观看的Pack或来源');
+      const age = this.backfillAge(p.capturedUtc, d.lease), expiresAt = now + this.config.cacheMs - age, channel = `${p.source}/${p.address}/${p.pack}`;
+      const signature = this.coordinator.hash(JSON.stringify([p.source,p.address,p.pack,p.connectionSessionId,p.sequence,p.capturedUtc,p.periodSeconds??null,p.voltageCentivolts,p.currentCentiamps,p.socPercent]));
+      const cacheKey = this.coordinator.entryKey(id, 'bms-backfill', signature);
+      return { p, channel, expiresAt, cacheKey };
+    });
+    const unique = [...new Map(pending.map(item => [item.cacheKey, item])).values()];
+    const entryIds = this.coordinator.reserve(unique.map(item => ({ key: item.cacheKey, expiresAt: item.expiresAt })));
+    let added = 0;
+    for (const item of unique) {
+      const entryId = entryIds.get(item.cacheKey); if (!entryId) continue;
+      const ringKey = `${item.channel}/${item.p.connectionSessionId}`, ring = d.rings.get(ringKey) ?? { items: [], head: 0 };
+      ring.items.push({ snapshot: item.p, receivedAt, mono: now, expiresAt: item.expiresAt, entryId, cacheKey: item.cacheKey }); d.rings.set(ringKey, ring); added++;
+    }
+    if (added) this.emit('trend-backfill', id, { deviceId: id, module: 'bms', added });
+    return { accepted: true, added };
+  }
   accept(id, subscriptionId, s) {
     const d = this.device(id), now = this.now();
     assert(d.lease?.id === subscriptionId && d.lease.until > now, 409, 'LEASE_EXPIRED', '观看租约已失效');

@@ -9,11 +9,18 @@
 
 .monitoring-trend-card__head {
   display: flex;
-  min-height: 48px;
-  align-items: center;
+  min-height: 58px;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px 0;
+  gap: 10px 16px;
+  padding: 12px 16px 0;
+  flex-wrap: wrap;
+}
+
+.monitoring-trend-card__title {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
 }
 
 .monitoring-trend-card__head h2 {
@@ -23,6 +30,52 @@
   font-size: 15px;
   font-weight: 680;
   line-height: 1.35;
+}
+
+.monitoring-trend-card__title > span {
+  color: #7b899b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.monitoring-trend-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.monitoring-trend-card__windows {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #e1e8f0;
+  border-radius: 8px;
+  background: #f5f8fb;
+}
+
+.monitoring-trend-card .monitoring-trend-card__windows button {
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: transparent;
+  color: #65758a;
+  font-size: 11px;
+  line-height: 1.2;
+  box-shadow: none;
+}
+
+.monitoring-trend-card .monitoring-trend-card__windows button:hover {
+  border: 0;
+  background: #e8eef6;
+}
+
+.monitoring-trend-card .monitoring-trend-card__windows button.is-active {
+  background: #fff;
+  color: #1f5f9c;
+  box-shadow: 0 1px 3px rgb(31 54 82 / 12%);
 }
 
 .monitoring-trend-card__history {
@@ -123,6 +176,16 @@
 
   .monitoring-trend-card__head h2 {
     font-size: 14px;
+  }
+
+  .monitoring-trend-card__actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .monitoring-trend-card__windows {
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .monitoring-trend-card__history {
