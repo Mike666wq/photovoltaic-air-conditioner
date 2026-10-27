@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fixture from '../../scripts/realtime/fixtures/snapshot-v1.json';
-import { bmsNumber, bmsTime, sampleStale, sampleExpired, clockSkew, latestBmsSamples, summarizeBmsValues } from './bmsRealtimeTypes';
+import { bmsNumber, bmsTime, sampleStale, sampleExpired, clockSkew, latestBmsSamples, summarizeBmsValues, bmsAlarmObservationStale } from './bmsRealtimeTypes';
 import type { BmsSample, BmsSnapshot } from './bmsRealtimeTypes';
 import { useBmsRealtimeStore as store } from '../store/bmsRealtime';
 import { BmsRealtimeController } from './bmsRealtimeController';
@@ -37,6 +37,14 @@ describe('BMS显示口径与有界状态', () => {
     expect(sampleStale(item({periodSeconds:120}),Date.parse(s.receivedAt)+60000)).toBe(false);
     expect(sampleStale({...s,stale:true},Date.parse(s.receivedAt))).toBe(true); expect(clockSkew(s)).toBe(false); expect(clockSkew(item())).toBe(true);
     expect(sampleExpired(s,Date.parse(s.receivedAt)+3599999)).toBe(false); expect(sampleExpired(s,Date.parse(s.receivedAt)+3600000)).toBe(true);
+  });
+  it('42采样时间与44告警观测时间、轮次各自保留',()=>{
+    const alarm={observedUtc:'2026-10-03T07:59:50Z',acquisitionRound:31,pack:1,payloadHex:'00'};
+    const current=item({capturedUtc:'2026-10-03T08:00:00Z',acquisitionRound:32,alarmObservationAvailable:true,alarmObservation:alarm});
+    expect(current.snapshot.capturedUtc).not.toBe(current.snapshot.alarmObservation?.observedUtc);
+    expect(current.snapshot.acquisitionRound).not.toBe(current.snapshot.alarmObservation?.acquisitionRound);
+    expect(bmsAlarmObservationStale(alarm,Date.parse('2026-10-03T08:00:10Z'),15)).toBe(false);
+    expect(bmsAlarmObservationStale(alarm,Date.parse('2026-10-03T08:01:00Z'),15)).toBe(true);
   });
   it('保留完整小时趋势，不因新连接会话清除服务端观测；清理和reset不碰仿真store', () => {
     const start=Date.now()-3599000;const observed=Array.from({length:701},(_,i)=>({entryId:i+1,capturedUtc:new Date(start+i*3000).toISOString(),receivedAt:new Date().toISOString(),sequence:i+1,connectionSessionId:'session-a',value:i,source:'serial' as const,address:1}));
@@ -106,6 +114,34 @@ it('SSE建链时补拉一次趋势，覆盖bootstrap与订阅之间完成的Warm
   const api=fakeApi();const source={close:vi.fn(),addEventListener:vi.fn(),onopen:null as null|((event:Event)=>void),onerror:null} as unknown as EventSource;
   const controller=new BmsRealtimeController(api,()=>source);await controller.start('warm-start-race');expect(api.trend).toHaveBeenCalledTimes(3);
   source.onopen?.(new Event('open'));await flushQueue();expect(api.trend).toHaveBeenCalledTimes(6);controller.stop();
+});
+
+it('租约成功后先建立SSE，迟到bootstrap不能覆盖较新的SSE样本',async()=>{
+  const api=fakeApi();let resolveLatest!:(value:{online:boolean;lastHeartbeatAt:string|null;packs:BmsSample[]})=>void;
+  api.latest.mockReturnValue(new Promise(resolve=>{resolveLatest=resolve;}));
+  const listeners=new Map<string,(event:Event)=>void>(),source={close:vi.fn(),addEventListener:(name:string,handler:(event:Event)=>void)=>listeners.set(name,handler),onopen:null,onerror:null} as unknown as EventSource;
+  const controller=new BmsRealtimeController(api,()=>source);await controller.start('early-sse');
+  expect(source).toBeTruthy();expect(api.latest).toHaveBeenCalledOnce();
+  const newer=item({sequence:20,currentCentiamps:0});listeners.get('snapshot')?.(new MessageEvent('snapshot',{data:JSON.stringify(newer)}));
+  resolveLatest({online:true,lastHeartbeatAt:null,packs:[item({sequence:19,currentCentiamps:900})]});await flushQueue();
+  expect(store.getState().samples[0].snapshot.currentCentiamps).toBe(0);expect(api.create).toHaveBeenCalledOnce();controller.stop();
+});
+
+it('历史缓慢或失败时SSE继续工作，历史按退避独立重试而不重连租约',async()=>{
+  vi.useFakeTimers();const api=fakeApi();let pending:Promise<{points:[];nextCursor:null;hasMore:false}>|undefined;let calls=0;
+  api.trend.mockImplementation(async()=>{calls++;if(calls<=3)return pending ??= new Promise((_,reject)=>setTimeout(()=>reject(new Error('历史接口超时')),10000));return {points:[],nextCursor:null,hasMore:false};});
+  const source={close:vi.fn(),addEventListener:vi.fn(),onopen:null,onerror:null} as unknown as EventSource,controller=new BmsRealtimeController(api,()=>source);
+  await controller.start('slow-history');await flushQueue();expect(api.create).toHaveBeenCalledOnce();expect(store.getState().lease).not.toBeNull();
+  await vi.advanceTimersByTimeAsync(10000);await flushQueue();expect(store.getState().phase).toBe('watching');expect(source.close).not.toHaveBeenCalled();expect(api.create).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1000);await flushQueue();expect(api.trend.mock.calls.length).toBeGreaterThan(3);expect(api.create).toHaveBeenCalledOnce();expect(source.close).not.toHaveBeenCalled();controller.stop();
+});
+
+it('历史接口返回401/403会停止观看并保留授权边界',async()=>{
+  for(const status of [401,403]){
+    store.getState().reset();store.setState({deviceId:'lab-bms-01',pack:1});const api=fakeApi();api.trend.mockRejectedValue(new BmsApiError(status,'AUTH_REQUIRED','无权限'));
+    const source={close:vi.fn(),addEventListener:vi.fn(),onopen:null,onerror:null} as unknown as EventSource,controller=new BmsRealtimeController(api,()=>source);
+    await controller.start(`history-auth-${status}`);await flushQueue();expect(source.close).toHaveBeenCalledOnce();expect(store.getState().phase).toBe('unauthorized');expect(api.create).toHaveBeenCalledOnce();controller.stop();
+  }
 });
 
 it('历史趋势顺序读取全部游标页并合并观测',async()=>{

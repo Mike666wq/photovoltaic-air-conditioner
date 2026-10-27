@@ -9,13 +9,18 @@ export function equipment(values, allowed = EQUIPMENT) {
   assert(result.every((id) => allowed.includes(id)), 403, 'EQUIPMENT_FORBIDDEN', '未授权的实验仪器'); return result;
 }
 export function historyPoints(values, allowed = EQUIPMENT) {
-  assert(Array.isArray(values) && values.length <= 1 && values.every((v) => typeof v === 'string' && v.length >= 3 && v.length <= 170), 400, 'HISTORY_SELECTION_INVALID', '每个观看页面最多选择一个历史趋势测点');
+  assert(Array.isArray(values) && values.every((v) => typeof v === 'string' && v.length >= 3 && v.length <= 170), 400, 'HISTORY_SELECTION_INVALID', '历史趋势选择格式无效');
   const result = [...new Set(values)].sort();
+  assert(result.length <= 4, 400, 'HISTORY_SELECTION_INVALID', '每个观看页面最多选择四个历史趋势测点');
+  let unitKey = null;
   for (const selection of result) {
     const slash = selection.indexOf('/'), equipmentId = selection.slice(0, slash), pointId = selection.slice(slash + 1);
     assert(slash > 0 && !pointId.includes('/') && allowed.includes(equipmentId), 403, 'HISTORY_SELECTION_FORBIDDEN', '历史趋势选择未授权');
     const def = definitions.get(`${equipmentId}/${pointId}`);
     assert(def && def.metadata.Group !== '运行状态' && def.metadata.Group !== '诊断', 400, 'HISTORY_SELECTION_INVALID', '历史趋势只能选择连续量测点');
+    const key = def.metadata.Unit ? `unit/${def.metadata.Unit}` : `quantity/${def.metadata.Label}`;
+    if (unitKey === null) unitKey = key;
+    assert(key === unitKey, 400, 'HISTORY_SELECTION_INVALID', '同一趋势选择必须属于相同物理量');
   }
   return result;
 }

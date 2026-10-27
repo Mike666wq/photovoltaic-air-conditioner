@@ -3,6 +3,7 @@
 .experiment-observation{display:grid;gap:18px;min-width:0}
 .experiment-observation>.bms-notice,.experiment-observation>.bms-error,.experiment-observation>.bms-toolbar,.experiment-observation>.bms-status{margin-bottom:0}
 .experiment-observe-toolbar{align-items:center;justify-content:space-between}
+.experiment-observation .bms-status-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 .experiment-observe-toolbar>div{display:grid;gap:4px}
 .experiment-observe-toolbar>div>span{font-size:11px;color:#718096;letter-spacing:.08em}
 .experiment-observe-toolbar>div>strong{font-size:16px;color:#243b57}
@@ -50,7 +51,17 @@
 .experiment-main-trend select{width:100%;padding:9px 10px;border:1px solid #cad6e5;border-radius:8px;background:#fff;color:#253a54}
 .experiment-main-trend>.monitoring-trend-card{box-shadow:none}
 .experiment-main-trend>p{margin:12px 0 0;color:#64748b;font-size:12px;line-height:1.7}
+.experiment-trend-selections{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 10px}
+.experiment-trend-selections>span{display:inline-flex;align-items:center;gap:8px;padding:5px 8px;border:1px solid #d8e3ef;border-radius:999px;background:#f7faff;color:#3b526d;font-size:11px}
+.experiment-trend-selections button,.experiment-trend-error button{padding:3px 7px;border:1px solid #cbd7e4;border-radius:6px;background:#fff;color:#38516d;font-size:10px}
+.experiment-trend-hint,.experiment-trend-error{margin:8px 0;color:#805b17;font-size:12px}
+.experiment-trend-error{color:#9f3535}
 .experiment-diagnostics>details{border:1px solid #e1e8f0;border-radius:11px;padding:0 14px;margin-top:9px}
+.experiment-diagnostics>.experiment-engineering-status{margin:0 0 12px;background:#f8fafc}
+.experiment-engineering-status>summary{padding:12px 0;cursor:pointer;color:#344963;font-size:12px;font-weight:600}
+.experiment-engineering-status>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px;padding:0 0 12px;color:#5f7085;font-size:11px}
+.experiment-engineering-status>div small{grid-column:1/-1;color:#77869a}
+@media(max-width:1100px){.experiment-observation .bms-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .experiment-diagnostics>details>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 0;cursor:pointer;font-weight:600;color:#344963}
 .experiment-diagnostics>details>summary span{font-size:11px;font-weight:400;color:#758499}
 .experiment-diagnostic-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:0 0 14px}

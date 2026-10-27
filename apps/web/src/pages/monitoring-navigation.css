@@ -1,0 +1,24 @@
+/* 监控导航与设备卡片的独立布局覆盖，避免影响实时观测组件。 */
+.monitoring-page,
+.monitoring-detail-page { min-width: 0; overflow-x: hidden; }
+.monitoring-page .monitoring-device-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+.monitoring-page .monitoring-device-card { min-width: 0; grid-template-columns: 12px minmax(0, 1fr) minmax(120px, auto); }
+.monitoring-page .monitoring-device-card__main { min-width: 0; }
+.monitoring-page .monitoring-device-card__main strong { overflow-wrap: anywhere; }
+.monitoring-page .monitoring-device-card__main code { font-size: 10px; color: #8793a3; }
+.monitoring-page .monitoring-device-card__type { color: #516981; font-size: 12px; }
+.monitoring-page .monitoring-device-card__status { white-space: normal; overflow-wrap: anywhere; }
+.monitoring-page .monitoring-device-card__status strong { font-size: 12px; }
+.monitoring-page .monitoring-device-card__status strong.is-online { color: #267653; }
+.monitoring-page .monitoring-device-card__status strong.is-offline { color: #64748b; }
+.monitoring-page .monitoring-device-card__action { grid-column: 2 / 4; }
+.monitoring-detail-page .bms-header nav { max-width: 100%; }
+.monitoring-device-switch { display: grid; gap: 5px; min-width: min(240px, 100%); color: #53657a; font-size: 12px; }
+.monitoring-detail-page .monitoring-device-switch select { min-width: 0; max-width: 100%; padding: 8px 10px; }
+@media (max-width: 720px) {
+  .monitoring-page .monitoring-device-card { grid-template-columns: 12px minmax(0, 1fr); }
+  .monitoring-page .monitoring-device-card__status { grid-column: 2; text-align: left; }
+  .monitoring-page .monitoring-device-card__action { grid-column: 2; }
+  .monitoring-device-switch { width: min(100%, 320px); }
+  .monitoring-detail-page .bms-header nav { width: 100%; gap: 12px; }
+}

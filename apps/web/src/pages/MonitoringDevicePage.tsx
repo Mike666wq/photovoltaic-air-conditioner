@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { isClientForeground, subscribeClientForeground } from '../services/clientForeground';
 import { bmsApi, BmsApiError, monitoringApi } from '../services/bmsRealtimeApi';
 import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
 import { BmsRealtimePage } from './BmsRealtimePage';
@@ -7,9 +8,30 @@ import { ExperimentRealtimePage } from './ExperimentRealtimePage';
 import { DeploymentVersion } from '../components/DeploymentVersion';
 import './bms-realtime.css';
 import './experiment-realtime.css';
+import './monitoring-navigation.css';
 
 function createPageId() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `monitor-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export function startForegroundDeviceRefresh(
+  refresh: () => void,
+  isForeground: () => boolean,
+  subscribe: (listener: () => void) => () => void,
+  intervalMs = 15000,
+  refreshOnStart = false,
+) {
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const stop = () => { if (timer) clearInterval(timer); timer = undefined; };
+  const start = (immediate: boolean) => {
+    stop();
+    if (!isForeground()) return;
+    if (immediate) refresh();
+    timer = setInterval(refresh, intervalMs);
+  };
+  const unsubscribe = subscribe(() => isForeground() ? start(true) : stop());
+  start(refreshOnStart);
+  return () => { stop(); unsubscribe(); };
 }
 
 export function MonitoringDevicePage() {
@@ -45,6 +67,29 @@ export function MonitoringDevicePage() {
     return () => { alive = false; document.title = previousTitle; };
   }, [navigate]);
 
+  useEffect(() => {
+    if (!ready || !identity) return;
+    let active = true;
+    let sequence = 0;
+    const refreshAuthorizedDevices = async () => {
+      const request = ++sequence;
+      try {
+        const result = await monitoringApi.devices();
+        if (active && request === sequence) setDevices(result.devices);
+      } catch (cause) {
+        if (active && request === sequence && cause instanceof BmsApiError && cause.status === 401) {
+          navigate('/monitoring', { replace: true, state: { notice: '登录已失效，请重新登录。' } });
+        }
+      }
+    };
+    const stop = startForegroundDeviceRefresh(
+      () => { void refreshAuthorizedDevices(); },
+      isClientForeground,
+      subscribeClientForeground,
+    );
+    return () => { active = false; sequence++; stop(); };
+  }, [ready, identity, navigate]);
+
   const moduleFilter = device?.module === 'experiment' ? 'experiment' : 'bms';
   const backToList = () => navigate(`/monitoring?view=devices&module=${moduleFilter}`);
   const onUnauthorized = useCallback(() => navigate('/monitoring', {
@@ -57,7 +102,7 @@ export function MonitoringDevicePage() {
   }), [navigate, device?.alias, requestedId]);
 
   return <main className="bms-page monitoring-detail-page">
-    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>{device?.alias ?? '设备观测'}</h1><DeploymentVersion /></div><nav aria-label="观测导航"><Link to={`/monitoring?view=devices&module=${moduleFilter}`}>← 返回设备列表</Link>{identity && <span>{identity.username}</span>}</nav></header>
+    <header className="bms-header"><div><span className="bms-eyebrow">光伏 · 空调实验平台</span><h1>{device?.alias ?? '设备观测'}</h1><DeploymentVersion /></div><nav aria-label="观测导航"><Link to={`/monitoring?view=devices&module=${moduleFilter}`}>← 返回设备列表</Link>{devices.length > 0 && <label className="monitoring-device-switch">切换授权设备<select aria-label="切换授权设备" value={device?.deviceId ?? ''} onChange={event => { if (event.target.value) navigate(`/monitoring/devices/${encodeURIComponent(event.target.value)}`); }}><option value="" disabled>选择设备</option>{devices.map(candidate => <option key={candidate.deviceId} value={candidate.deviceId}>{candidate.alias} · {candidate.module === 'experiment' ? '实验采集' : 'BMS'}</option>)}</select></label>}{identity && <span>{identity.username}</span>}</nav></header>
     <div className="bms-content">
       {!ready ? <section className="bms-login">正在读取设备权限…</section> : error ? <section className="monitoring-empty"><h2>设备列表暂不可用</h2><p role="alert">{error}</p><button onClick={() => navigate('/monitoring', { replace: true })}>返回实时观测</button></section> : !device ? <section className="monitoring-empty"><h2>无权查看此设备</h2><p>设备不存在或当前账户没有观测权限。请联系管理员；设备列表只展示你获准查看的设备。</p><button onClick={backToList}>返回设备列表</button></section> : device.module === 'experiment' ? <ExperimentRealtimePage key={device.deviceId} embedded identity={identity!} device={device} autostart pageId={pageId} onUnauthorized={onUnauthorized} onPermissionRevoked={onPermissionRevoked} /> : <BmsRealtimePage key={device.deviceId} embedded identity={identity!} device={device} autostart pageId={pageId} onUnauthorized={onUnauthorized} onPermissionRevoked={onPermissionRevoked} />}
     </div>

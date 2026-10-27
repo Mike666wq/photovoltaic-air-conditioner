@@ -36,8 +36,12 @@ export class BmsRealtimeController {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private retry: ReturnType<typeof setTimeout> | undefined;
   private trendRefresh: ReturnType<typeof setTimeout> | undefined;
+  private historyRetry: ReturnType<typeof setTimeout> | undefined;
+  private latestRetry: ReturnType<typeof setTimeout> | undefined;
   private abort: AbortController | null = null;
   private retryCount = 0;
+  private historyRetryCount = 0;
+  private latestRetryCount = 0;
   private pageId?:string;
   private trendCursors: Partial<Record<BmsMetric, string | null>> = {};
   private queryKeys: Partial<Record<BmsMetric, string>> = {};
@@ -54,7 +58,7 @@ export class BmsRealtimeController {
 
   private cleanup(phase: 'idle' | 'paused' | 'expired' | 'unauthorized' | 'reconnecting') {
     this.abort?.abort(); this.abort = null;
-    clearTimeout(this.timer); clearTimeout(this.retry); clearTimeout(this.trendRefresh);
+    clearTimeout(this.timer); clearTimeout(this.retry); clearTimeout(this.trendRefresh); clearTimeout(this.historyRetry); clearTimeout(this.latestRetry);
     this.events?.close(); this.events = null;
     const lease = store.getState().lease;
     store.setState({ phase, lease: null, websiteConnected: false });
@@ -65,7 +69,7 @@ export class BmsRealtimeController {
   }
 
   async start(pageId?:string) {
-    this.stop(); this.retryCount = 0;
+    this.stop(); this.retryCount = 0; this.historyRetryCount = 0; this.latestRetryCount = 0;
     this.pageId=pageId;
     await this.connect(this.generation);
   }
@@ -88,8 +92,11 @@ export class BmsRealtimeController {
       });
       if (!lease || generation !== this.generation) return;
       this.scheduleRenew(lease, generation);
-      await this.bootstrap(generation, true);
-      if (generation === this.generation) this.subscribe(lease, generation);
+      // Establish the live stream as soon as the viewing lease exists. Bootstrap/history run
+      // independently so a slow history endpoint cannot delay or repeatedly restart SSE.
+      this.subscribe(lease, generation);
+      void this.bootstrap(generation);
+      void this.refreshTrends(generation, true);
     } catch (error) { if (generation === this.generation) this.fail(error); }
   }
 
@@ -163,7 +170,10 @@ export class BmsRealtimeController {
       } while (true);
       if (cursor) this.trendCursors[metric] = cursor;
     } catch (error) {
-      if (generation === this.generation) this.fail(error);
+      if (generation === this.generation) {
+        if (error instanceof BmsApiError && [401, 403].includes(error.status)) this.fail(error);
+        else this.scheduleHistoryRetry(generation);
+      }
     } finally { this.fetching.delete(requestKey); }
   }
 
@@ -171,13 +181,37 @@ export class BmsRealtimeController {
     await Promise.all(BMS_METRICS.map(metric => this.loadTrend(metric, generation, replace)));
   }
 
-  private async bootstrap(generation: number, includeHistory = false) {
+  private scheduleHistoryRetry(generation: number) {
+    if (generation !== this.generation || this.historyRetry || this.historyRetryCount >= 8) return;
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.historyRetryCount++, 5));
+    this.historyRetry = setTimeout(() => {
+      this.historyRetry = undefined;
+      if (generation === this.generation) void this.refreshTrends(generation);
+    }, delay);
+  }
+
+  private scheduleLatestRetry(generation: number) {
+    if (generation !== this.generation || this.latestRetry || this.latestRetryCount >= 8) return;
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.latestRetryCount++, 5));
+    this.latestRetry = setTimeout(() => {
+      this.latestRetry = undefined;
+      if (generation === this.generation) void this.bootstrap(generation);
+    }, delay);
+  }
+
+  private async bootstrap(generation: number) {
     const { deviceId, pack } = store.getState();
-    const latest = await this.api.latest(deviceId, pack);
-    if (generation !== this.generation) return;
-    store.setState({ devices: store.getState().devices.map((d) => d.deviceId === deviceId ? { ...d, online: latest.online, lastHeartbeatAt: latest.lastHeartbeatAt } : d), websiteConnected: true });
-    for (const sample of latest.packs) store.getState().accept(sample);
-    if (includeHistory) await this.refreshTrends(generation, true);
+    try {
+      const latest = await this.api.latest(deviceId, pack);
+      if (generation !== this.generation) return;
+      this.latestRetryCount = 0;
+      store.setState({ devices: store.getState().devices.map((d) => d.deviceId === deviceId ? { ...d, online: latest.online, lastHeartbeatAt: latest.lastHeartbeatAt } : d), websiteConnected: true });
+      for (const sample of latest.packs) store.getState().accept(sample);
+    } catch (error) {
+      if (generation !== this.generation) return;
+      if (error instanceof BmsApiError && [401, 403].includes(error.status)) this.fail(error);
+      else this.scheduleLatestRetry(generation);
+    }
   }
 
   private subscribe(lease: ViewerLease, generation: number) {

@@ -9,8 +9,12 @@ import {
   experimentAgeLabel,
   pointStatus,
   latestExperimentSamples,
+  latestExperimentObservation,
   experimentTrendKey,
   buildExperimentTrendLines,
+  normalizeExperimentUnit,
+  experimentDimension,
+  formatExperimentDisplayValue,
 } from '../services/experimentRealtimeTypes';
 import type { PointDefinition } from '../services/experimentRealtimeTypes';
 import { sourceLabel } from '../services/realtimeSource';
@@ -21,7 +25,7 @@ import './bms-realtime.css';
 import './experiment-realtime.css';
 
 const groups = ['温度', '实验电表', '市电', '太阳能', '运行状态', '诊断'] as const;
-const electricalGroups = ['实验电表', '市电', '太阳能'] as const;
+const electricalGroups = ['太阳能', '实验电表', '市电'] as const;
 
 export interface ExperimentRealtimePageProps {
   embedded?: boolean;
@@ -60,6 +64,8 @@ function ExperimentObservation({
   const samples = latestExperimentSamples(Object.values(state.samples));
   const byEquipment = new Map(samples.map(sample => [sample.snapshot.equipmentId, sample]));
   const includesSimulation = samples.some(sample => sample.snapshot.source === 'simulation');
+  const latestObservation = latestExperimentObservation(samples);
+  const latestObservationDefinition = latestObservation && experimentCatalog.points.find(point => point.equipmentId === latestObservation.sample.snapshot.equipmentId && point.id === latestObservation.point.id);
   const definitions = experimentCatalog.points.filter(point => device.allowedEquipment?.includes(point.equipmentId));
   const trendableDefinitions = definitions.filter(point => point.metadata.Group !== '运行状态' && point.metadata.Group !== '诊断');
   const selected = trendableDefinitions.find(point => `${point.equipmentId}/${point.id}` === state.selection) ?? trendableDefinitions[0] ?? definitions[0];
@@ -98,13 +104,22 @@ function ExperimentObservation({
     if (old.deviceId !== device.deviceId || old.identity?.username !== identity.username) old.clearData();
     const first = experimentCatalog.points.find(point => device.allowedEquipment?.includes(point.equipmentId) && point.metadata.Group !== '运行状态' && point.metadata.Group !== '诊断');
     const oldDefinition = experimentCatalog.points.find(point => `${point.equipmentId}/${point.id}` === old.selection);
-    const keepOldSelection = !!oldDefinition && device.allowedEquipment?.includes(oldDefinition.equipmentId) && oldDefinition.metadata.Group !== '运行状态' && oldDefinition.metadata.Group !== '诊断';
+    const keepOldSelection = old.deviceId === device.deviceId && old.identity?.username === identity.username && !!oldDefinition && device.allowedEquipment?.includes(oldDefinition.equipmentId) && oldDefinition.metadata.Group !== '运行状态' && oldDefinition.metadata.Group !== '诊断';
+    const nextSelection = keepOldSelection ? old.selection : first ? `${first.equipmentId}/${first.id}` : 'PLC/T0';
+    const primaryDefinition = experimentCatalog.points.find(point => `${point.equipmentId}/${point.id}` === nextSelection);
+    const trendSelections = primaryDefinition ? [nextSelection, ...old.trendSelections.filter(item => {
+      const definition = experimentCatalog.points.find(point => `${point.equipmentId}/${point.id}` === item);
+      return !!definition && device.allowedEquipment?.includes(definition.equipmentId) && definition.metadata.Group !== '运行状态' && definition.metadata.Group !== '诊断' && experimentDimension(definition) === experimentDimension(primaryDefinition);
+    }).filter(item => item !== nextSelection)].slice(0, 4) : [nextSelection];
     store.setState({
       identity,
       devices: [device],
       deviceId: device.deviceId,
       error: '',
-      selection: keepOldSelection ? old.selection : first ? `${first.equipmentId}/${first.id}` : 'PLC/T0',
+      selection: nextSelection,
+      trendSelections,
+      comparisonHint: false,
+      historyError: '',
     });
     resume.current = !!autostart && !isClientForeground();
     if (autostart && isClientForeground()) void current.start(pageId);
@@ -133,30 +148,51 @@ function ExperimentObservation({
 
   const selectPoint = (definition: PointDefinition) => {
     const selection = `${definition.equipmentId}/${definition.id}`;
+    const previous = trendableDefinitions.find(point => `${point.equipmentId}/${point.id}` === state.selection);
+    const sameUnit = !!previous && experimentDimension(previous) === experimentDimension(definition);
+    const selections = sameUnit ? [selection, ...state.trendSelections.filter(item => item !== selection).slice(0, 3)] : [selection];
     store.setState({
       selection,
+      trendSelections: selections,
+      comparisonHint: false,
       trend: state.trendByPoint[experimentTrendKey(device.deviceId, selection)] ?? [],
     });
-    void controller.current.updateHistorySelection(selection);
-    void controller.current.refreshTrend();
+    void controller.current.updateHistorySelections(selections);
+    void controller.current.refreshTrendSeries(selections);
   };
 
   const selectedTrend = selected && selected.metadata.Group !== '运行状态' && selected.metadata.Group !== '诊断' ? (() => {
     const selection = `${selected.equipmentId}/${selected.id}`;
-    const point = byEquipment.get(selected.equipmentId)?.snapshot.points.find(item => item.id === selected.id);
-    const unit = point?.unit ?? selected.metadata.Unit;
-    const points = state.trendByPoint[experimentTrendKey(device.deviceId, selection)] ?? [];
-    return {
-      selection,
-      unit,
-      chart: <MonitoringTrendChart
-        title={`${selected.metadata.Label} · ${selected.id}`}
-        unit={unit}
-        series={buildExperimentTrendLines(selection, unit, points)}
-        gapMs={Infinity}
-      />,
-    };
+    const unit = selected.metadata.Unit;
+    const series = state.trendSelections.flatMap(item => {
+      const definition = trendableDefinitions.find(point => `${point.equipmentId}/${point.id}` === item);
+      if (!definition || experimentDimension(definition) !== experimentDimension(selected)) return [];
+      const point = byEquipment.get(definition.equipmentId)?.snapshot.points.find(p => p.id === definition.id);
+      if (normalizeExperimentUnit(point?.unit, definition.metadata.Unit) !== unit) return [];
+      const points = state.trendByPoint[experimentTrendKey(device.deviceId, item)] ?? [];
+      return buildExperimentTrendLines(`${definition.metadata.Label} · ${definition.id}`, unit, points).map(line => ({ ...line, id: `${item}/${line.id}` }));
+    });
+    return { selection, unit, series };
   })() : null;
+
+  const refreshSelectedTrends = (selections: string[]) => {
+    void controller.current.updateHistorySelections(selections);
+    void controller.current.refreshTrendSeries(selections);
+  };
+  const addComparison = (selection: string) => {
+    if (!selectedTrend || state.trendSelections.includes(selection) || state.trendSelections.length >= 4) return;
+    const definition = trendableDefinitions.find(point => `${point.equipmentId}/${point.id}` === selection);
+    if (!definition || !selected || experimentDimension(definition) !== experimentDimension(selected)) return;
+    const selections = [...state.trendSelections, selection];
+    store.setState({ trendSelections: selections, comparisonHint: false });
+    refreshSelectedTrends(selections);
+  };
+  const removeComparison = (selection: string) => {
+    if (selection === state.selection) return;
+    const selections = state.trendSelections.filter(item => item !== selection);
+    store.setState({ trendSelections: selections, comparisonHint: false });
+    refreshSelectedTrends(selections);
+  };
 
   const compactCard = (definition: PointDefinition) => {
     const { sample, point, view, history } = pointContext(definition);
@@ -171,15 +207,15 @@ function ExperimentObservation({
       aria-pressed={selectedCard}
     >
       <span className="experiment-live-card__head"><b>{definition.metadata.Label}</b><code>{definition.id}</code></span>
-      <span className="experiment-live-card__value"><strong>{view.value}</strong><em>{point?.unit ?? definition.metadata.Unit}</em></span>
+      <span className="experiment-live-card__value"><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit)}</strong><em>{normalizeExperimentUnit(point?.unit, definition.metadata.Unit)}</em></span>
       <span className={`experiment-live-card__quality ${view.good ? '' : 'is-warning'}`}>
-        {view.label}{!definition.metadata.ScaleConfirmed ? ' · 倍率待核准' : ''}
+        {view.label}
       </span>
       <span className="experiment-live-card__meta">
         {definition.equipmentId} · {sourceLabel(sample?.snapshot.source)} · {experimentAgeLabel(point, mono)}
       </span>
       {historical && <span className="experiment-live-card__historic">
-        最近有效：{historical.value ?? historical.displayValue} {historical.unit} · {experimentTime(historical.observedUtc)}
+        最近有效：{formatExperimentDisplayValue(historical.value ?? historical.displayValue, definition.metadata.Unit)} {normalizeExperimentUnit(historical.unit, definition.metadata.Unit)} · {experimentTime(historical.observedUtc)}
       </span>}
     </button>;
   };
@@ -189,11 +225,10 @@ function ExperimentObservation({
     const historical = !view.good && history && !pointStatus(history, mono).expired ? history : undefined;
     return <article key={`${definition.equipmentId}/${definition.id}`} className={`experiment-state-card ${view.good ? '' : 'is-muted'}`}>
       <span className="experiment-live-card__head"><b>{definition.metadata.Label}</b><code>{definition.id}</code></span>
-      <span className="experiment-live-card__value"><strong>{view.value}</strong><em>{point?.unit ?? definition.metadata.Unit}</em></span>
+      <span className="experiment-live-card__value"><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit)}</strong><em>{normalizeExperimentUnit(point?.unit, definition.metadata.Unit)}</em></span>
       <span className={`experiment-live-card__quality ${view.good ? '' : 'is-warning'}`}>{view.label}</span>
       <span className="experiment-live-card__meta">{definition.equipmentId} · {sourceLabel(sample?.snapshot.source)} · {experimentAgeLabel(point, mono)}</span>
-      <span className="experiment-live-card__hint">原始状态码，现场语义映射未确认</span>
-      {historical && <span className="experiment-live-card__historic">最近有效：{historical.value ?? historical.displayValue} {historical.unit} · {experimentTime(historical.observedUtc)}</span>}
+      {historical && <span className="experiment-live-card__historic">最近有效：{formatExperimentDisplayValue(historical.value ?? historical.displayValue, definition.metadata.Unit)} {normalizeExperimentUnit(historical.unit, definition.metadata.Unit)} · {experimentTime(historical.observedUtc)}</span>}
     </article>;
   };
 
@@ -206,7 +241,7 @@ function ExperimentObservation({
               : '实验实时观测中';
 
   return <section className="experiment-page experiment-observation" aria-label="实验设备实时观测">
-    <p className="bms-notice">只读观测 · 本地程序负责采集、SQLite 完整记录与设备通信，网页不控制设备。心跳在线不等于采集正常。</p>
+    <p className="bms-notice">只读观测 · 本地程序负责采集、SQLite 完整记录与设备通信，网页不控制设备。</p>
     {state.error && <p className="bms-error" role="alert">{state.error}</p>}
 
     <section className="bms-toolbar experiment-observe-toolbar" aria-label="实验观看设置">
@@ -225,8 +260,7 @@ function ExperimentObservation({
       <div className="bms-status-grid">
         <div><span>网站数据连接</span><b>{state.websiteConnected ? '已连通' : '未连通'}</b></div>
         <div><span>采集端心跳</span><b>{online ? '在线' : '未在线'}</b><small>{experimentTime(currentDevice.lastHeartbeatAt)}</small></div>
-        <div><span>观看租约</span><b>{state.lease ? '已建立' : '未建立'}</b><small>{experimentTime(state.lease?.expiresAt)}</small></div>
-        <div><span>最后快照组装</span><b>{experimentTime(last?.snapshot.capturedUtc)}</b><small>各测点保留自己的观测时间</small></div>
+        <div><span>最近测点观测时间</span><b>{experimentTime(latestObservation?.point.observedUtc)}</b><small>{latestObservation && latestObservationDefinition ? `${latestObservation.sample.snapshot.equipmentId} · ${latestObservationDefinition.metadata.Label} · ${pointStatus(latestObservation.point, mono).label}` : '等待测点观测'}</small><small>各测点观测时间独立</small></div>
       </div>
       <p>测点是否“有效”只服从本地质量字段；年龄单独显示。失败、旧数据、null 和未采集不会变成 0，也不会跨来源回填。</p>
     </section>
@@ -236,7 +270,7 @@ function ExperimentObservation({
 
     <section className="experiment-overview" aria-label="实验实时总览">
       <div className="experiment-section-head">
-        <div><span>实时总览</span><h2>先判断采集健康，再查看具体测点</h2></div>
+        <div><span>实时总览</span><h2>查看授权测点与采集状态</h2></div>
         <p>这里是当前云端短缓存的最新状态，不替代本地实验记录。</p>
       </div>
       <div className="experiment-overview-grid">
@@ -265,8 +299,8 @@ function ExperimentObservation({
 
     <section className="experiment-live-section">
       <div className="experiment-section-head">
-        <div><span>电气与能源</span><h2>实验电表 · 市电 · 太阳能</h2></div>
-        <p>倍率尚未现场核准的测点保留工程原值和显式提示，不在网页二次换算。</p>
+        <div><span>电气与能源</span><h2>太阳能 · 实验电表 · 市电</h2></div>
+        <p>数值和单位按采集端上报内容显示，原始值可在高级诊断中查看。</p>
       </div>
       <div className="experiment-electrical-groups">
         {electricalGroups.filter(group => definitions.some(point => point.metadata.Group === group)).map(group =>
@@ -282,7 +316,7 @@ function ExperimentObservation({
     {definitions.some(point => point.metadata.Group === '运行状态') && <section className="experiment-live-section">
       <div className="experiment-section-head">
         <div><span>离散状态</span><h2>运行状态</h2></div>
-        <p>当前协议只确认原始状态码，尚未确认现场语义映射，因此不擅自显示“开/关/故障”等解释。</p>
+        <p>状态字段按采集端上报内容显示。</p>
       </div>
       <div className="experiment-state-grid">
         {definitions.filter(point => point.metadata.Group === '运行状态').map(point => stateCard(point))}
@@ -292,20 +326,24 @@ function ExperimentObservation({
     {selectedTrend && <section className="experiment-main-trend" aria-label="实验主趋势">
       <div className="experiment-section-head">
         <div><span>变化趋势</span><h2>{selected?.metadata.Label}</h2></div>
-        <label>趋势测点
-          <select value={selectedTrend.selection} onChange={event => {
-            const definition = definitions.find(point => `${point.equipmentId}/${point.id}` === event.target.value);
-            if (definition) selectPoint(definition);
-          }}>
-            {trendableDefinitions.map(point =>
+        <label>添加同类测点
+          <select value="" disabled={state.trendSelections.length >= 4} onChange={event => addComparison(event.target.value)}>
+            <option value="">{state.trendSelections.length >= 4 ? '最多显示4条曲线' : '选择测点加入对比'}</option>
+            {trendableDefinitions.filter(point => selected && experimentDimension(point) === experimentDimension(selected) && !state.trendSelections.includes(`${point.equipmentId}/${point.id}`)).map(point =>
               <option key={`${point.equipmentId}/${point.id}`} value={`${point.equipmentId}/${point.id}`}>
-                {point.metadata.Group} · {point.metadata.Label} · {point.id}
+                {point.metadata.Label} · {point.id}
               </option>)}
           </select>
         </label>
       </div>
-      {selectedTrend.chart}
-      <p>只绘制实际收到的观测点，不插值、不补点；来源、连接会话和本地失败/null 观测形成断点。现在只按需读取当前选中测点的趋势。</p>
+      <div className="experiment-trend-selections">{state.trendSelections.map(selection => {
+        const definition = trendableDefinitions.find(point => `${point.equipmentId}/${point.id}` === selection);
+        return definition ? <span key={selection}>{definition.metadata.Label} · {definition.id}{selection !== state.selection && <button type="button" aria-label={`移除${definition.metadata.Label}`} onClick={() => removeComparison(selection)}>移除</button>}</span> : null;
+      })}</div>
+      {state.comparisonHint && <p className="experiment-trend-hint" role="status">当前服务端只支持单条趋势，已保留主测点。</p>}
+      {state.historyError && <p className="experiment-trend-error" role="alert">趋势历史：{state.historyError} <button type="button" onClick={() => { store.setState({ historyError: '' }); void controller.current.updateHistorySelections(state.trendSelections); void controller.current.refreshTrendSeries(state.trendSelections, true); }}>重试</button></p>}
+      <MonitoringTrendChart title={`${selected?.metadata.Label} · ${selected?.id}`} unit={selectedTrend.unit} series={selectedTrend.series} gapMs={Infinity} />
+      <p>只绘制实际收到的观测点，不插值、不补点；来源、连接会话和本地失败/null 观测形成断点。仅读取已选趋势测点。</p>
     </section>}
 
     <section className="experiment-diagnostics">
@@ -313,6 +351,15 @@ function ExperimentObservation({
         <div><span>高级信息</span><h2>全部测点与数据诊断</h2></div>
         <p>寄存器地址、原始值、配置版本和采集轮次放在诊断层，默认不占用实时监测主界面。</p>
       </div>
+      <details className="experiment-engineering-status">
+        <summary>连接与快照诊断</summary>
+        <div>
+          <span>观看租约：<b>{state.lease ? '已建立' : '未建立'}</b></span>
+          <span>租约到期：<b>{experimentTime(state.lease?.expiresAt)}</b></span>
+          <span>最后快照组装：<b>{experimentTime(last?.snapshot.capturedUtc)}</b></span>
+          <small>组装时间不替代各测点自己的观测时间。</small>
+        </div>
+      </details>
       {groups.filter(group => definitions.some(point => point.metadata.Group === group)).map(group => <details key={group}>
         <summary>{group}<span>{definitions.filter(point => point.metadata.Group === group).length} 个测点</span></summary>
         <div className="experiment-diagnostic-grid">
@@ -320,18 +367,17 @@ function ExperimentObservation({
             const { sample, point, view, history } = pointContext(definition);
             return <article key={`${definition.equipmentId}/${definition.id}`} className={view.good ? '' : 'is-muted'}>
               <header><div><h3>{definition.metadata.Label}</h3><code>{definition.id}</code></div>{definition.metadata.Group !== '运行状态' && definition.metadata.Group !== '诊断' && <button type="button" onClick={() => selectPoint(definition)}>查看趋势</button>}</header>
-              <p><strong>{view.value}</strong> {point?.unit ?? definition.metadata.Unit} · {view.label}</p>
+              <p><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit)}</strong> {normalizeExperimentUnit(point?.unit, definition.metadata.Unit)} · {view.label}</p>
               <small>{definition.equipmentId} · 站号 {definition.slave} · {sourceLabel(sample?.snapshot.source)} · {experimentAgeLabel(point, mono)}</small>
-              {!definition.metadata.ScaleConfirmed && <p className="experiment-diagnostic-warning">倍率待核准，当前显示工程原值。</p>}
-              {!view.good && history && !pointStatus(history, mono).expired && <p>最近有效历史：{history.value ?? history.displayValue} {history.unit} · {experimentTime(history.observedUtc)}（非当前读数）</p>}
-              {point
+              {!view.good && history && !pointStatus(history, mono).expired && <p>最近有效历史：{formatExperimentDisplayValue(history.value ?? history.displayValue, definition.metadata.Unit)} {normalizeExperimentUnit(history.unit, definition.metadata.Unit)} · {experimentTime(history.observedUtc)}（非当前读数）</p>}
+              {point && !view.expired
                 ? <details><summary>原始值与寄存器</summary>
-                    <p>原始值：{point.rawValue ?? '—'}；客户端显示：{point.displayValue || '—'}</p>
+                    <p>上报工程值：{point.value ?? '—'}；原始值：{point.rawValue ?? '—'}；客户端显示：{point.displayValue || '—'}</p>
                     <p>质量：{point.quality}；轮次：{point.acquisitionRound}；配置：{point.configVersion}</p>
                     <p>观测：{experimentTime(point.observedUtc)}；接收：{experimentTime(point.receivedAt)}</p>
                     <p>零基地址：{definition.addressZeroBased}；寄存器数：{definition.registerCount}；解码：{point.decodeMode}</p>
                   </details>
-                : <p>尚未收到该测点观测。</p>}
+                : <p>{view.expired ? '短缓存已过期，原始详情已移除。' : '尚未收到该测点观测。'}</p>}
             </article>;
           })}
         </div>

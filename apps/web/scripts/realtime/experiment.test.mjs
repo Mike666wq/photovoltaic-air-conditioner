@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createRealtimeApi} from './routes.mjs';
 import {passwordHash,tokenHash} from './auth.mjs';
-import {catalog,EQUIPMENT,validateExperimentSnapshot} from './experiment-contract.mjs';
+import {catalog,EQUIPMENT,historyPoints,validateExperimentSnapshot} from './experiment-contract.mjs';
 import {ExperimentState} from './experiment-state.mjs';
 const origin='https://experiment.test',password='disposable-test-password',token='disposable-experiment-token-32bytes',bmsToken='disposable-bms-token-morethan32bytes';
 const expDevice={deviceId:'experiment-fixture',alias:'实验夹具',module:'experiment',allowedEquipment:EQUIPMENT,deviceTokenHash:tokenHash(token),allowSimulation:true};
@@ -25,7 +25,7 @@ async function harness(t){let mono=0;const dir=mkdtempSync(join(tmpdir(),'pv-exp
 }
 test('正式目录37点、4台仪器和七温度不从首帧推断；倍率与状态定义准确',()=>{
  assert.equal(catalog.points.length,37);assert.deepEqual(Object.fromEntries(EQUIPMENT.map(id=>[id,catalog.points.filter(p=>p.equipmentId===id).length])),{DS666:9,PLC:18,DDSU666:7,DJSF6682:3});
- assert.equal(catalog.points.filter(p=>p.metadata.Group==='温度').length,7);assert.equal(catalog.points.find(p=>p.id==='T1').metadata.Mode,'INT16');assert.equal(catalog.points.find(p=>p.id==='D6').metadata.Label,'功率因数');assert.equal(catalog.points.find(p=>p.id==='D3').metadata.ScaleConfirmed,false);
+ assert.equal(catalog.points.filter(p=>p.metadata.Group==='温度').length,7);assert.equal(catalog.points.find(p=>p.id==='T1').metadata.Mode,'INT16');assert.equal(catalog.points.find(p=>p.id==='D6').metadata.Label,'功率因数');assert.ok(catalog.points.every(p=>p.metadata.ScaleConfirmed));
  const legacy=validateExperimentSnapshot({subscriptionId:'legacy-lease',snapshot:snapshot()},expDevice);assert.equal(Object.hasOwn(legacy,'periodSeconds'),false);
 });
 test('共用登录但隔离设备身份与接口；无人观看只心跳，BMS返回原Pack格式',async(t)=>{const h=await harness(t),user=await h.login();assert.equal((await user.call('/api/experiment/auth/session')).body.user.username,'admin-fixture');assert.deepEqual((await h.beat()).body,{subscriptionId:'',leaseSeconds:0,backfillSeconds:0,requestedDevices:[]});assert.equal((await user.call('/api/experiment/devices')).body.devices.length,1);assert.equal((await user.call('/api/realtime/devices')).body.devices.length,1);assert.equal((await user.call('/api/experiment/catalog')).body.points.length,37);
@@ -45,8 +45,15 @@ test('实验 5分钟历史回填接口只预热趋势并保留质量语义',asyn
  const tooOld={...point,observedUtc:'2026-10-03T07:54:00.0000000Z',acquisitionRound:9};const rejected=await h.backfill(lease,[tooOld]);assert.equal(rejected.status,422);assert.equal(rejected.body.error.code,'BACKFILL_WINDOW');
  const renewed=await user.call('/api/experiment/viewers/'+viewer.viewerId,'PUT',{equipmentIds:['PLC'],historySelections:['PLC/T2']});assert.equal(renewed.status,200);const switched=(await h.beat()).body;assert.notEqual(switched.subscriptionId,lease.subscriptionId);assert.deepEqual(switched.requestedHistoryPoints,['PLC/T2']);
 });
-test('每个实验页面只允许一个主趋势历史选择，拒绝状态/诊断和多选',async(t)=>{const h=await harness(t),user=await h.login();
- const multi=await user.call('/api/experiment/viewers','POST',{deviceId:expDevice.deviceId,equipmentIds:['PLC'],historySelections:['PLC/T1','PLC/T2']});assert.equal(multi.status,400);assert.equal(multi.body.error.code,'HISTORY_SELECTION_INVALID');
+test('历史趋势允许四个同单位连续测点，拒绝第五个、混物理量、越权和状态点',async(t)=>{const h=await harness(t),user=await h.login();
+ const eligible=catalog.points.filter(p=>p.metadata.Group!=='运行状态'&&p.metadata.Group!=='诊断');const dimension=p=>p.metadata.Unit?`unit/${p.metadata.Unit}`:`quantity/${p.metadata.Label}`;const bucket=new Map();for(const p of eligible){const key=dimension(p);bucket.set(key,[...(bucket.get(key)??[]),p]);}const four=[...bucket.values()].find(items=>items.length>=5);assert.ok(four,'catalog must provide five comparable points');
+ const selected=four.slice(0,4).map(p=>`${p.equipmentId}/${p.id}`);const equipmentIds=[...new Set(four.slice(0,4).map(p=>p.equipmentId))];const accepted=await user.call('/api/experiment/viewers','POST',{deviceId:expDevice.deviceId,equipmentIds,historySelections:selected});assert.equal(accepted.status,201);const lease=accepted.body;assert.deepEqual((await h.beat()).body.requestedHistoryPoints,selected.slice().sort());
+ const fifth=await user.call('/api/experiment/viewers/'+lease.viewerId,'PUT',{equipmentIds,historySelections:[...selected,`${four[4].equipmentId}/${four[4].id}`]});assert.equal(fifth.status,400);assert.equal(fifth.body.error.code,'HISTORY_SELECTION_INVALID');
+ const mixed=eligible.find(p=>dimension(p)!==dimension(four[0]));if(mixed){const invalid=await user.call('/api/experiment/viewers/'+lease.viewerId,'PUT',{equipmentIds:['PLC'],historySelections:[selected[0],`${mixed.equipmentId}/${mixed.id}`]});assert.equal(invalid.status,400);assert.equal(invalid.body.error.code,'HISTORY_SELECTION_INVALID');}
+ assert.throws(()=>historyPoints(['DDSU666/DU1'],['PLC']),error=>error.status===403&&error.code==='HISTORY_SELECTION_FORBIDDEN');
+ assert.deepEqual(historyPoints(['DS666/D1','DDSU666/DU1','DJSF6682/ZU6682']),['DDSU666/DU1','DJSF6682/ZU6682','DS666/D1']);
+ assert.deepEqual(historyPoints(Array(5).fill('PLC/T1')),['PLC/T1']);
+ assert.throws(()=>historyPoints(['DS666/D6','DDSU666/DU6']),error=>error.status===400&&error.code==='HISTORY_SELECTION_INVALID');
  const statePoint=catalog.points.find(p=>p.equipmentId==='PLC'&&p.metadata.Group==='运行状态');if(statePoint){const invalid=await user.call('/api/experiment/viewers','POST',{deviceId:expDevice.deviceId,equipmentIds:['PLC'],historySelections:[`PLC/${statePoint.id}`]});assert.equal(invalid.status,400);assert.equal(invalid.body.error.code,'HISTORY_SELECTION_INVALID');}
 });
 test('序号按仪器/来源幂等，合并旧点不重计曲线或刷新新鲜度，模拟不覆盖实测',async(t)=>{const h=await harness(t),user=await h.login();await h.start(user);const lease=(await h.beat()).body;assert.equal(Object.hasOwn(lease,'requestedHistoryPoints'),false,'旧网页未提交历史选择时心跳保持兼容并由新版客户端回退到全设备历史');const s=snapshot('PLC',50);await h.send(lease,s);await h.send(lease,s);await h.send(lease,snapshot('DS666',2));await h.send(lease,snapshot('PLC',49));

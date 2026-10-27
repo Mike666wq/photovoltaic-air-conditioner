@@ -89,6 +89,21 @@
 .bms-secondary-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .bms-secondary-metrics article { display: grid; gap: 8px; padding: 12px 14px; border-radius: 10px; background: #f6f8fb; }
 .bms-secondary-metrics strong { font-size: 19px; font-variant-numeric: tabular-nums; }
+.bms-alarm-summary { display: grid; gap: 8px; margin-top: 14px; padding: 14px 16px; border: 1px solid #dfe7f1; border-radius: 11px; background: #f8fafc; }
+.bms-alarm-summary > span, .bms-alarm-summary > small { color: #64748b; font-size: 11px; }
+.bms-alarm-summary > strong { font-size: 14px; font-weight: 600; }
+.bms-alarm-summary.has-alarm { border-color: #efc4b9; background: #fff7f4; color: #8d3428; }
+.bms-alarm-summary__runtime { display: flex; flex-wrap: wrap; gap: 6px; }
+.bms-alarm-summary__runtime small { padding: 4px 8px; border-radius: 999px; background: #edf2f8; color: #43566d; font-size: 11px; }
+.bms-alarm-summary__items { display: grid; gap: 5px; min-width: 0; font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.bms-alarm-summary__items ul { display: grid; gap: 3px; margin: 0; padding-left: 20px; }
+.bms-alarm-summary__items li { overflow-wrap: anywhere; }
+.bms-alarm-summary__items.is-unknown { color: #775b1c; }
+.bms-alarm-detail-grid { display: grid; gap: 8px; }
+.bms-diagnostic-lease { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: #f6f8fc; font-size: 12px; }
+.bms-diagnostic-lease span, .bms-diagnostic-lease small { color: #64748b; }
+.bms-alarm-detail-grid > div { padding: 10px; border-radius: 8px; background: #f6f8fc; overflow-wrap: anywhere; }
+.bms-alarm-detail-grid p { margin: 6px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .bms-derived-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
 .bms-derived-grid article { display: grid; gap: 8px; min-width: 0; padding: 13px 14px; border: 1px solid #e7edf4; border-radius: 11px; background: #fbfcfe; }
 .bms-derived-grid strong { font-size: 20px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

@@ -7,6 +7,7 @@ import { bmsTime } from '../services/bmsRealtimeTypes';
 import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
 import './bms-realtime.css';
 import './experiment-realtime.css';
+import './monitoring-navigation.css';
 
 type ModuleFilter = 'all' | 'bms' | 'experiment';
 
@@ -75,7 +76,7 @@ export function MonitoringPage() {
       stop();
       if (isClientForeground()) {
         void refresh();
-        timer = setInterval(() => { void refresh(); }, 5000);
+        timer = setInterval(() => { void refresh(); }, 15000);
       }
     };
     const onVisibility = () => !isClientForeground() ? stop() : start();
@@ -128,11 +129,21 @@ export function MonitoringPage() {
   </main>;
 }
 
+export function sortMonitoringDevices(devices: BmsDevice[]) {
+  return [...devices].sort((a, b) => {
+    const moduleOrder = (a.module === 'experiment' ? 0 : 1) - (b.module === 'experiment' ? 0 : 1);
+    if (moduleOrder) return moduleOrder;
+    if (a.online !== b.online) return a.online ? -1 : 1;
+    const heartbeatOrder = (Date.parse(b.lastHeartbeatAt ?? '') || 0) - (Date.parse(a.lastHeartbeatAt ?? '') || 0);
+    return heartbeatOrder || a.alias.localeCompare(b.alias, 'zh-CN') || a.deviceId.localeCompare(b.deviceId);
+  });
+}
+
 function DeviceGroup({ title, devices }: { title: string; devices: BmsDevice[] }) {
-  return <section className="monitoring-device-group"><h3>{title}</h3><div className="monitoring-device-list">{devices.map(device => <Link className="monitoring-device-card" key={device.deviceId} to={`/monitoring/devices/${encodeURIComponent(device.deviceId)}`}>
+  return <section className="monitoring-device-group"><h3>{title}</h3><div className="monitoring-device-list">{sortMonitoringDevices(devices).map(device => <Link className="monitoring-device-card" key={device.deviceId} to={`/monitoring/devices/${encodeURIComponent(device.deviceId)}`}>
     <span className={`monitoring-device-card__dot${device.online ? ' is-online' : ''}`} aria-label={device.online ? '心跳在线' : '心跳离线'} />
-    <span className="monitoring-device-card__main"><strong>{device.alias}</strong><code>{device.deviceId}</code></span>
-    <span className="monitoring-device-card__status">{device.online ? '心跳在线' : '心跳离线'}<small>最后心跳：{bmsTime(device.lastHeartbeatAt)}</small></span>
+    <span className="monitoring-device-card__main"><strong>{device.alias}</strong><span className="monitoring-device-card__type">{device.module === 'experiment' ? '实验采集' : 'BMS'}</span><code>{device.deviceId}</code></span>
+    <span className="monitoring-device-card__status"><strong className={device.online ? 'is-online' : 'is-offline'}>{device.online ? '心跳在线' : '心跳离线'}</strong><small>最近心跳：{bmsTime(device.lastHeartbeatAt)}</small></span>
     <span className="monitoring-device-card__action">开始观测 →</span>
   </Link>)}</div></section>;
 }

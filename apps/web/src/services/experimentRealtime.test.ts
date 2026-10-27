@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-import {experimentCatalog,pointStatus,experimentAgeLabel,latestExperimentSamples} from './experimentRealtimeTypes';
+import {experimentCatalog,pointStatus,experimentAgeLabel,latestExperimentSamples,latestExperimentObservation,normalizeExperimentUnit,buildExperimentTrendLines,formatExperimentDisplayValue} from './experimentRealtimeTypes';
 import type {ExperimentPoint,ExperimentSample} from './experimentRealtimeTypes';
 import {useExperimentRealtimeStore as store} from '../store/experimentRealtime';
 import {useBmsRealtimeStore} from '../store/bmsRealtime';
@@ -13,7 +13,8 @@ const lease={viewerId:'fixture-lease',expiresAt:'2026-10-03T08:00:45Z',renewAfte
 beforeEach(()=>{vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-03T08:00:00Z'));store.getState().reset();store.setState({deviceId:'fixture',devices:[{deviceId:'fixture',module:'experiment',alias:'夹具',allowedEquipment:['PLC'],allowedPacks:[],online:true,lastHeartbeatAt:null}]});});
 afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();store.getState().reset();});
 const flushQueue=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
-it('预置37点按六类完整归档，七温度优先；未核准倍率保持工程原值',()=>{expect(experimentCatalog.points).toHaveLength(37);expect(experimentCatalog.points.filter(p=>p.metadata.Group==='温度')).toHaveLength(7);expect([...new Set(experimentCatalog.points.map(p=>p.metadata.Group))].sort()).toEqual(['市电','太阳能','实验电表','温度','运行状态','诊断'].sort());expect(pointStatus({...point,value:1.2,unit:'W · 倍率待核准'},100).value).toBe('1.2');});
+it('预置37点按六类完整归档，七温度优先；旧unit标签只在网页规范显示',()=>{expect(experimentCatalog.points).toHaveLength(37);expect(experimentCatalog.points.filter(p=>p.metadata.Group==='温度')).toHaveLength(7);expect([...new Set(experimentCatalog.points.map(p=>p.metadata.Group))].sort()).toEqual(['市电','太阳能','实验电表','温度','运行状态','诊断'].sort());const legacyUnit='W · 倍率待核准';expect(normalizeExperimentUnit(legacyUnit,'W')).toBe('W');expect(pointStatus({...point,value:1.2,unit:legacyUnit},100).value).toBe('1.2');const lines=buildExperimentTrendLines('功率','W',[{entryId:1,observedUtc:'2026-10-03T08:00:00Z',value:12,quality:'good',unit:legacyUnit,receivedAt:'2026-10-03T08:00:00Z',configVersion:'c1',acquisitionRound:1,connectionSessionId:'s',source:'serial',equipmentId:'PLC'}]);expect(lines[0].points[0].value).toBe(12);});
+it('电气面板只格式化显示精度，不改变采集的工程数值',()=>{const reading={value:21.7,rawValue:21.7};expect(formatExperimentDisplayValue(reading.value,'V')).toBe('21.70');expect(formatExperimentDisplayValue('0','A')).toBe('0.00');expect(formatExperimentDisplayValue(21.7,'℃')).toBe('21.7');expect(formatExperimentDisplayValue('U16=0 / I16=0','原始码')).toBe('U16=0 / I16=0');expect(reading.value).toBe(21.7);});
 it('未采集、真零、RAW/null、失败和未知质量不混淆',()=>{
  expect(pointStatus(undefined,100).value).toBe('—');expect(pointStatus({...point,value:0},100).value).toBe('0');expect(pointStatus({...point,value:null,displayValue:'U16=0 / I16=0'},100).value).toBe('U16=0 / I16=0');
  expect(pointStatus({...point,quality:'timeout',value:null},100)).toMatchObject({value:'—',label:'通信超时',good:false});expect(pointStatus({...point,quality:'vendor-unknown'},100)).toMatchObject({value:'—',label:'未知质量：vendor-unknown',good:false});
@@ -22,7 +23,9 @@ it('good只服从本地quality；年龄仅显示，到一小时缓存期限才�
  for(const ageMs of [30_001,45_001,600_001,3_599_999])expect(pointStatus({...point,ageMs},100)).toMatchObject({good:true,value:'25.125',expired:false});
  expect(pointStatus({...point,value:0,ageMs:600_000},100)).toMatchObject({good:true,value:'0'});
  expect(pointStatus({...point,value:null,displayValue:'U16=0 / I16=0',ageMs:600_000},100)).toMatchObject({good:true,value:'U16=0 / I16=0'});
- expect(pointStatus({...point,ageMs:3_600_000},100)).toMatchObject({label:'短缓存已到期',value:'—',expired:true,good:false,stale:false});
+ expect(pointStatus({...point,ageMs:3_600_000},100)).toMatchObject({label:'有效观测',value:'25.125',expired:false,good:true,stale:false});
+ expect(pointStatus({...point,seenMono:100},3_600_100)).toMatchObject({label:'短缓存已到期',value:'—',expired:true,good:false,stale:false});
+ expect(pointStatus({...point,receivedAt:new Date(Date.now()-3_600_001).toISOString(),seenMono:100},100)).toMatchObject({label:'短缓存已到期',expired:true,good:false});
  expect(pointStatus({...point,quality:'stale',value:25.125},100)).toMatchObject({label:'旧数据',value:'—',stale:true,good:false,expired:false});
  expect(pointStatus({...point,quality:'timeout',value:null},100)).toMatchObject({label:'通信超时',value:'—',stale:false,good:false});
  expect(pointStatus({...point,quality:'vendor-unknown',value:99},100)).toMatchObject({label:'未知质量：vendor-unknown',value:'—',good:false});
@@ -38,6 +41,11 @@ it('来源与仪器分区，接收顺序跟随来源且新会话保留历史，�
  store.getState().accept(sample({deviceId:'other'}));store.getState().accept(sample({connectionSessionId:'new-session',sequence:3,points:[]}));
  expect(latestExperimentSamples(Object.values(store.getState().samples)).find(s=>s.snapshot.equipmentId==='PLC')?.snapshot.points).toEqual([]);
  expect(Object.keys(store.getState().samples)).toHaveLength(3);expect(useBmsRealtimeStore.getState()).toBe(bms);
+});
+it('最近观测时间按具体测点observedUtc排序，不受快照组装时间影响',()=>{
+ const older={...point,observedUtc:'2026-10-03T08:00:30Z'},newer={...point,id:'T1',observedUtc:'2026-10-03T08:00:45Z',quality:'timeout',value:null};
+ const snapshots=[sample({capturedUtc:'2026-10-03T08:01:00Z',points:[older]}),sample({sequence:2,capturedUtc:'2026-10-03T08:00:10Z',points:[newer]})];
+ expect(latestExperimentObservation(snapshots)).toMatchObject({point:{id:'T1',observedUtc:newer.observedUtc,quality:'timeout'}});
 });
 it('无效和过期的新快照保留最后有效值及实际观测时间',()=>{
  store.getState().accept(sample());store.getState().accept(sample({sequence:2,points:[{...point,value:null,displayValue:'—',quality:'timeout',observedUtc:'2026-10-03T08:00:30Z'}]}));
@@ -59,6 +67,33 @@ it('主趋势切换会立即更新历史预热选择，状态/诊断则清空预
  const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);await controller.start('history-selection');
  expect(api.create).toHaveBeenCalledWith('fixture',['PLC'],['PLC/T0'],expect.any(AbortSignal),'history-selection');store.setState({selection:'PLC/T1'});await controller.updateHistorySelection('PLC/T1');expect(api.renew).toHaveBeenLastCalledWith(lease.viewerId,['PLC'],['PLC/T1']);
  const stateDef=experimentCatalog.points.find(p=>p.equipmentId==='PLC'&&p.metadata.Group==='运行状态')!;const stateSelection=`PLC/${stateDef.id}`;store.setState({selection:stateSelection});await controller.updateHistorySelection(stateSelection);expect(api.renew).toHaveBeenLastCalledWith(lease.viewerId,['PLC'],[]);const trendCalls=api.trend.mock.calls.length;await controller.refreshTrend();expect(api.trend).toHaveBeenCalledTimes(trendCalls);controller.stop();
+});
+it('最多四条趋势选择统一用于租约与按需曲线读取',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);
+ const selections=['PLC/T0','PLC/T1','PLC/T2','PLC/T3'];store.setState({lease,selection:selections[0],trendSelections:selections});await controller.updateHistorySelections(selections);await controller.refreshTrendSeries(selections);
+ expect(api.renew).toHaveBeenLastCalledWith(lease.viewerId,['PLC'],selections);expect(api.trend).toHaveBeenCalledTimes(4);expect(new Set(api.trend.mock.calls.map(call=>`${call[1]}/${call[2]}`))).toEqual(new Set(selections));controller.stop();
+});
+it('旧服务端拒绝多选时退回单条趋势并保持SSE观看',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource;store.setState({selection:'PLC/T0',trendSelections:['PLC/T0','PLC/T1']});api.create.mockRejectedValueOnce(new BmsApiError(400,'HISTORY_SELECTION_INVALID','只支持一条趋势'));
+ const controller=new ExperimentRealtimeController(api,()=>source);await controller.start('old-history-server');expect(api.create).toHaveBeenNthCalledWith(1,'fixture',['PLC'],['PLC/T0','PLC/T1'],expect.any(AbortSignal),'old-history-server');expect(api.create).toHaveBeenNthCalledWith(2,'fixture',['PLC'],['PLC/T0'],expect.any(AbortSignal),'old-history-server');expect(store.getState()).toMatchObject({phase:'watching',trendSelections:['PLC/T0'],comparisonHint:true});controller.stop();
+});
+it('SSE先连上并行等待bootstrap；迟到快照不能覆盖较新的SSE样本',async()=>{
+ let finishLatest!:(value:{online:boolean;lastHeartbeatAt:null;snapshots:ExperimentSample[]})=>void;const api=fakeApi();api.latest.mockReturnValue(new Promise(resolve=>{finishLatest=resolve;}));
+ const listeners=new Map<string,(event:Event)=>void>(),source={close:vi.fn(),addEventListener:(name:string,handler:(event:Event)=>void)=>listeners.set(name,handler),onopen:null,onerror:null} as unknown as EventSource;
+ const controller=new ExperimentRealtimeController(api,()=>source);const started=controller.start('sse-before-bootstrap');await flushQueue();expect(store.getState().phase).toBe('watching');
+ listeners.get('snapshot')?.(new MessageEvent('snapshot',{data:JSON.stringify(sample({sequence:9,points:[{...point,value:99}]}))}));finishLatest({online:true,lastHeartbeatAt:null,snapshots:[{...sample({sequence:2,points:[{...point,value:22}]}),acceptedOrder:2}]});await flushQueue();await started;
+ expect(store.getState().samples['serial/PLC'].snapshot.points[0].value).toBe(99);controller.stop();
+});
+it('历史读取失败保持实时SSE连接，并支持不重连的独立恢复',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource;api.trend.mockRejectedValue(new Error('历史接口暂不可用'));
+ const controller=new ExperimentRealtimeController(api,()=>source);await controller.start('history-error-independent');await flushQueue();expect(store.getState().phase).toBe('watching');expect(store.getState().historyError).toContain('历史接口');expect(store.getState().error).toBe('');api.trend.mockResolvedValue({points:[],nextCursor:null,hasMore:false});await controller.refreshTrendSeries(['PLC/T0'],true);expect(store.getState().historyError).toBe('');expect(store.getState().phase).toBe('watching');controller.stop();
+});
+it('历史请求迟到时忽略已切换测点的响应',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);store.setState({lease,selection:'PLC/T0',trendSelections:['PLC/T0']});
+ let finish!:(page:{points:never[];nextCursor:null;hasMore:false})=>void;api.trend.mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));const older=controller.refreshTrendSeries(['PLC/T0']);const newer=controller.refreshTrendSeries(['PLC/T1']);await newer;finish({points:[],nextCursor:null,hasMore:false});await older;expect(store.getState().trendByPoint['fixture/PLC/T0']).toBeUndefined();store.setState({lease:null});controller.stop();
+});
+it('趋势接口401/403仍立即终止观看并应用权限/登录处理',async()=>{
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);api.trend.mockRejectedValue(new BmsApiError(403,'DEVICE_FORBIDDEN','设备权限失效'));const revoked=vi.fn();controller.setPermissionRevokedHandler(revoked);await controller.start('trend-permission');await flushQueue();expect(store.getState().phase).toBe('unauthorized');expect(source.close).toHaveBeenCalled();expect(revoked).toHaveBeenCalledWith('fixture');controller.stop();
 });
 it('实验SSE建链时补拉当前趋势，覆盖bootstrap与订阅之间完成的Warm Start',async()=>{
  const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn(),onopen:null as null|((event:Event)=>void),onerror:null} as unknown as EventSource;
@@ -96,7 +131,7 @@ it('过期观看以退避创建新租约；401清身份并取新的同源CSRF挑
  const session=vi.spyOn(bmsApi,'session').mockResolvedValue(null);api.create.mockRejectedValue(new BmsApiError(401,'AUTH_REQUIRED','登录过期'));store.setState({identity:{username:'fixture',role:'viewer'}});await controller.start();expect(store.getState().identity).toBeNull();expect(session).toHaveBeenCalledOnce();
 });
 it('切换测点后迟到曲线不能覆盖当前选择',async()=>{
- const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);store.setState({lease,selection:'PLC/T0'});let resolve!:(value:{points:never[];nextCursor:null;hasMore:false})=>void;api.trend.mockReturnValueOnce(new Promise(r=>{resolve=r;}));const earlier=controller.refreshTrend();store.setState({selection:'PLC/T1'});await controller.refreshTrend();resolve({points:[],nextCursor:null,hasMore:false});await earlier;expect(store.getState().selection).toBe('PLC/T1');expect(api.trend).toHaveBeenLastCalledWith('fixture','PLC','T1',null);controller.stop();
+ const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);store.setState({lease,selection:'PLC/T0',trendSelections:['PLC/T0']});let resolve!:(value:{points:never[];nextCursor:null;hasMore:false})=>void;api.trend.mockReturnValueOnce(new Promise(r=>{resolve=r;}));const earlier=controller.refreshTrend();store.setState({selection:'PLC/T1',trendSelections:['PLC/T1']});await controller.refreshTrend();resolve({points:[],nextCursor:null,hasMore:false});await earlier;expect(store.getState().selection).toBe('PLC/T1');expect(api.trend).toHaveBeenLastCalledWith('fixture','PLC','T1',null);store.setState({lease:null});controller.stop();
 });
 it('实验趋势完整读取全部游标页并按entryId保留观测',async()=>{
  const api=fakeApi(),now=new Date().toISOString();api.trend.mockImplementation(async(_device,equipmentId,pointId,cursor)=>cursor

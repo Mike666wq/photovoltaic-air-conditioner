@@ -21,8 +21,10 @@ export interface BmsSnapshot {
   cellsMillivolts: number[];
   temperaturesCelsius: number[];
   alarmObservationAvailable: boolean;
-  alarmObservation: { observedUtc: string; acquisitionRound: number; pack: number; payloadHex: string } | null;
+  alarmObservation: BmsAlarmObservation | null;
 }
+/** 44 告警帧的时间与采集轮次独立于 42 实时快照。 */
+export interface BmsAlarmObservation { observedUtc: string; acquisitionRound: number; pack: number; payloadHex: string }
 export interface BmsSample { snapshot: BmsSnapshot; receivedAt: string; stale: boolean; acceptedOrder: number }
 export interface BmsDevice { module?: 'bms' | 'experiment'; allowedEquipment?: string[]; deviceId: string; alias: string; allowedPacks: number[]; allowedAddresses?: number[]; allowSimulation?: boolean; online: boolean; lastHeartbeatAt: string | null }
 export interface BmsSetupStatus { enabled: boolean; initialized: boolean; writable: boolean; bootstrapAvailable: boolean; serviceRoot: string | null }
@@ -62,6 +64,9 @@ export const bmsChannelKey = (s: BmsSnapshot) => `${s.address}/${s.pack}`;
 export const sampleExpired = (item: BmsSample, now = Date.now()) => now - Date.parse(item.snapshot.capturedUtc) >= 3600000;
 export function sampleStale(item: BmsSample, now = Date.now()) {
   return item.stale || now - Date.parse(item.receivedAt) >= Math.min(600000, Math.max(15000, (item.snapshot.periodSeconds ?? 15) * 3000));
+}
+export function bmsAlarmObservationStale(observation: BmsAlarmObservation, now = Date.now(), periodSeconds?: number | null) {
+  return now - Date.parse(observation.observedUtc) > Math.max(15000, (periodSeconds ?? 15) * 3000);
 }
 export function clockSkew(s: BmsSample) { return Math.abs(Date.parse(s.snapshot.capturedUtc) - Date.parse(s.receivedAt)) > 60000; }
 export function metricValue(s: BmsSnapshot, metric: BmsMetric) { return metric === 'voltage' ? s.voltageCentivolts / 100 : metric === 'current' ? s.currentCentiamps / 100 : s.socPercent; }

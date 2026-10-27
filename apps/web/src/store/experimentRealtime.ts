@@ -4,11 +4,11 @@ import { experimentChannel, experimentTrendKey } from '../services/experimentRea
 import type { ExperimentPoint, ExperimentSample, ExperimentTrendPoint } from '../services/experimentRealtimeTypes';
 
 interface ExperimentRealtime {
-  identity: BmsIdentity | null; devices: BmsDevice[]; deviceId: string; lease: ViewerLease | null; phase: 'idle' | 'connecting' | 'watching' | 'reconnecting' | 'paused' | 'expired' | 'unauthorized'; error: string; websiteConnected: boolean;
-  samples: Record<string, ExperimentSample>; lastGoodByPoint: Record<string, ExperimentPoint>; trend: ExperimentTrendPoint[]; trendByPoint: Record<string, ExperimentTrendPoint[]>; selection: string; cacheStatus: MonitoringCacheStatus | null; capacityWarning: boolean;
+  identity: BmsIdentity | null; devices: BmsDevice[]; deviceId: string; lease: ViewerLease | null; phase: 'idle' | 'connecting' | 'watching' | 'reconnecting' | 'paused' | 'expired' | 'unauthorized'; error: string; historyError: string; websiteConnected: boolean;
+  samples: Record<string, ExperimentSample>; lastGoodByPoint: Record<string, ExperimentPoint>; trend: ExperimentTrendPoint[]; trendByPoint: Record<string, ExperimentTrendPoint[]>; selection: string; trendSelections: string[]; comparisonHint: boolean; cacheStatus: MonitoringCacheStatus | null; capacityWarning: boolean;
   accept: (sample: ExperimentSample) => void; appendTrend: (key: string, points: ExperimentTrendPoint[], replace?: boolean) => void; clearTrend: (key: string) => void; clearData: () => void; reset: () => void;
 }
-const initial = () => ({ identity: null, devices: [], deviceId: '', lease: null, phase: 'idle' as const, error: '', websiteConnected: false, samples: {}, lastGoodByPoint: {}, trend: [], trendByPoint: {}, selection: 'PLC/T0', cacheStatus: null, capacityWarning: false });
+const initial = () => ({ identity: null, devices: [], deviceId: '', lease: null, phase: 'idle' as const, error: '', historyError: '', websiteConnected: false, samples: {}, lastGoodByPoint: {}, trend: [], trendByPoint: {}, selection: 'PLC/T0', trendSelections: ['PLC/T0'], comparisonHint: false, cacheStatus: null, capacityWarning: false });
 export const useExperimentRealtimeStore = create<ExperimentRealtime>((set, get) => ({
   ...initial(),
   accept(sample) {
