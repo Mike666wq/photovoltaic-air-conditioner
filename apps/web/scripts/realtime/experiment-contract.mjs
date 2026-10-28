@@ -25,6 +25,7 @@ export function historyPoints(values, allowed = EQUIPMENT) {
   return result;
 }
 const text = (v, max) => typeof v === 'string' && v.length <= max;
+const unavailableQualities = new Set(['timeout', 'protocol_exception', 'decode_error', 'error', 'stale']);
 export function validateExperimentSnapshot(body, device) {
   assert(object(body) && identifier(body.subscriptionId) && object(body.snapshot)); const s = body.snapshot;
   assert(s.schemaVersion === 1, 422, 'SCHEMA_UNSUPPORTED', '不支持的实验采样协议版本');
@@ -38,9 +39,12 @@ export function validateExperimentSnapshot(body, device) {
     assert(object(p)); const def = definitions.get(`${s.equipmentId}/${p.id}`);
     assert(def && !seen.has(p.id), 400, 'POINT_UNREGISTERED', '测点不在正式目录或重复'); seen.add(p.id);
     assert(s.slave === def.slave && p.addressZeroBased === def.addressZeroBased && p.registerCount === def.registerCount, 400, 'POINT_BINDING_MISMATCH', '测点站号或寄存器绑定不匹配');
-    assert(text(p.description, 128) && text(p.unit, 64) && text(p.displayValue, 256) && text(p.quality, 64) && p.quality.length > 0 && identifier(p.configVersion) && text(p.decodeMode, 64));
+    assert(text(p.description, 128) && text(p.unit, 64) && text(p.quality, 64) && p.quality.length > 0 && identifier(p.configVersion) && text(p.decodeMode, 64));
     assert((p.value === null || (typeof p.value === 'number' && Number.isFinite(p.value))) && (p.rawValue === null || (typeof p.rawValue === 'number' && Number.isFinite(p.rawValue))));
-    if (['timeout', 'protocol_exception', 'decode_error', 'error', 'stale'].includes(p.quality)) assert(p.value === null, 400, 'QUALITY_VALUE_MISMATCH', '失败或过期测点不得携带有效工程数值');
+    if (unavailableQualities.has(p.quality)) {
+      assert(p.value === null, 400, 'QUALITY_VALUE_MISMATCH', '失败或过期测点不得携带有效工程数值');
+      assert(text(p.displayValue, 256) || p.displayValue === null, 400, 'DISPLAY_VALUE_INVALID', '失败或过期测点的显示值必须是字符串或 null');
+    } else assert(text(p.displayValue, 256), 400, 'DISPLAY_VALUE_INVALID', '有效或未知质量测点的显示值必须是字符串');
     assert(utcDate(p.observedUtc) && integer(p.acquisitionRound, 0, Number.MAX_SAFE_INTEGER));
     return Object.fromEntries(['id','description','unit','value','rawValue','displayValue','quality','observedUtc','acquisitionRound','configVersion','addressZeroBased','registerCount','decodeMode'].map((k)=>[k,p[k]]));
   });

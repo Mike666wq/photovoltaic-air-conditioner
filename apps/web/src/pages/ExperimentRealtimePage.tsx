@@ -16,6 +16,7 @@ import {
   experimentDimension,
   formatExperimentDisplayValue,
 } from '../services/experimentRealtimeTypes';
+import { experimentMeasurementStatus } from '../services/experimentMeasurementStatus';
 import type { PointDefinition } from '../services/experimentRealtimeTypes';
 import { sourceLabel } from '../services/realtimeSource';
 import { useExperimentRealtimeStore as store } from '../store/experimentRealtime';
@@ -82,11 +83,21 @@ function ExperimentObservation({
     return { sample, point, view, history };
   };
   const goodCount = definitions.filter(definition => pointContext(definition).view.good).length;
-  const observedCount = definitions.filter(definition => !!pointContext(definition).point).length;
+  const observedCount = definitions.filter(definition => {
+    const { point, view } = pointContext(definition);
+    return !!point && !view.expired;
+  }).length;
   const issueCount = definitions.filter(definition => {
     const { point, view } = pointContext(definition);
-    return !!point && !view.good;
+    return !!point && !view.expired && !view.good;
   }).length;
+  const measurementStatus = experimentMeasurementStatus(definitions.length, observedCount, goodCount);
+  const uploadError = state.uploadStatus?.lastError;
+  const uploadDiagnostic = observedCount > 0 ? null : uploadError
+    ? `最近上传请求被拒绝：${uploadError.message || '服务器拒绝了上传请求'}（HTTP ${uploadError.status} · ${uploadError.code}）`
+    : state.uploadStatus && state.uploadStatus.lastAttemptAt === null && state.uploadStatus.acceptedRequests === 0 && state.uploadStatus.rejectedRequests === 0
+      ? '云端尚未收到快照上传请求'
+      : null;
 
   useEffect(() => {
     controller.current.setPermissionRevokedHandler(onPermissionRevoked);
@@ -115,6 +126,7 @@ function ExperimentObservation({
       identity,
       devices: [device],
       deviceId: device.deviceId,
+      uploadStatus: old.deviceId === device.deviceId && old.identity?.username === identity.username ? old.uploadStatus : null,
       error: '',
       selection: nextSelection,
       trendSelections,
@@ -255,13 +267,14 @@ function ExperimentObservation({
         : <button className="bms-primary" disabled={state.phase === 'unauthorized'} onClick={() => void controller.current.start(pageId)}>开始云端观测</button>}
     </section>
 
-    <section className={`bms-status ${online && watching ? 'is-fresh' : ''}`} aria-live="polite">
-      <div className="bms-status-title"><span className="bms-dot" /><strong>{status}</strong>{includesSimulation && <span className="bms-simulation">包含模拟数据</span>}</div>
+    <section className={`bms-status experiment-observation-status is-${measurementStatus.kind}`} aria-live="polite">
+      <div className="bms-status-title"><span className="bms-dot" /><strong>{status}</strong><span className={`experiment-measurement-badge is-${measurementStatus.kind}`}>{measurementStatus.label}</span>{includesSimulation && <span className="bms-simulation">包含模拟数据</span>}</div>
       <div className="bms-status-grid">
         <div><span>网站数据连接</span><b>{state.websiteConnected ? '已连通' : '未连通'}</b></div>
         <div><span>采集端心跳</span><b>{online ? '在线' : '未在线'}</b><small>{experimentTime(currentDevice.lastHeartbeatAt)}</small></div>
         <div><span>最近测点观测时间</span><b>{experimentTime(latestObservation?.point.observedUtc)}</b><small>{latestObservation && latestObservationDefinition ? `${latestObservation.sample.snapshot.equipmentId} · ${latestObservationDefinition.metadata.Label} · ${pointStatus(latestObservation.point, mono).label}` : '等待测点观测'}</small><small>各测点观测时间独立</small></div>
       </div>
+      {uploadDiagnostic && <p className="experiment-upload-diagnostic" role="status">{uploadDiagnostic}</p>}
       <p>测点是否“有效”只服从本地质量字段；年龄单独显示。失败、旧数据、null 和未采集不会变成 0，也不会跨来源回填。</p>
     </section>
 
@@ -358,6 +371,13 @@ function ExperimentObservation({
           <span>租约到期：<b>{experimentTime(state.lease?.expiresAt)}</b></span>
           <span>最后快照组装：<b>{experimentTime(last?.snapshot.capturedUtc)}</b></span>
           <small>组装时间不替代各测点自己的观测时间。</small>
+          {state.uploadStatus ? <>
+            <span>最近上传尝试：<b>{experimentTime(state.uploadStatus.lastAttemptAt)}</b></span>
+            <span>最近接受上传：<b>{experimentTime(state.uploadStatus.lastAcceptedAt)}</b></span>
+            <span>最近拒绝上传：<b>{experimentTime(state.uploadStatus.lastRejectedAt)}</b></span>
+            <span>请求计数：<b>接受 {state.uploadStatus.acceptedRequests} 次 · 拒绝 {state.uploadStatus.rejectedRequests} 次</b></span>
+            {state.uploadStatus.lastError && <span className="experiment-upload-error-detail">最近HTTP错误：<b>{state.uploadStatus.lastError.status} · {state.uploadStatus.lastError.code} · {state.uploadStatus.lastError.message}</b></span>}
+          </> : <span>上传诊断：<b>当前服务端未提供</b></span>}
         </div>
       </details>
       {groups.filter(group => definitions.some(point => point.metadata.Group === group)).map(group => <details key={group}>

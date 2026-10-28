@@ -1,8 +1,30 @@
 import { RealtimeState } from './state.mjs';
-import { assert } from './contract.mjs';
+import { ApiError, assert } from './contract.mjs';
 
 /** 实验测点按真实观测时间保留一小时，和BMS共用全局容量协调器。 */
 export class ExperimentState extends RealtimeState {
+  newDevice(registration) {
+    return { ...super.newDevice(registration), uploadStatus: { lastAttemptAt: null, lastAcceptedAt: null, lastRejectedAt: null, acceptedRequests: 0, rejectedRequests: 0, lastError: null } };
+  }
+  getUploadStatus(id) {
+    const status = this.device(id).uploadStatus;
+    return { ...status, lastError: status.lastError ? { ...status.lastError } : null };
+  }
+  recordSnapshotAttempt(id) { this.device(id).uploadStatus.lastAttemptAt = this.iso(); }
+  recordSnapshotAccepted(id) {
+    const d = this.device(id), status = d.uploadStatus;
+    status.acceptedRequests++; status.lastAcceptedAt = this.iso(); status.lastError = null;
+    this.emit('device-status', id, this.info(d));
+  }
+  recordSnapshotRejected(id, error) {
+    const d = this.devices.get(id);
+    if (!d) return;
+    const status = d.uploadStatus;
+    const safe = error instanceof ApiError ? error : new ApiError(503, 'SERVICE_UNAVAILABLE', '实时服务暂不可用');
+    status.rejectedRequests++; status.lastRejectedAt = this.iso();
+    status.lastError = { status: safe.status, code: safe.code, message: safe.message };
+    this.emit('device-status', id, this.info(d));
+  }
   info(d) { return { deviceId: d.registration.deviceId, alias: d.registration.alias, module: 'experiment', allowedPacks: [], allowedAddresses: [], allowedEquipment: d.registration.allowedEquipment, allowSimulation: d.registration.allowSimulation, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt }; }
   heartbeat(id) {
     const r = super.heartbeat(id), requestedHistoryPoints = this.requestedHistory(id); const { requestedPacks, ...rest } = r;
@@ -104,7 +126,7 @@ export class ExperimentState extends RealtimeState {
   }
   latest(id, selected, source = null) {
     this.sweep(); const d = this.device(id);
-    return { deviceId: id, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt, snapshots: [...d.latest.values()].filter(item => selected.includes(item.snapshot.equipmentId) && (source == null || item.snapshot.source === source)).map(item => this.dto(item)) };
+    return { deviceId: id, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt, uploadStatus: this.getUploadStatus(id), snapshots: [...d.latest.values()].filter(item => selected.includes(item.snapshot.equipmentId) && (source == null || item.snapshot.source === source)).map(item => this.dto(item)) };
   }
   trend(id, equipmentId, pointId, source, limit, cursor = null) {
     this.sweep(); const d = this.device(id);

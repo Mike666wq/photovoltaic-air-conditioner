@@ -174,11 +174,16 @@ export function createRealtimeApi(options = {}) {
       const viewer = target.viewers.get(stream.viewerId);
       if (stream.target !== target || stream.deviceId !== deviceId) continue;
       if (type === 'viewer-ended' && stream.viewerId === payload.viewerId) {
-        write(stream, 'device-status', { deviceId, viewing: false, code: 'VIEWER_EXPIRED' }); endStream(stream); continue;
+        const endedStatus = { deviceId, viewing: false, code: 'VIEWER_EXPIRED' };
+        if (target === experiment) endedStatus.uploadStatus = target.getUploadStatus(deviceId);
+        write(stream, 'device-status', endedStatus); endStream(stream); continue;
       }
       if (!viewer || viewer.until <= state.now()) { endStream(stream); continue; }
       if (type === 'snapshot' && (!viewer.packs.includes(target===experiment?payload.snapshot.equipmentId:payload.snapshot.pack) || (stream.source && stream.source !== payload.snapshot.source))) continue;
-      if (type !== 'viewer-ended') write(stream, type, payload);
+      if (type !== 'viewer-ended') {
+        const eventPayload = target === experiment && type === 'device-status' ? { ...payload, uploadStatus: target.getUploadStatus(deviceId) } : payload;
+        write(stream, type, eventPayload);
+      }
     }
   });
   let lastKeepalive = state.now();
@@ -216,9 +221,18 @@ export function createRealtimeApi(options = {}) {
       return json(res, 200, state.heartbeat(d.deviceId));
     }
     if (pathname === '/snapshots' && req.method === 'POST') {
-      const d = deviceAuth(req, module); rate(`snapshots:${d.deviceId}`, 1800); const b = await readJson(req);
-      const snapshot = isExperiment?validateExperimentSnapshot(b,deviceAuth(req,module)):validateSnapshot(b, deviceAuth(req, module));
-      return json(res, 200, state.accept(d.deviceId, b.subscriptionId, snapshot));
+      const d = deviceAuth(req, module);
+      if (isExperiment) experiment.recordSnapshotAttempt(d.deviceId);
+      try {
+        rate(`snapshots:${d.deviceId}`, 1800); const b = await readJson(req);
+        const snapshot = isExperiment?validateExperimentSnapshot(b,deviceAuth(req,module)):validateSnapshot(b, deviceAuth(req, module));
+        const result = state.accept(d.deviceId, b.subscriptionId, snapshot);
+        if (isExperiment) experiment.recordSnapshotAccepted(d.deviceId);
+        return json(res, 200, result);
+      } catch (error) {
+        if (isExperiment) experiment.recordSnapshotRejected(d.deviceId, error);
+        throw error;
+      }
     }
     if (pathname === '/backfill' && req.method === 'POST') {
       const d = deviceAuth(req, module); rate(`backfill:${d.deviceId}`, 300); const b = await readJson(req, 131072);
@@ -365,7 +379,10 @@ export function createRealtimeApi(options = {}) {
       assert([...streams].filter((e) => e.username === s.user.username).length < (config.maxSsePerUser ?? 8), 429, 'SSE_LIMIT', '实时订阅连接数已达上限');
       res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-store', 'X-Accel-Buffering': 'no', 'Connection': 'keep-alive' }); res.flushHeaders();
       const stream = { target:state, res, viewerId: id, deviceId: v.deviceId, owner: s.id, username: s.user.username, source }; streams.add(stream);
-      res.on('close', () => streams.delete(stream)); write(stream, 'device-status', state.info(state.device(v.deviceId))); write(stream, 'cache-status', coordinator.status());
+      res.on('close', () => streams.delete(stream));
+      const initialStatus = state.info(state.device(v.deviceId));
+      if (isExperiment) initialStatus.uploadStatus = state.getUploadStatus(v.deviceId);
+      write(stream, 'device-status', initialStatus); write(stream, 'cache-status', coordinator.status());
       for (const item of (isExperiment?state.latest(v.deviceId,v.packs,source).snapshots:state.latest(v.deviceId, v.packs,source).packs)) write(stream, 'snapshot', item);
       return;
     }

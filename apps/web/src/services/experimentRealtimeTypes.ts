@@ -5,7 +5,7 @@ export const EXPERIMENT_EQUIPMENT = ['DS666','PLC','DDSU666','DJSF6682'];
 export type ExperimentSource = 'serial' | 'simulation';
 export type PointDefinition = typeof contract.points[number];
 export interface ExperimentPoint {
-  id:string;description:string;unit:string;value:number|null;rawValue:number|null;displayValue:string;quality:string;observedUtc:string;acquisitionRound:number;configVersion:string;addressZeroBased:number;registerCount:number;decodeMode:string;
+  id:string;description:string;unit:string;value:number|null;rawValue:number|null;displayValue:string|null;quality:string;observedUtc:string;acquisitionRound:number;configVersion:string;addressZeroBased:number;registerCount:number;decodeMode:string;
   receivedAt:string;ageMs:number;seenMono?:number;
 }
 export interface ExperimentSnapshot {schemaVersion:1;module:'experiment';deviceId:string;connectionSessionId:string;acquisitionSessionId:string;sequence:number;capturedUtc:string;source:ExperimentSource;equipmentId:string;slave:number;points:ExperimentPoint[]}

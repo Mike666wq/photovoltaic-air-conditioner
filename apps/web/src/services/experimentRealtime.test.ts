@@ -1,7 +1,9 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {experimentCatalog,pointStatus,experimentAgeLabel,latestExperimentSamples,latestExperimentObservation,normalizeExperimentUnit,buildExperimentTrendLines,formatExperimentDisplayValue} from './experimentRealtimeTypes';
+import {experimentMeasurementStatus} from './experimentMeasurementStatus';
 import type {ExperimentPoint,ExperimentSample} from './experimentRealtimeTypes';
 import {useExperimentRealtimeStore as store} from '../store/experimentRealtime';
+import type {ExperimentUploadStatus} from './experimentUploadStatus';
 import {useBmsRealtimeStore} from '../store/bmsRealtime';
 import {ExperimentRealtimeController} from './experimentRealtimeController';
 import {experimentApi} from './experimentRealtimeApi';
@@ -31,6 +33,15 @@ it('good只服从本地quality；年龄仅显示，到一小时缓存期限才�
  expect(pointStatus({...point,quality:'vendor-unknown',value:99},100)).toMatchObject({label:'未知质量：vendor-unknown',value:'—',good:false});
  expect(pointStatus(undefined,100)).toMatchObject({label:'未采集',value:'—',expired:false});
  expect(pointStatus({...point,ageMs:30_000},60_100).ageMs).toBe(90_000);expect(experimentAgeLabel({...point,ageMs:30_000},60_100)).toBe('距采集 1 分钟');
+});
+it('主屏测点状态区分无观测、全部无效、部分异常和全部有效',()=>{
+ expect(experimentMeasurementStatus(37,0,0)).toMatchObject({kind:'no-observations',label:'当前没有测点观测'});
+ expect(experimentMeasurementStatus(37,37,0)).toMatchObject({kind:'all-invalid',label:'已观测测点均无有效值'});
+ expect(experimentMeasurementStatus(37,36,0)).toMatchObject({kind:'all-invalid',label:'已观测测点均无有效值'});
+ expect(experimentMeasurementStatus(37,36,35)).toMatchObject({kind:'partial',label:'部分测点异常或尚未采集'});
+ expect(experimentMeasurementStatus(37,37,37)).toMatchObject({kind:'all-valid',label:'全部授权测点质量有效'});
+ expect(experimentMeasurementStatus(0,0,0)).toMatchObject({kind:'no-authorized-points'});
+ expect(pointStatus({...point,value:0,quality:'good'},100).good).toBe(true);
 });
 it('来源与仪器分区，接收顺序跟随来源且新会话保留历史，不改变BMS',()=>{
  const bms=useBmsRealtimeStore.getState();store.getState().accept(sample());store.getState().accept(sample({source:'simulation',sequence:2}));store.getState().accept(sample({equipmentId:'DS666'}));
@@ -83,6 +94,22 @@ it('SSE先连上并行等待bootstrap；迟到快照不能覆盖较新的SSE样�
  const controller=new ExperimentRealtimeController(api,()=>source);const started=controller.start('sse-before-bootstrap');await flushQueue();expect(store.getState().phase).toBe('watching');
  listeners.get('snapshot')?.(new MessageEvent('snapshot',{data:JSON.stringify(sample({sequence:9,points:[{...point,value:99}]}))}));finishLatest({online:true,lastHeartbeatAt:null,snapshots:[{...sample({sequence:2,points:[{...point,value:22}]}),acceptedOrder:2}]});await flushQueue();await started;
  expect(store.getState().samples['serial/PLC'].snapshot.points[0].value).toBe(99);controller.stop();
+});
+it('上传诊断接受SSE更新，迟到latest bootstrap不得覆盖新状态',async()=>{
+ let finishLatest!:(value:{online:boolean;lastHeartbeatAt:null;snapshots:ExperimentSample[];uploadStatus:ExperimentUploadStatus})=>void;const api=fakeApi();api.latest.mockReturnValue(new Promise(resolve=>{finishLatest=resolve;}));
+ const listeners=new Map<string,(event:Event)=>void>(),source={close:vi.fn(),addEventListener:(name:string,handler:(event:Event)=>void)=>listeners.set(name,handler),onopen:null,onerror:null} as unknown as EventSource;
+ const controller=new ExperimentRealtimeController(api,()=>source),started=controller.start('upload-status-race');await flushQueue();
+ const oldStatus:ExperimentUploadStatus={lastAttemptAt:'2026-10-03T08:00:00Z',lastAcceptedAt:'2026-10-03T08:00:00Z',lastRejectedAt:null,acceptedRequests:1,rejectedRequests:0,lastError:null};
+ const newStatus:ExperimentUploadStatus={lastAttemptAt:'2026-10-03T08:00:02Z',lastAcceptedAt:'2026-10-03T08:00:00Z',lastRejectedAt:'2026-10-03T08:00:02Z',acceptedRequests:1,rejectedRequests:1,lastError:{status:422,code:'POINT_INVALID',message:'测点数据无效'}};
+ listeners.get('device-status')?.(new MessageEvent('device-status',{data:JSON.stringify({deviceId:'fixture',online:true,lastHeartbeatAt:'2026-10-03T08:00:02Z',uploadStatus:newStatus})}));
+ expect(store.getState().uploadStatus).toEqual(newStatus);
+ finishLatest({online:true,lastHeartbeatAt:null,snapshots:[],uploadStatus:oldStatus});await flushQueue();await started;
+ expect(store.getState().uploadStatus).toEqual(newStatus);controller.stop();
+});
+it('latest合并上传诊断；reset清除旧设备状态',async()=>{
+ const api=fakeApi(),uploadStatus:ExperimentUploadStatus={lastAttemptAt:null,lastAcceptedAt:null,lastRejectedAt:null,acceptedRequests:0,rejectedRequests:0,lastError:null};api.latest.mockResolvedValue({online:true,lastHeartbeatAt:null,snapshots:[],uploadStatus});
+ const source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource,controller=new ExperimentRealtimeController(api,()=>source);await controller.start('upload-status-latest');await flushQueue();expect(store.getState().uploadStatus).toEqual(uploadStatus);controller.stop();
+ store.getState().reset();expect(store.getState().uploadStatus).toBeNull();
 });
 it('历史读取失败保持实时SSE连接，并支持不重连的独立恢复',async()=>{
  const api=fakeApi(),source={close:vi.fn(),addEventListener:vi.fn()} as unknown as EventSource;api.trend.mockRejectedValue(new Error('历史接口暂不可用'));

@@ -4,6 +4,7 @@ import {experimentCatalog,experimentTrendKey,experimentDimension} from './experi
 import {useExperimentRealtimeStore as store} from '../store/experimentRealtime';
 import type {ExperimentSample} from './experimentRealtimeTypes';
 import type {ViewerLease} from './bmsRealtimeTypes';
+import type {ExperimentUploadStatus} from './experimentUploadStatus';
 
 const trendableSelections=new Set(experimentCatalog.points.filter(p=>p.metadata.Group!=='运行状态'&&p.metadata.Group!=='诊断').map(p=>`${p.equipmentId}/${p.id}`));
 const definitions=new Map(experimentCatalog.points.map(point=>[`${point.equipmentId}/${point.id}`,point]));
@@ -45,7 +46,7 @@ async function boundedRelease(release: () => Promise<void>, timeoutMs: number) {
 
 /** 临时停止时保留一小时历史，SSE更新仅按游标拉取新增记录。 */
 export class ExperimentRealtimeController {
-  private generation=0;private historyGeneration=0;private historySignature='';private historyFailed=false;private statusRevision=0;private forceRequestId=0;private events:EventSource|null=null;private timer:ReturnType<typeof setTimeout>|undefined;private retry:ReturnType<typeof setTimeout>|undefined;private abort:AbortController|null=null;private refreshTimer:ReturnType<typeof setTimeout>|undefined;private retryCount=0;private pageId?:string;private cursors=new Map<string,string|null>();private fetching=new Map<string,Promise<void>>();private permissionRevoked?:(deviceId:string)=>void;
+  private generation=0;private historyGeneration=0;private historySignature='';private historyFailed=false;private statusRevision=0;private uploadStatusRevision=0;private forceRequestId=0;private events:EventSource|null=null;private timer:ReturnType<typeof setTimeout>|undefined;private retry:ReturnType<typeof setTimeout>|undefined;private abort:AbortController|null=null;private refreshTimer:ReturnType<typeof setTimeout>|undefined;private retryCount=0;private pageId?:string;private cursors=new Map<string,string|null>();private fetching=new Map<string,Promise<void>>();private permissionRevoked?:(deviceId:string)=>void;
   constructor(private api=experimentApi,private openEvents=(url:string)=>new EventSource(url),private releaseWaitMs=5500){}
   setPermissionRevokedHandler(handler?:(deviceId:string)=>void){this.permissionRevoked=handler;}
   stop(phase:'idle'|'paused'|'expired'|'unauthorized'='idle'){this.generation++;this.cleanup(phase);}
@@ -96,8 +97,8 @@ export class ExperimentRealtimeController {
     this.fetching.set(requestKey,task);await task;
   }
   private async bootstrap(g:number){
-    const s=store.getState(),statusRevision=this.statusRevision,latest=await this.api.latest(s.deviceId);if(g!==this.generation)return;
-    store.setState({websiteConnected:true,...(statusRevision===this.statusRevision?{devices:store.getState().devices.map(d=>d.deviceId===s.deviceId?{...d,online:latest.online,lastHeartbeatAt:latest.lastHeartbeatAt}:d)}:{})});for(const sample of latest.snapshots)store.getState().accept(sample);
+    const s=store.getState(),statusRevision=this.statusRevision,uploadStatusRevision=this.uploadStatusRevision,latest=await this.api.latest(s.deviceId);if(g!==this.generation)return;
+    store.setState(state=>({websiteConnected:true,...(statusRevision===this.statusRevision?{devices:state.devices.map(d=>d.deviceId===s.deviceId?{...d,online:latest.online,lastHeartbeatAt:latest.lastHeartbeatAt}:d)}:{}),...(uploadStatusRevision===this.uploadStatusRevision&&latest.uploadStatus!==undefined?{uploadStatus:latest.uploadStatus}:{})}));for(const sample of latest.snapshots)store.getState().accept(sample);
     void this.refreshTrend();
   }
   private subscribe(lease:ViewerLease,g:number){
@@ -105,7 +106,7 @@ export class ExperimentRealtimeController {
     events.onopen=()=>{if(g!==this.generation)return;this.retryCount=0;store.setState({phase:'watching',websiteConnected:true,error:''});void this.refreshTrend(false,true);};
     events.addEventListener('snapshot',event=>{if(g!==this.generation)return;try{store.getState().accept(JSON.parse((event as MessageEvent).data) as ExperimentSample);if(!this.refreshTimer)this.refreshTimer=setTimeout(()=>{this.refreshTimer=undefined;void this.refreshTrend();},1200);}catch{this.fail(new Error('实验采样响应无效'));}});
     events.addEventListener('trend-backfill',()=>{if(g===this.generation)void this.refreshTrend();});
-    events.addEventListener('device-status',event=>{if(g!==this.generation)return;try{const d=JSON.parse((event as MessageEvent).data);if(d.viewing===false){this.fail(new BmsApiError(410,'VIEWER_EXPIRED','观看租约结束，正在重新连接'));return;}this.statusRevision++;store.setState({devices:store.getState().devices.map(old=>old.deviceId===d.deviceId?{...old,online:d.online,lastHeartbeatAt:d.lastHeartbeatAt}:old)});}catch{this.fail(new Error('实验设备状态无效'));}});
+    events.addEventListener('device-status',event=>{if(g!==this.generation)return;try{const d=JSON.parse((event as MessageEvent).data) as {deviceId:string;online:boolean;lastHeartbeatAt:string|null;viewing?:boolean;uploadStatus?:ExperimentUploadStatus};if(d.viewing===false){this.fail(new BmsApiError(410,'VIEWER_EXPIRED','观看租约结束，正在重新连接'));return;}const current=store.getState();if(d.deviceId!==current.deviceId)return;this.statusRevision++;const update:{devices:ReturnType<typeof store.getState>['devices'];uploadStatus?:ExperimentUploadStatus}={devices:current.devices.map(old=>old.deviceId===d.deviceId?{...old,online:d.online,lastHeartbeatAt:d.lastHeartbeatAt}:old)};if(d.uploadStatus!==undefined){this.uploadStatusRevision++;update.uploadStatus=d.uploadStatus;}store.setState(update);}catch{this.fail(new Error('实验设备状态无效'));}});
     events.addEventListener('permission-revoked',event=>{if(g!==this.generation)return;try{const data=JSON.parse((event as MessageEvent).data) as {deviceId?:string},deviceId=store.getState().deviceId;if(!deviceId||data.deviceId!==deviceId)return;this.stop('unauthorized');store.setState({error:'管理员已撤销此设备的观测权限。'});this.permissionRevoked?.(deviceId);}catch{this.fail(new Error('权限变更通知无效'));}});
     events.addEventListener('cache-status',event=>{if(g===this.generation){try{store.setState({cacheStatus:JSON.parse((event as MessageEvent).data)});}catch{}}});
     events.addEventListener('cache-capacity',event=>{if(g===this.generation){try{store.setState({cacheStatus:JSON.parse((event as MessageEvent).data),capacityWarning:true});}catch{}}});
