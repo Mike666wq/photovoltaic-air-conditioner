@@ -53,9 +53,17 @@
 .experiment-electrical-groups>section{min-width:0;padding:14px;border:1px solid #e5ebf2;border-radius:12px;background:#fbfcfe}
 .experiment-electrical-groups h3{margin:0 0 12px;color:#344b66;font-size:14px}
 .experiment-electrical-groups .experiment-live-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.experiment-state-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
-.experiment-state-card{display:grid;gap:7px;padding:14px;border:1px solid #e0e7ef;border-radius:12px;background:#faf9f6;color:#263b54;min-width:0}
+.experiment-state-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.experiment-state-card{display:grid;gap:9px;padding:15px;border:1px solid #e0e7ef;border-radius:12px;background:#faf9f6;color:#263b54;min-width:0}
 .experiment-state-card.is-muted{background:#f8fafc}
+.experiment-state-card__head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.experiment-state-card__head b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.experiment-state-card__head code{flex:none;font-size:10px;color:#78889b}
+.experiment-state-card__reading{font-size:19px;line-height:1.3;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.experiment-state-card__footer{display:flex;align-items:center;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}
+.experiment-state-card__footer .experiment-live-card__quality{display:inline-flex;align-items:center;gap:5px}
+.experiment-state-card__footer .experiment-live-card__quality::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.experiment-state-card__footer .experiment-live-card__meta{text-align:right}
 .experiment-page button.experiment-live-card.is-state{background:#faf9f6}
 .experiment-main-trend>.experiment-section-head{align-items:center}
 .experiment-main-trend label{min-width:min(360px,100%);display:grid;gap:6px;color:#64748b;font-size:12px}
@@ -90,8 +98,9 @@
 .experiment-diagnostic-warning{color:#9a5b11!important}
 @media(max-width:1380px){.experiment-live-grid--temperature{grid-template-columns:repeat(4,minmax(0,1fr))}.experiment-electrical-groups{grid-template-columns:1fr}.experiment-electrical-groups .experiment-live-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:1000px){.experiment-overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.experiment-live-grid--temperature,.experiment-electrical-groups .experiment-live-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.experiment-diagnostic-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:720px){.experiment-overview,.experiment-live-section,.experiment-main-trend,.experiment-diagnostics{padding:16px}.experiment-live-grid--temperature,.experiment-electrical-groups .experiment-live-grid,.experiment-state-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.experiment-diagnostic-grid{grid-template-columns:1fr}.experiment-main-trend>.experiment-section-head{align-items:flex-start}}
+@media(max-width:720px){.experiment-overview,.experiment-live-section,.experiment-main-trend,.experiment-diagnostics{padding:16px}.experiment-live-grid--temperature,.experiment-electrical-groups .experiment-live-grid,.experiment-state-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.experiment-diagnostic-grid{grid-template-columns:1fr}.experiment-main-trend>.experiment-section-head{align-items:flex-start}.experiment-state-card__footer .experiment-live-card__meta{text-align:left}}
 @media(max-width:480px){.experiment-overview-grid,.experiment-live-grid--temperature,.experiment-electrical-groups .experiment-live-grid,.experiment-state-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.experiment-observation .bms-status-grid{grid-template-columns:minmax(0,1fr);gap:14px}}
 
 .experiment-group-links{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.experiment-group-links a{padding:10px 14px;background:#fff;border:1px solid #dbe3ee;border-radius:10px;color:#334155;text-decoration:none}.experiment-group{margin:28px 0;scroll-margin-top:20px}.experiment-group h2{font-size:20px}.experiment-group h2 small{font-size:13px;font-weight:400;color:#64748b}.experiment-point-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.experiment-point{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:18px;min-width:0;overflow-wrap:anywhere}.experiment-point header{display:flex;justify-content:space-between;gap:10px}.experiment-point h3{margin:0;font-size:16px}.experiment-point code{font-size:12px;color:#64748b}.experiment-point-value{margin:16px 0;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}.experiment-point-value strong{font-size:28px;line-height:1.3}.experiment-point-value span,.experiment-point small,.experiment-point-time{font-size:12px;color:#64748b}.experiment-quality{font-size:12px;color:#047857}.experiment-quality.is-warning{color:#92400e}.experiment-point.is-muted{background:#f8fafc}.experiment-point details{font-size:12px;color:#475569}.experiment-point summary{cursor:pointer}.experiment-trend{margin:28px 0}.experiment-trend>label{display:flex;flex-wrap:wrap;gap:12px;align-items:center}.experiment-trend select{padding:10px;border:1px solid #dbe3ee;border-radius:8px;max-width:100%}.experiment-trend .bms-chart-card{margin-top:16px}.experiment-trend>p{font-size:13px;color:#64748b;line-height:1.8}.monitoring-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.monitoring-grid a{display:block;background:#fff;padding:24px;border:1px solid #dbe3ee;border-radius:14px;text-decoration:none;color:#1e293b}.monitoring-grid p{color:#64748b;line-height:1.8}
 @media(max-width:1100px){.experiment-point-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:760px){.experiment-point-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.monitoring-grid{grid-template-columns:1fr}}@media(max-width:480px){.experiment-point-grid{grid-template-columns:minmax(0,1fr)}.experiment-point-value strong{font-size:26px}}

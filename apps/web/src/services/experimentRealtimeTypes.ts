@@ -46,13 +46,22 @@ export function normalizeExperimentUnit(value:string|undefined, canonical:string
   if(value===canonical || value.startsWith(`${canonical} · `))return canonical;
   return value;
 }
-const twoDecimalUnits=new Set(['V','A','W','var','VA','kW','kvar','kVA']);
+const oneDecimalUnits=new Set(['℃']);
+const twoDecimalUnits=new Set(['V','A','W','var','VA','kW','kvar','kVA','Hz','kWh']);
 /** 只格式化页面文字，调用方的工程值和原始报文保持不变。 */
-export function formatExperimentDisplayValue(value:string|number|null|undefined,unit:string){
+export function formatExperimentDisplayValue(value:string|number|null|undefined,unit:string,label=''){
   if(value==null)return '—';
-  if(!twoDecimalUnits.has(unit))return String(value);
   const numeric=typeof value==='number'?value:Number(value);
-  return Number.isFinite(numeric)?numeric.toFixed(2):String(value);
+  if(!Number.isFinite(numeric))return String(value);
+  if(label==='功率因数')return numeric.toFixed(3);
+  if(oneDecimalUnits.has(unit))return numeric.toFixed(1);
+  if(twoDecimalUnits.has(unit))return numeric.toFixed(2);
+  return String(value);
+}
+/** 状态卡只显示本地上报原值，隐藏旧版本附加的非数据说明。 */
+export function formatExperimentStateValue(value:string|number|null|undefined){
+  if(value==null)return '—';
+  return String(value).replace(/\s*[（(]\s*符号\s*\/\s*倍率待定\s*[）)]\s*$/u,'').trim();
 }
 export function experimentDimension(definition:PointDefinition){
   return definition.metadata.Unit ? `unit/${definition.metadata.Unit}` : `quantity/${definition.metadata.Label}`;

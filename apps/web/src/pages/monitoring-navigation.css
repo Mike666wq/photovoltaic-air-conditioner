@@ -19,6 +19,6 @@
   .monitoring-page .monitoring-device-card { grid-template-columns: 12px minmax(0, 1fr); }
   .monitoring-page .monitoring-device-card__status { grid-column: 2; text-align: left; }
   .monitoring-page .monitoring-device-card__action { grid-column: 2; }
-  .monitoring-device-switch { width: min(100%, 320px); }
+  .monitoring-device-switch { width: min(100%, 360px); }
   .monitoring-detail-page .bms-header nav { width: 100%; gap: 12px; }
 }

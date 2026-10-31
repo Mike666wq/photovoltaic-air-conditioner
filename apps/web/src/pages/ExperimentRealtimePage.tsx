@@ -15,6 +15,7 @@ import {
   normalizeExperimentUnit,
   experimentDimension,
   formatExperimentDisplayValue,
+  formatExperimentStateValue,
 } from '../services/experimentRealtimeTypes';
 import { experimentMeasurementStatus } from '../services/experimentMeasurementStatus';
 import type { PointDefinition } from '../services/experimentRealtimeTypes';
@@ -219,7 +220,7 @@ function ExperimentObservation({
       aria-pressed={selectedCard}
     >
       <span className="experiment-live-card__head"><b>{definition.metadata.Label}</b><code>{definition.id}</code></span>
-      <span className="experiment-live-card__value"><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit)}</strong><em>{normalizeExperimentUnit(point?.unit, definition.metadata.Unit)}</em></span>
+      <span className="experiment-live-card__value"><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit, definition.metadata.Label)}</strong><em>{normalizeExperimentUnit(point?.unit, definition.metadata.Unit)}</em></span>
       <span className={`experiment-live-card__quality ${view.good ? '' : 'is-warning'}`}>
         {view.label}
       </span>
@@ -227,7 +228,7 @@ function ExperimentObservation({
         {definition.equipmentId} · {sourceLabel(sample?.snapshot.source)} · {experimentAgeLabel(point, mono)}
       </span>
       {historical && <span className="experiment-live-card__historic">
-        最近有效：{formatExperimentDisplayValue(historical.value ?? historical.displayValue, definition.metadata.Unit)} {normalizeExperimentUnit(historical.unit, definition.metadata.Unit)} · {experimentTime(historical.observedUtc)}
+        最近有效：{formatExperimentDisplayValue(historical.value ?? historical.displayValue, definition.metadata.Unit, definition.metadata.Label)} {normalizeExperimentUnit(historical.unit, definition.metadata.Unit)} · {experimentTime(historical.observedUtc)}
       </span>}
     </button>;
   };
@@ -236,11 +237,13 @@ function ExperimentObservation({
     const { sample, point, view, history } = pointContext(definition);
     const historical = !view.good && history && !pointStatus(history, mono).expired ? history : undefined;
     return <article key={`${definition.equipmentId}/${definition.id}`} className={`experiment-state-card ${view.good ? '' : 'is-muted'}`}>
-      <span className="experiment-live-card__head"><b>{definition.metadata.Label}</b><code>{definition.id}</code></span>
-      <span className="experiment-live-card__value"><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit)}</strong><em>{normalizeExperimentUnit(point?.unit, definition.metadata.Unit)}</em></span>
-      <span className={`experiment-live-card__quality ${view.good ? '' : 'is-warning'}`}>{view.label}</span>
-      <span className="experiment-live-card__meta">{definition.equipmentId} · {sourceLabel(sample?.snapshot.source)} · {experimentAgeLabel(point, mono)}</span>
-      {historical && <span className="experiment-live-card__historic">最近有效：{formatExperimentDisplayValue(historical.value ?? historical.displayValue, definition.metadata.Unit)} {normalizeExperimentUnit(historical.unit, definition.metadata.Unit)} · {experimentTime(historical.observedUtc)}</span>}
+      <header className="experiment-state-card__head"><b>{definition.metadata.Label}</b><code>{definition.id}</code></header>
+      <strong className="experiment-state-card__reading">{formatExperimentStateValue(view.value)}</strong>
+      <footer className="experiment-state-card__footer">
+        <span className={`experiment-live-card__quality ${view.good ? '' : 'is-warning'}`}>{view.label}</span>
+        <span className="experiment-live-card__meta">{definition.equipmentId} · {sourceLabel(sample?.snapshot.source)} · {experimentAgeLabel(point, mono)}</span>
+      </footer>
+      {historical && <span className="experiment-live-card__historic">最近有效：{formatExperimentStateValue(historical.value ?? historical.displayValue)} · {experimentTime(historical.observedUtc)}</span>}
     </article>;
   };
 
@@ -328,8 +331,7 @@ function ExperimentObservation({
 
     {definitions.some(point => point.metadata.Group === '运行状态') && <section className="experiment-live-section">
       <div className="experiment-section-head">
-        <div><span>离散状态</span><h2>运行状态</h2></div>
-        <p>状态字段按采集端上报内容显示。</p>
+        <div><span>本地上报值</span><h2>运行状态</h2></div>
       </div>
       <div className="experiment-state-grid">
         {definitions.filter(point => point.metadata.Group === '运行状态').map(point => stateCard(point))}
@@ -387,9 +389,9 @@ function ExperimentObservation({
             const { sample, point, view, history } = pointContext(definition);
             return <article key={`${definition.equipmentId}/${definition.id}`} className={view.good ? '' : 'is-muted'}>
               <header><div><h3>{definition.metadata.Label}</h3><code>{definition.id}</code></div>{definition.metadata.Group !== '运行状态' && definition.metadata.Group !== '诊断' && <button type="button" onClick={() => selectPoint(definition)}>查看趋势</button>}</header>
-              <p><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit)}</strong> {normalizeExperimentUnit(point?.unit, definition.metadata.Unit)} · {view.label}</p>
+              <p><strong>{formatExperimentDisplayValue(view.value, definition.metadata.Unit, definition.metadata.Label)}</strong> {normalizeExperimentUnit(point?.unit, definition.metadata.Unit)} · {view.label}</p>
               <small>{definition.equipmentId} · 站号 {definition.slave} · {sourceLabel(sample?.snapshot.source)} · {experimentAgeLabel(point, mono)}</small>
-              {!view.good && history && !pointStatus(history, mono).expired && <p>最近有效历史：{formatExperimentDisplayValue(history.value ?? history.displayValue, definition.metadata.Unit)} {normalizeExperimentUnit(history.unit, definition.metadata.Unit)} · {experimentTime(history.observedUtc)}（非当前读数）</p>}
+              {!view.good && history && !pointStatus(history, mono).expired && <p>最近有效历史：{formatExperimentDisplayValue(history.value ?? history.displayValue, definition.metadata.Unit, definition.metadata.Label)} {normalizeExperimentUnit(history.unit, definition.metadata.Unit)} · {experimentTime(history.observedUtc)}（非当前读数）</p>}
               {point && !view.expired
                 ? <details><summary>原始值与寄存器</summary>
                     <p>上报工程值：{point.value ?? '—'}；原始值：{point.rawValue ?? '—'}；客户端显示：{point.displayValue || '—'}</p>

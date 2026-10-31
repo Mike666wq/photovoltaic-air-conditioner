@@ -116,6 +116,7 @@
 .bms-trend-workspace > .monitoring-trend-card { box-shadow: none; }
 @media (max-width: 1100px) { .bms-derived-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .bms-secondary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .bms-live-overview, .bms-derived-summary, .bms-trend-workspace { padding: 16px; } .bms-primary-metrics { grid-template-columns: 1fr; } .bms-secondary-metrics, .bms-derived-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bms-trend-workspace > header { align-items: flex-start; } .bms-trend-tabs { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .bms-status-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; } }
 .bms-page { width: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto; }
 .bms-page *, .bms-page *::before, .bms-page *::after { min-width: 0; }
 .bms-header > div { min-width: 0; }
