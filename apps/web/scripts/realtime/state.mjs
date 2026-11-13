@@ -2,11 +2,12 @@ import { performance } from 'node:perf_hooks';
 import { opaque } from './auth.mjs';
 import { CacheCoordinator } from './cache-coordinator.mjs';
 import { assert, BACKFILL_SECONDS } from './contract.mjs';
+import { LEASE } from './base-contract.mjs';
 
 // 每个观测保留一小时；全局容量由跨模块协调器原子预留。
 export class RealtimeState {
   constructor(config, clocks = {}) {
-    this.config = { cacheMs: 3600000, backfillMs: BACKFILL_SECONDS * 1000, maxPoints: 600, viewerMs: 45000, maxViewers: 4, maxViewerLeases: 40, ...config };
+    this.config = { cacheMs: 3600000, backfillMs: BACKFILL_SECONDS * 1000, maxPoints: 600, viewerMs: LEASE.viewerTtlSeconds * 1000, maxViewers: 4, maxViewerLeases: 40, ...config };
     this.now = clocks.now ?? (() => performance.now()); this.wall = clocks.wall ?? (() => Date.now());
     this.coordinator = config.coordinator ?? new CacheCoordinator(this.config, clocks);
     this.devices = new Map(); this.viewers = new Map(); this.listeners = new Set(); this.lastDeepPrune = -Infinity;

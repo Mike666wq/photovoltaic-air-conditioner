@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:realtime": "node --test scripts/realtime/*.test.mjs"
+    "test:realtime": "node --test scripts/realtime/*.test.mjs",
+    "base:sync": "node scripts/sync-base-contract.mjs --write",
+    "base:check": "node scripts/sync-base-contract.mjs --check"
   },
   "dependencies": {
     "echarts": "^6.0.0",

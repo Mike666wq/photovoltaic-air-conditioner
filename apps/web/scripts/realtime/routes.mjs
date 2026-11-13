@@ -6,6 +6,7 @@ import { RealtimeState } from './state.mjs';
 import { ExperimentState } from './experiment-state.mjs';
 import { catalog, equipment, historyPoints, validateExperimentSnapshot, validateExperimentBackfill } from './experiment-contract.mjs';
 import { ApiError, assert, object, identifier, packs, validateSnapshot, validateBmsBackfill } from './contract.mjs';
+import { TRANSPORT } from './base-contract.mjs';
 
 const PREFIX = '/api/realtime';
 const COOKIE = 'cloud_viewer';
@@ -22,10 +23,10 @@ export function json(res, status, body) {
 export function writeSse(res, event, payload) {
   if (res.destroyed || res.writableEnded) return false;
   const packet = event ? `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n` : ': keepalive\n\n';
-  if (res.writableLength + Buffer.byteLength(packet) > 65536) return false;
+  if (res.writableLength + Buffer.byteLength(packet) > TRANSPORT.responseMaxBytes) return false;
   res.write(packet); return true;
 }
-async function readJson(req, maxBytes = 65536) {
+async function readJson(req, maxBytes = TRANSPORT.responseMaxBytes) {
   assert(/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? ''), 400, 'JSON_REQUIRED', '需要application/json正文');
   assert(!req.headers['content-encoding'] || req.headers['content-encoding'] === 'identity', 400, 'ENCODING_UNSUPPORTED', '不支持压缩正文');
   assert(!req.headers['content-length'] || Number(req.headers['content-length']) <= maxBytes, 413, 'BODY_TOO_LARGE', `正文超过${Math.floor(maxBytes / 1024)}KiB`);
@@ -235,7 +236,7 @@ export function createRealtimeApi(options = {}) {
       }
     }
     if (pathname === '/backfill' && req.method === 'POST') {
-      const d = deviceAuth(req, module); rate(`backfill:${d.deviceId}`, 300); const b = await readJson(req, 131072);
+      const d = deviceAuth(req, module); rate(`backfill:${d.deviceId}`, 300); const b = await readJson(req, TRANSPORT.backfillBodyMaxBytes);
       const payload = isExperiment ? validateExperimentBackfill(b, deviceAuth(req,module)) : validateBmsBackfill(b, deviceAuth(req,module));
       return json(res, 200, state.backfill(d.deviceId, payload.subscriptionId, payload.points));
     }

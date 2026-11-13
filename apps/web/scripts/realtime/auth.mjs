@@ -5,6 +5,7 @@ import { resolve, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assert } from './contract.mjs';
 import { EQUIPMENT } from './experiment-contract.mjs';
+import { QUOTAS, CACHE } from './base-contract.mjs';
 
 const scrypt = promisify(derive);
 export const opaque = () => randomBytes(32).toString('base64url');
@@ -56,14 +57,14 @@ export function loadConfig(env = process.env) {
   assert(url.origin === publicOrigin && (url.protocol === 'https:' || (devHttp && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))), 503, 'CONFIG_INVALID', '必须配置HTTPS网站根Origin');
   return {
     enabled, devices, users, system: system ?? { name: '实验系统', experimentDeviceId: null, bmsDeviceId: null, allowSimulation: false }, publicOrigin, devHttp, registryDir, bootstrapHash,
-    cacheMs: 3600000,
+    cacheMs: CACHE.ttlMs,
     maxPoints: setting(env, 'BMS_REALTIME_MAX_POINTS', 600, 600),
     viewerMs: setting(env, 'BMS_REALTIME_VIEWER_TTL_SECONDS', 45, 45) * 1000,
     maxDevices: setting(env, 'BMS_REALTIME_MAX_DEVICES', 20, 100),
     maxViewers: setting(env, 'BMS_REALTIME_MAX_VIEWERS_PER_USER', 4, 4),
-    maxActiveUsers: 10,
-    maxViewerLeases: 40,
-    maxSsePerUser: 8,
+    maxActiveUsers: QUOTAS.maxActiveUsers,
+    maxViewerLeases: QUOTAS.maxViewerLeasesPerModule,
+    maxSsePerUser: QUOTAS.maxSsePerUser,
     browserRequestsPerMinute: setting(env, 'BMS_REALTIME_BROWSER_REQUESTS_PER_MINUTE', 5000, 10000),
     maxCachePoints: setting(env, 'BMS_REALTIME_MAX_CACHE_POINTS', 500000, 5000000),
     maxCacheBytes: setting(env, 'BMS_REALTIME_MAX_CACHE_BYTES', 134217728, 1073741824),

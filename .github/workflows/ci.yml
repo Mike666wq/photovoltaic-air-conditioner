@@ -40,6 +40,11 @@ jobs:
       - name: Unit tests
         run: pnpm --filter web test
 
+      - name: Base contract integrity
+        # 基座契约副本不允许手改；本仓库单独 checkout 时上游 _base 不存在，
+        # 这一步退化为"自洽校验"（正文与自带 sha256 是否一致），仍能拦住手改。
+        run: pnpm --filter web base:check
+
       - name: BMS realtime API tests
         run: pnpm --filter web test:realtime
 

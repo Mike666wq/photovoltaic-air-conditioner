@@ -1,4 +1,5 @@
 // v1线协议与Windows客户端保持一致；这里只验证结构，不猜测电流方向和告警位。
+import { LEASE } from './base-contract.mjs';
 export class ApiError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
 }
@@ -8,8 +9,8 @@ export function assert(condition, status = 400, code = 'INVALID_REQUEST', messag
 export const object = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
 export const integer = (v, min = -2147483648, max = 2147483647) => Number.isSafeInteger(v) && v >= min && v <= max;
 export const identifier = (v) => typeof v === 'string' && v.length >= 1 && v.length <= 128;
-export const BACKFILL_SECONDS = 300;
-export const BACKFILL_BATCH_MAX = 128;
+export const BACKFILL_SECONDS = LEASE.backfillSecondsMax;
+export const BACKFILL_BATCH_MAX = LEASE.backfillBatchMaxPoints;
 export function utcDate(v) {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?Z$/.test(v)) return false;
   const n = Date.parse(v);

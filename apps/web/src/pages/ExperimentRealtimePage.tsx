@@ -26,7 +26,9 @@ import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
 import './bms-realtime.css';
 import './experiment-realtime.css';
 
-const groups = ['温度', '实验电表', '市电', '太阳能', '运行状态', '诊断'] as const;
+// 分组顺序与采集端点表保持一致；'控制/设定' 是 PLC 的设定类点位。
+// 注意：不在本列表里的分组会落入 fallback 分组，不允许被静默丢弃。
+const groups = ['温度', '实验电表', '市电', '太阳能', '控制/设定', '运行状态', '诊断'] as const;
 const electricalGroups = ['太阳能', '实验电表', '市电'] as const;
 
 export interface ExperimentRealtimePageProps {
