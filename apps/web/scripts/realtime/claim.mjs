@@ -120,9 +120,15 @@ export class ClaimStore {
   async create({ machineKey, module, claimSecret, desiredAlias, client }) {
     const existing = await this.byMachineKey(machineKey);
     if (existing) {
-      assert(equalSecret(existing.claimSecretHash, sha256(claimSecret)), 401, 'CLAIM_SECRET_MISMATCH', '认领凭据不匹配');
-      if (existing.expiresAtMs > this.now()) return existing;
-      // 已过期：清掉重来，但 claimId 换新（旧 id 不能复用，否则可能被第三方猜到）。
+      // 只有「还在等批准」的记录才需要校验 secret —— 那是防别人抢占同一台机器的申请。
+      // 已经 approved / rejected / expired 的记录属于上一轮，设备重新发起认领时必须能拿到
+      // 一条新记录。这里如果还要求 secret 匹配，设备就永远卡在 401：它已经换了一把新 secret，
+      // 而旧记录的哈希永远不会变，表现就是「点了重新申请，云端什么都没有」。
+      if (existing.state === 'pending') {
+        assert(equalSecret(existing.claimSecretHash, sha256(claimSecret)), 401, 'CLAIM_SECRET_MISMATCH', '认领凭据不匹配');
+        if (existing.expiresAtMs > this.now()) return existing;
+      }
+      // 上一轮的记录（或已过期的）清掉重来，claimId 换新。
       await this._mutate((next) => {
         next.claims = next.claims.filter((c) => c.claimId !== existing.claimId);
       });

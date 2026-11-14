@@ -350,15 +350,40 @@ export function createRealtimeApi(options = {}) {
       const record = await claims.byClaimId(approveMatch[1]);
       assert(record, 404, 'CLAIM_NOT_FOUND', '认领不存在或已过期');
       assert(record.state === 'pending', 409, 'STATE_CONFLICT', '该认领已处理');
-      const deviceId = (typeof b.deviceId === 'string' && b.deviceId.trim()) || record.machineKey;
-      assert(/^[A-Za-z0-9_-]{1,80}$/.test(deviceId), 400, 'DEVICE_ID_INVALID', '设备编号只能包含字母、数字、下划线或短横线');
       const module = record.module;
+      // 同一台机器重新接入时优先「复活」它原来那条设备记录（哪怕已被删除）：
+      // 编号保持不变，本地数据目录、历史记录、已授权的账户都不会断。
+      // 只有管理员显式指定了一个新编号，才按新设备创建。
+      const sameMachine = config.devices.find((d) => d.machineKey && d.machineKey === record.machineKey);
+      const reuse = sameMachine && (!(typeof b.deviceId === 'string' && b.deviceId.trim()) || b.deviceId.trim() === sameMachine.deviceId);
+      const deviceId = reuse ? sameMachine.deviceId : ((typeof b.deviceId === 'string' && b.deviceId.trim()) || record.machineKey);
+      assert(/^[A-Za-z0-9_-]{1,80}$/.test(deviceId), 400, 'DEVICE_ID_INVALID', '设备编号只能包含字母、数字、下划线或短横线');
       const alias = (typeof b.alias === 'string' && b.alias.trim()) || record.desiredAlias || `设备 ${deviceId.slice(-6)}`;
       const permissions = module === 'experiment'
         ? { allowedEquipment: equipment(b.allowedEquipment, undefined) }
         : { allowedPacks: numbersList(b.allowedPacks, 16), allowedAddresses: numbersList(b.allowedAddresses ?? [1], 255) };
       const deviceToken = opaque();
       const created = await registry.mutate((next) => {
+        if (reuse) {
+          const d = next.devices.find((x) => x.deviceId === deviceId);
+          assert(d, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+          d.alias = alias.trim().slice(0, 128);
+          Object.assign(d, permissions);
+          d.deviceTokenHash = tokenHash(deviceToken);
+          d.allowSimulation = b.allowSimulation === true;
+          d.state = DEVICE_STATE.approved;
+          d.machineKey = record.machineKey;
+          d.configVersion = (d.configVersion ?? 1) + 1;
+          d.enrolledVia = 'claim';
+          d.protocolVersion = ENROLLMENT.protocolVersion;
+          d.approvedAtUtc = new Date(state.wall()).toISOString();
+          d.changedBy = s.user.username;
+          d.changedAtUtc = new Date(state.wall()).toISOString();
+          d.statusReason = b.note ?? '';
+          d.purgeAfterUtc = null;
+          d.allowReclaim = false;
+          return d;
+        }
         assert(!next.devices.some((d) => d.deviceId === deviceId), 409, 'DEVICE_EXISTS', '设备编号已存在');
         assert(next.devices.filter((d) => DEVICE_STATE.billable.includes(d.state ?? 'active')).length < (config.maxDevices ?? 20), 409, 'DEVICE_LIMIT', '已注册设备数达到上限');
         const device = {
@@ -373,8 +398,8 @@ export function createRealtimeApi(options = {}) {
         next.devices.push(device);
         return device;
       });
-      const { grantId } = await claims.approve(record.claimId, { deviceId, deviceToken, configVersion: 1 });
-      return json(res, 201, { claimId: record.claimId, deviceId, state: DEVICE_STATE.approved, configVersion: 1, grantId });
+      const { grantId } = await claims.approve(record.claimId, { deviceId: created.deviceId, deviceToken, configVersion: created.configVersion ?? 1 });
+      return json(res, 201, { claimId: record.claimId, deviceId: created.deviceId, state: DEVICE_STATE.approved, configVersion: created.configVersion ?? 1, grantId });
     }
 
     const rejectMatch = pathname.match(/^\/admin\/claims\/([^/]+)\/reject$/);

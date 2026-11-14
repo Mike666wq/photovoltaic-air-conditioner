@@ -205,3 +205,43 @@ test('同一台机器可登记两个模块，互不干扰', async (t) => {
   assert.equal(devices.length, 2);
   assert.deepEqual(devices.map((d) => d.module).sort(), ['bms', 'experiment']);
 });
+
+test('重新认领：上一轮已批准的记录不该挡住新申请', async (t) => {
+  const h = await harness(t);
+  const admin = await h.setup();
+  const first = await h.claim(claimSecret, { machineKey, module: 'bms', protocolVersion: 2 });
+  await admin.call(`/api/device/admin/claims/${first.body.claimId}/approve`, 'POST', {
+    deviceId: 'bms-reclaim-01', alias: '重连测试', allowedPacks: [1], allowedAddresses: [1],
+  });
+  // 设备侧丢掉了 claimSecret（重装/清目录）：换一把新 secret 重新认领。
+  // 上一轮那条记录已经是 approved，secret 哈希永远不会再匹配 —— 如果这里要求匹配，
+  // 设备就永远卡在 401，表现为「点了重新申请，云端什么都没有」。
+  const again = await h.claim(claimSecret2, { machineKey, module: 'bms', protocolVersion: 2 });
+  assert.equal(again.status, 201);
+  assert.notEqual(again.body.claimId, first.body.claimId);
+  assert.equal(again.body.state, 'pending');
+  assert.equal((await admin.call('/api/device/admin/claims')).body.claims.length, 1);
+});
+
+test('同一台机器重新批准时复活原设备，编号不变', async (t) => {
+  const h = await harness(t);
+  const admin = await h.setup();
+  const original = 'bms-keep-id-01';
+  const first = await h.claim(claimSecret, { machineKey, module: 'bms', protocolVersion: 2 });
+  await admin.call(`/api/device/admin/claims/${first.body.claimId}/approve`, 'POST', {
+    deviceId: original, alias: '原设备', allowedPacks: [1], allowedAddresses: [1],
+  });
+
+  // 设备被删除（墓碑）后重新接入：应当复活同一台设备，而不是再建一台新编号的。
+  await admin.call(`/api/device/admin/devices/${original}`, 'DELETE', { reason: '重装' });
+  const again = await h.claim(claimSecret2, { machineKey, module: 'bms', protocolVersion: 2 });
+  await admin.call(`/api/device/admin/claims/${again.body.claimId}/approve`, 'POST', {
+    alias: '重装后', allowedPacks: [2], allowedAddresses: [1],
+  });
+
+  const devices = (await admin.call('/api/device/admin/devices')).body.devices;
+  assert.equal(devices.length, 1, '不该多出一台设备');
+  assert.equal(devices[0].deviceId, original, '编号必须保持不变');
+  assert.equal(devices[0].alias, '重装后');
+  assert.ok(devices[0].configVersion >= 3, '配置版本应继续递增');
+});
