@@ -241,9 +241,16 @@ export function createRealtimeApi(options = {}) {
     };
   }
   function publicDevice(d) {
+    // 管理页要回答的是「这台设备现在活着吗」，而不是「它被批准过吗」。
+    // state=active 只说明授权还在；心跳时间才是"本地程序真的打开了"的证据。
+    const rt = state.devices.get(d.deviceId);
+    const everBeat = rt && Number.isFinite(rt.heartbeat);
     return {
       deviceId: d.deviceId, alias: d.alias, module: moduleOf(d),
       state: d.state ?? 'active',
+      online: everBeat ? state.online(rt) : false,
+      lastSeenUtc: everBeat ? (rt.lastHeartbeatAt ?? null) : null,
+      neverSeen: !everBeat,
       machineKey: d.machineKey ?? null,
       configVersion: d.configVersion ?? 1,
       allowedPacks: d.allowedPacks ?? [], allowedAddresses: d.allowedAddresses ?? [],

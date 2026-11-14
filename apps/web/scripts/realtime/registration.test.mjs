@@ -46,7 +46,9 @@ test('首次管理员初始化需要密钥、Cookie、Origin与CSRF，完成后�
   const admin=await h.setup();assert.equal((await admin.call('/admin/registry')).status,200);
   assert.equal((await h.call('/setup/status')).body.bootstrapAvailable,false);
   assert.equal((await h.call('/setup/bootstrap','POST',body,await h.guest())).body.error.code,'ALREADY_INITIALIZED');
-  const stored=readFileSync(h.file,'utf8');assert(!stored.includes(password));assert(!stored.includes(bootstrapToken));assert.equal(statSync(h.file).mode&0o777,0o600);
+  const stored=readFileSync(h.file,'utf8');assert(!stored.includes(password));assert(!stored.includes(bootstrapToken));// 0600 是 POSIX 语义：Windows 的文件权限走 ACL，chmod 不产生 mode 位（恒为 0o666），
+  // 断言只在类 Unix 上有意义。代码里的 0600 仍然照写，只是不在这条平台上验。
+  if (process.platform !== 'win32') assert.equal(statSync(h.file).mode&0o777,0o600);
 });
 test('初始化并发只创建一个管理员，注册文件可在服务重启后恢复',async(t)=>{
   const h=await harness(t);const body={username:'fixture-admin',password,bootstrapToken};
