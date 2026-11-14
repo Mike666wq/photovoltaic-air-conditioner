@@ -1,4 +1,4 @@
-import type { BmsDevice, BmsIdentity, BmsSample, BmsMetric, TrendPoint, ViewerLease, BmsSetupStatus, BmsRegistry, BmsDeviceCredential, MonitoringCacheStatus, MonitoringSystemAdmin, MonitoringSystemConfig, MonitoringSystemView } from './bmsRealtimeTypes';
+import type { BmsDevice, BmsIdentity, BmsSample, BmsMetric, TrendPoint, ViewerLease, BmsSetupStatus, BmsRegistry, BmsDeviceCredential, MonitoringCacheStatus, MonitoringSystemAdmin, MonitoringSystemConfig, MonitoringSystemView, PendingClaim, ManagedDevice } from './bmsRealtimeTypes';
 
 export class BmsApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -11,7 +11,8 @@ export async function request<T>(path: string, method = 'GET', body?: unknown, s
   if (signal?.aborted) timeout.abort();
   const timer = setTimeout(abort, 5000);
   try {
-    const apiPath = path.startsWith('/experiment/') || path.startsWith('/monitoring/')
+    // /device 是设备接入前缀（模块无关），与三个业务前缀分开。
+    const apiPath = path.startsWith('/experiment/') || path.startsWith('/monitoring/') || path.startsWith('/device/')
       ? `/api${path}`
       : `/api/realtime${path}`;
     const res = await fetch(apiPath, {
@@ -32,6 +33,18 @@ export const bmsApi = {
   setupStatus: () => request<BmsSetupStatus>('/setup/status'),
   async bootstrap(username: string, password: string, bootstrapToken: string) { await bmsApi.session(); const res = await request<{ user: BmsIdentity; csrfToken: string }>('/setup/bootstrap', 'POST', { username, password, bootstrapToken }); csrfToken = res.csrfToken; return res.user; },
   registry: () => request<BmsRegistry>('/admin/registry'),
+  // —— 设备接入（/api/device/admin）——
+  pendingClaims: () => request<{ claims: PendingClaim[]; pendingLimit: number }>('/device/admin/claims'),
+  approveClaim: (claimId: string, input: { deviceId?: string; alias: string; allowedPacks?: number[]; allowedAddresses?: number[]; allowedEquipment?: string[]; allowSimulation?: boolean; note?: string }) =>
+    request<{ claimId: string; deviceId: string; state: string; configVersion: number }>(`/device/admin/claims/${encodeURIComponent(claimId)}/approve`, 'POST', input),
+  rejectClaim: (claimId: string, reason: string) =>
+    request<{ claimId: string; state: string }>(`/device/admin/claims/${encodeURIComponent(claimId)}/reject`, 'POST', { reason }),
+  managedDevices: () => request<{ devices: ManagedDevice[] }>('/device/admin/devices'),
+  updateManagedDevice: (deviceId: string, input: { alias?: string; allowedPacks?: number[]; allowedAddresses?: number[]; allowedEquipment?: string[]; allowSimulation?: boolean; note?: string; expectedConfigVersion?: number }) =>
+    request<ManagedDevice>(`/device/admin/devices/${encodeURIComponent(deviceId)}`, 'PUT', input),
+  suspendDevice: (deviceId: string, reason: string) => request<ManagedDevice>(`/device/admin/devices/${encodeURIComponent(deviceId)}/suspend`, 'POST', { reason }),
+  resumeDevice: (deviceId: string) => request<ManagedDevice>(`/device/admin/devices/${encodeURIComponent(deviceId)}/resume`, 'POST', {}),
+  rekeyDevice: (deviceId: string) => request<{ deviceId: string; deviceToken: string }>(`/device/admin/devices/${encodeURIComponent(deviceId)}/rekey`, 'POST', {}),
   registerDevice: (device: { deviceId: string; alias: string; module?: 'bms' | 'experiment'; allowedPacks?: number[]; allowedAddresses?: number[]; allowedEquipment?: string[]; allowSimulation: boolean }) => request<BmsDeviceCredential>('/admin/devices', 'POST', device),
   registerUser: (username: string, password: string, devices: string[] = []) => request('/admin/users', 'POST', { username, password, devices }),
   deleteDevice: (id: string) => request<void>(`/admin/devices/${encodeURIComponent(id)}`, 'DELETE', { confirmDeviceId: id }),

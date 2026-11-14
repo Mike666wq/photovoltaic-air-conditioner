@@ -71,7 +71,10 @@ export function loadConfig(env = process.env) {
   };
 }
 export function validateConfig(config) {
-  assert(Array.isArray(config.devices) && config.devices.length <= (config.maxDevices ?? 20), 503, 'CONFIG_INVALID');
+  // 只把 active/suspended 计入设备额度：待批准与已删除墓碑不该挤占正式名额。
+  assert(Array.isArray(config.devices)
+    && config.devices.filter(d => ['active','suspended'].includes(d.state ?? 'active')).length <= (config.maxDevices ?? 20)
+    && config.devices.filter(d => (d.state ?? 'active') === 'revoked').length <= (config.maxTombstones ?? 20), 503, 'CONFIG_INVALID');
   const ids = new Set(); const tokens = new Set();
   for (const d of config.devices) {
     assert(/^[a-zA-Z0-9_-]{1,80}$/.test(d.deviceId) && !ids.has(d.deviceId), 503, 'CONFIG_INVALID'); ids.add(d.deviceId);
@@ -85,6 +88,11 @@ export function validateConfig(config) {
     assert(Array.isArray(d.allowedAddresses) && d.allowedAddresses.length > 0 && d.allowedAddresses.length <= 16 && d.allowedAddresses.every((a) => Number.isInteger(a) && a >= 1 && a <= 255), 503, 'CONFIG_INVALID');
     }
     assert(typeof d.allowSimulation === 'boolean' && (d.displayTimeZone == null || d.displayTimeZone === 'Asia/Shanghai'), 503, 'CONFIG_INVALID');
+    // 设备接入状态：缺省 = active，兼容所有存量记录。
+    d.state ??= 'active';
+    assert(['pending','approved','active','suspended','revoked','rejected','expired','conflict','legacy-orphan'].includes(d.state), 503, 'CONFIG_INVALID');
+    if (d.configVersion != null) assert(Number.isInteger(d.configVersion) && d.configVersion >= 1, 503, 'CONFIG_INVALID');
+    if (d.machineKey != null) assert(typeof d.machineKey === 'string' && d.machineKey.length <= 64, 503, 'CONFIG_INVALID');
   }
   assert(Array.isArray(config.users) && config.users.length <= 100 && (config.users.length > 0 || (config.registryDir && config.devices.length === 0)), 503, 'CONFIG_INVALID');
   const names = new Set();

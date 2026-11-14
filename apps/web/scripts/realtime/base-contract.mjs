@@ -1,5 +1,5 @@
 // @generated 由 _base/contract/contract.mjs 生成，请勿手改。
-// @source-sha256 935de835072f80ce83537a53f99cb5a9f1648263208f7520dbd4c138f4955ebe
+// @source-sha256 0fe84be83ac58117719f51913bfcd4cb000e3846ecabf7a9318b05a6211c9aca
 // @sync node apps/web/scripts/sync-base-contract.mjs --write
 // @end-header
 // ============================================================
@@ -31,6 +31,88 @@ export const PREFIX_MODULE = {
   '/api/realtime': 'bms',
   '/api/experiment': 'experiment',
   '/api/monitoring': 'bms',
+};
+
+// ---------- 设备接入（模块无关） ----------
+// 单独一个前缀，和上面三个业务前缀彻底分开：认领发生在「还没有设备令牌」的时刻，
+// 而业务前缀的每个端点都要求 Bearer 令牌 —— 混在一起就只能靠 401 猜，那是错的。
+// 不要把本前缀加进 PREFIX_MODULE：它不属于任何 module，模块信息在请求体里。
+export const DEVICE_PREFIX = '/api/device';
+
+export const DEVICE_ROUTES = {
+  claim:       () => `${DEVICE_PREFIX}/claim`,
+  claimStatus: (claimId) => `${DEVICE_PREFIX}/claim/${claimId}`,
+  ack:         () => `${DEVICE_PREFIX}/ack`,
+  // 管理端点（浏览器会话 + CSRF，不认设备令牌）
+  adminClaims:     () => `${DEVICE_PREFIX}/admin/claims`,
+  adminApprove:    (claimId) => `${DEVICE_PREFIX}/admin/claims/${claimId}/approve`,
+  adminReject:     (claimId) => `${DEVICE_PREFIX}/admin/claims/${claimId}/reject`,
+  adminDevices:    () => `${DEVICE_PREFIX}/admin/devices`,
+  adminDevice:     (deviceId) => `${DEVICE_PREFIX}/admin/devices/${deviceId}`,
+  adminSuspend:    (deviceId) => `${DEVICE_PREFIX}/admin/devices/${deviceId}/suspend`,
+  adminResume:     (deviceId) => `${DEVICE_PREFIX}/admin/devices/${deviceId}/resume`,
+  adminRekey:      (deviceId) => `${DEVICE_PREFIX}/admin/devices/${deviceId}/rekey`,
+};
+
+// 设备状态机。pending/approved 不占设备限额；revoked 是墓碑（保留后清除）。
+// 禁止的迁移见 SPEC §16：pending→active、revoked→active、suspended→approved 一律 409。
+export const DEVICE_STATE = {
+  pending: 'pending',
+  approved: 'approved',
+  active: 'active',
+  suspended: 'suspended',
+  revoked: 'revoked',
+  rejected: 'rejected',
+  expired: 'expired',
+  conflict: 'conflict',
+  all: ['pending', 'approved', 'active', 'suspended', 'revoked', 'rejected', 'expired', 'conflict'],
+  // 只有这两个占用 maxDevices 配额
+  billable: ['active', 'suspended'],
+  // 这些状态仍然可以接受心跳（用来下发指令），但不得上传数据
+  reachable: ['active', 'suspended', 'revoked'],
+};
+
+export const ENROLLMENT = {
+  protocolVersion: 2,        // 下行协议版本；缺省 = 1（老客户端）
+  machineKeyPrefix: 'mk_',
+  machineKeyHexLen: 32,      // 16 字节 -> 32 hex
+  secretLenMin: 32,          // claimSecret / deviceToken 的 Bearer 长度下界
+  secretLenMax: 256,
+  claimTtlSeconds: 1800,     // 认领有效期（RFC 8628 的 expires_in 示例值）
+  pollIntervalSec: 5,        // 轮询间隔（RFC 8628 缺省）
+  pollSlowDownSec: 5,        // 限流时回包用，客户端按此加长间隔
+  ackDeadlineSec: 300,       // 批准→ack 的截止（超时作废未交付令牌）
+  grantTtlSeconds: 3600,     // 明文令牌的一次性交付窗口
+  tombstoneHours: 24,        // revoked 墓碑保留时长
+  maxPending: 5,             // 待批准上限（不占 maxDevices）
+  maxTombstones: 20,         // 墓碑上限
+  claimRatePerMinute: 10,    // 全局认领限流
+  claimRatePerKeyPerMinute: 5,
+  maxBodyBytes: 4096,        // 认领/确认请求体上限
+};
+
+// 管理员可以下发的设备配置白名单。
+// 红线：这里绝不能出现采样周期、串口号、波特率、Modbus 站号 —— 采集参数归本地。
+// allowedAddresses 是「允许上传的帧地址范围」，不是「本地去轮询哪些地址」。
+export const DEVICE_CONFIG = {
+  fields: [
+    'deviceId', 'alias', 'module',
+    'allowedAddresses', 'allowedPacks', 'allowedEquipment',
+    'allowSimulation', 'displayTimeZone',
+    'uploadEnabled', 'heartbeatIntervalSec',
+    'statusReason', 'changedBy', 'changedAtUtc', 'note',
+  ],
+  // 明确禁止：任何采集侧参数。出现即视为协议违规。
+  forbidden: [
+    'periodSeconds', 'sampleIntervalMs', 'pollIntervalMs',
+    'portName', 'comPort', 'baudRate', 'parity', 'dataBits', 'stopBits',
+    'slave', 'stationId', 'unitId',
+  ],
+};
+
+// 设备命令类型。
+export const DEVICE_COMMAND = {
+  types: ['stop-upload', 'resume-upload', 'reclaim', 'rotate-token', 'wipe-credentials'],
 };
 
 // ---------- 传输限额（硬约束，不可配置） ----------
@@ -319,6 +401,68 @@ export function validateHeartbeatRequest(body, module) {
     if (body.module !== 'experiment') errors.push('heartbeat: 实验端心跳必须带 module="experiment"');
     if (body.schemaVersion !== SCHEMA_VERSION) errors.push(`heartbeat: schemaVersion 必须为 ${SCHEMA_VERSION}`);
   }
+  // 设备配置下行：以下全部可选，缺失即「老客户端」。绝不因此拒绝心跳。
+  // protocolVersion 单独一个整数，不复用 schemaVersion（实验端对后者有 ===1 的硬断言）。
+  if (body.protocolVersion !== undefined && (!isInt(body.protocolVersion) || body.protocolVersion < 1 || body.protocolVersion > 99))
+    errors.push('heartbeat: protocolVersion 必须是 1..99 的整数');
+  if (body.machineKey !== undefined && !isMachineKey(body.machineKey))
+    errors.push(`heartbeat: machineKey 必须形如 ${ENROLLMENT.machineKeyPrefix}<${ENROLLMENT.machineKeyHexLen} 位小写 hex>`);
+  if (body.reportedConfigVersion !== undefined && (!isInt(body.reportedConfigVersion) || body.reportedConfigVersion < 0))
+    errors.push('heartbeat: reportedConfigVersion 必须是非负整数');
+  if (body.reportedCommandId !== undefined && (typeof body.reportedCommandId !== 'string' || body.reportedCommandId.length > 128))
+    errors.push('heartbeat: reportedCommandId 必须是 ≤128 字符的字符串');
+  return errors;
+}
+
+export const isMachineKey = (v) =>
+  typeof v === 'string'
+  && v.length === ENROLLMENT.machineKeyPrefix.length + ENROLLMENT.machineKeyHexLen
+  && v.startsWith(ENROLLMENT.machineKeyPrefix)
+  && /^[0-9a-f]+$/.test(v.slice(ENROLLMENT.machineKeyPrefix.length));
+
+/** 认领请求：无设备令牌，靠 claimSecret 证明「我是发起这次认领的那台机器」。 */
+export function validateClaimRequest(body) {
+  const errors = [];
+  if (!body || typeof body !== 'object') return ['claim: 不是对象'];
+  checkRequired(body, ['machineKey', 'module'], 'claim', errors);
+  if (!isMachineKey(body.machineKey))
+    errors.push(`claim: machineKey 必须形如 ${ENROLLMENT.machineKeyPrefix}<${ENROLLMENT.machineKeyHexLen} 位小写 hex>`);
+  checkEnum(body.module, MODULES, 'claim.module', errors);
+  if (body.protocolVersion !== undefined && (!isInt(body.protocolVersion) || body.protocolVersion < 1 || body.protocolVersion > 99))
+    errors.push('claim: protocolVersion 必须是 1..99 的整数');
+  if (body.desiredAlias !== undefined && (typeof body.desiredAlias !== 'string' || body.desiredAlias.length > 128))
+    errors.push('claim: desiredAlias 必须是 ≤128 字符的字符串（仅作管理员参考，不作为最终别名）');
+  return errors;
+}
+
+/**
+ * 设备配置白名单校验 —— 只用于「云端下发给客户端」的那份 config。
+ * 出现采集参数（串口/波特率/站号/采样周期）一律判违规：那是本地的东西，云端不许碰。
+ */
+export function validateDeviceConfigPayload(config) {
+  const errors = [];
+  if (!config || typeof config !== 'object') return ['deviceConfig: 不是对象'];
+  for (const field of DEVICE_CONFIG.forbidden)
+    if (Object.hasOwn(config, field)) errors.push(`deviceConfig: 不得下发采集参数 ${field}（采集配置归本地）`);
+  if (config.deviceId !== undefined && (typeof config.deviceId !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(config.deviceId)))
+    errors.push('deviceConfig: deviceId 必须匹配 ^[A-Za-z0-9_-]{1,80}$');
+  if (config.alias !== undefined && (typeof config.alias !== 'string' || config.alias.length > 128))
+    errors.push('deviceConfig: alias 必须是 ≤128 字符的字符串');
+  if (config.module !== undefined) checkEnum(config.module, MODULES, 'deviceConfig.module', errors);
+  if (config.allowedPacks !== undefined && (!Array.isArray(config.allowedPacks)
+      || config.allowedPacks.length > LEASE.requestedPacksMaxItems
+      || !config.allowedPacks.every((p) => isInt(p) && inRange(p, LEASE.requestedPackMin, LEASE.requestedPackMax))))
+    errors.push(`deviceConfig: allowedPacks 必须是 1..${LEASE.requestedPacksMaxItems} 项的 ${LEASE.requestedPackMin}..${LEASE.requestedPackMax} 整数数组`);
+  if (config.allowedAddresses !== undefined && (!Array.isArray(config.allowedAddresses)
+      || config.allowedAddresses.length > 16
+      || !config.allowedAddresses.every((a) => isInt(a) && a >= 1 && a <= 255)))
+    errors.push('deviceConfig: allowedAddresses 必须是 ≤16 项的 1..255 整数数组');
+  if (config.allowSimulation !== undefined && typeof config.allowSimulation !== 'boolean')
+    errors.push('deviceConfig: allowSimulation 必须是布尔');
+  if (config.uploadEnabled !== undefined && typeof config.uploadEnabled !== 'boolean')
+    errors.push('deviceConfig: uploadEnabled 必须是布尔');
+  if (config.heartbeatIntervalSec !== undefined && (!isInt(config.heartbeatIntervalSec) || config.heartbeatIntervalSec < 3 || config.heartbeatIntervalSec > 3600))
+    errors.push('deviceConfig: heartbeatIntervalSec 必须是 3..3600 的整数');
   return errors;
 }
 

@@ -6,11 +6,14 @@ import { RealtimeState } from './state.mjs';
 import { ExperimentState } from './experiment-state.mjs';
 import { catalog, equipment, historyPoints, validateExperimentSnapshot, validateExperimentBackfill } from './experiment-contract.mjs';
 import { ApiError, assert, object, identifier, packs, validateSnapshot, validateBmsBackfill } from './contract.mjs';
-import { TRANSPORT, HEARTBEAT, sanitizeClientReport } from './base-contract.mjs';
+import { TRANSPORT, HEARTBEAT, DEVICE_PREFIX, DEVICE_STATE, ENROLLMENT, sanitizeClientReport, validateClaimRequest, isMachineKey } from './base-contract.mjs';
+import { ClaimStore } from './claim.mjs';
 
 const PREFIX = '/api/realtime';
 const COOKIE = 'cloud_viewer';
-const apiPrefix=(url)=>['/api/monitoring','/api/experiment',PREFIX].find(p=>url===p||url?.startsWith(p+'/')||url?.startsWith(p+'?'));
+// /api/device 是模块无关的接入前缀：认领发生在「还没有设备令牌」的时候，
+// 不能塞进上面三个业务前缀（它们每个端点都要求 Bearer 令牌）。
+const apiPrefix=(url)=>['/api/monitoring','/api/experiment',DEVICE_PREFIX,PREFIX].find(p=>url===p||url?.startsWith(p+'/')||url?.startsWith(p+'?'));
 const moduleOf=(device)=>device.module??'bms';
 function sourceFilter(value) { assert(value == null || ['serial','simulation'].includes(value),400,'SOURCE_INVALID','数据来源无效'); return value ?? null; }
 function trendLimit(url) { const limit=Number(url.searchParams.get('limit')??2000); assert(Number.isInteger(limit)&&limit>=1&&limit<=2000,400,'LIMIT_INVALID','每页最多2000个趋势点'); return limit; }
@@ -59,9 +62,12 @@ export function createRealtimeApi(options = {}) {
   const state = new RealtimeState({...config,maxViewerLeases:config.maxViewerLeases??40,coordinator,devices:config.devices.filter(d=>moduleOf(d)==='bms')}, options.clocks);
   const experiment = new ExperimentState({...config,maxViewerLeases:config.maxViewerLeases??40,coordinator,devices:config.devices.filter(d=>moduleOf(d)==='experiment')},options.clocks);
   const states=[state,experiment];
+  // 认领存储：与 registry.json 分开放，避免半成品的 pending 记录触发 validateConfig 的逐条断言。
+  const claims = new ClaimStore(config, options.clocks);
   const boundLegacyIds = (systemConfig) => [systemConfig?.experimentDeviceId, systemConfig?.bmsDeviceId].filter(Boolean);
   const effectiveDeviceIds = (user, systemConfig = config.system, devices = config.devices) => {
-    const available = new Set(devices.map(d => d.deviceId));
+    // 墓碑对「实时观测」不可见：设备已经删了，不该出现在观看列表里。
+    const available = new Set(devices.filter(d => (d.state ?? 'active') !== 'revoked').map(d => d.deviceId));
     if (user.role === 'admin') return [...available];
     const ids = new Set((user.devices ?? []).filter(id => available.has(id)));
     if (user.monitoringAccess) for (const id of boundLegacyIds(systemConfig)) if (available.has(id)) ids.add(id);
@@ -159,7 +165,11 @@ export function createRealtimeApi(options = {}) {
     assert(/^Bearer [a-zA-Z0-9_\-+/=]{32,256}$/.test(header), 401, 'DEVICE_AUTH_REQUIRED', '设备身份验证失败');
     const hash = tokenHash(header.slice(7)); const d = config.devices.find((v) => equal(v.deviceTokenHash, hash));
     if (!d) rate(`invalid-token:${req.socket.remoteAddress}`, 120);
-    assert(d, 401, 'DEVICE_AUTH_REQUIRED', '设备身份验证失败'); assert(moduleOf(d)===module,403,'MODULE_FORBIDDEN','设备令牌不属于此模块'); return d;
+    assert(d, 401, 'DEVICE_AUTH_REQUIRED', '设备身份验证失败'); assert(moduleOf(d)===module,403,'MODULE_FORBIDDEN','设备令牌不属于此模块');
+    // 还没走完接入确认的设备不许发业务请求；revoked 保留可达，否则指令送不到。
+    const deviceState = d.state ?? DEVICE_STATE.active;
+    assert(deviceState !== DEVICE_STATE.pending && deviceState !== DEVICE_STATE.approved, 403, 'DEVICE_NOT_ACTIVE', '设备尚未完成接入确认');
+    return d;
   }
   function endStream(stream) { streams.delete(stream); if (!stream.res.writableEnded) stream.res.end(); }
   function write(stream, event, payload) {
@@ -197,8 +207,302 @@ export function createRealtimeApi(options = {}) {
     if (state.now() - lastKeepalive >= 15000) { lastKeepalive = state.now(); for (const stream of streams) write(stream); }
   }, 1000); maintenance.unref();
 
+  // ─────────── 设备接入（/api/device，模块无关） ───────────
+  function bearer(req) {
+    const header = req.headers.authorization ?? '';
+    const match = /^Bearer (.+)$/.exec(header);
+    return match ? match[1] : '';
+  }
+  function numbersList(values, max) {
+    assert(Array.isArray(values) && values.length > 0 && values.length <= 16 && values.every((v) => Number.isInteger(v) && v >= 1 && v <= max), 400, 'REGISTRATION_RANGE_INVALID', '地址或 Pack 范围无效');
+    return [...new Set(values)].sort((a, b) => a - b);
+  }
+  function claimView(record) {
+    return {
+      claimId: record.claimId,
+      state: record.state,
+      pollIntervalSec: ENROLLMENT.pollIntervalSec,
+      expiresAtUtc: record.expiresAtUtc,
+      serverTimeUtc: new Date(state.wall()).toISOString(),
+      message: record.state === 'pending' ? '等待管理员在设备管理页批准' : undefined,
+    };
+  }
+  function pendingView(record) {
+    return {
+      claimId: record.claimId,
+      machineKey: record.machineKey,
+      module: record.module,
+      desiredAlias: record.desiredAlias || null,
+      client: record.client ?? null,
+      createdAtUtc: record.createdAtUtc,
+      expiresAtUtc: record.expiresAtUtc,
+    };
+  }
+  function publicDevice(d) {
+    return {
+      deviceId: d.deviceId, alias: d.alias, module: moduleOf(d),
+      state: d.state ?? 'active',
+      machineKey: d.machineKey ?? null,
+      configVersion: d.configVersion ?? 1,
+      allowedPacks: d.allowedPacks ?? [], allowedAddresses: d.allowedAddresses ?? [],
+      allowedEquipment: d.allowedEquipment ?? null,
+      allowSimulation: d.allowSimulation === true,
+      statusReason: d.statusReason ?? '', changedBy: d.changedBy ?? null, changedAtUtc: d.changedAtUtc ?? null,
+      lastRotatedAt: d.lastRotatedAt ?? null,
+    };
+  }
+
+  async function routeDevice(req, res, pathname) {
+    // —— 设备侧：只认 claimSecret / deviceToken，不认浏览器会话 ——
+    if (pathname === '/claim' && req.method === 'POST') {
+      rate(`claim-ip:${req.socket.remoteAddress}`, ENROLLMENT.claimRatePerMinute);
+      const secret = bearer(req);
+      assert(secret && secret.length >= ENROLLMENT.secretLenMin && secret.length <= ENROLLMENT.secretLenMax, 401, 'CLAIM_SECRET_INVALID', '认领凭据无效');
+      const b = await readJson(req);
+      if (!isMachineKey(b?.machineKey)) assert(false, 400, 'MACHINE_KEY_INVALID', '机器钥匙格式无效');
+      rate(`claim-key:${b.machineKey}`, ENROLLMENT.claimRatePerKeyPerMinute);
+      const errors = validateClaimRequest(b);
+      assert(errors.length === 0, 400, 'CLAIM_INVALID', errors[0]);
+      const record = await claims.create({
+        machineKey: b.machineKey, module: b.module, claimSecret: secret,
+        desiredAlias: b.desiredAlias, client: sanitizeClientReport(b.client),
+      });
+      const view = claimView(record);
+      // 已批准且令牌还没被取走：把令牌连同配置一起交付（一次性）。
+      if (record.state === 'approved') {
+        const grant = await claims.takeGrant(record.grantId);
+        if (grant) {
+          const device = config.devices.find((d) => d.deviceId === grant.deviceId);
+          if (device) Object.assign(view, {
+            state: 'approved', deviceId: device.deviceId, deviceToken: grant.deviceToken,
+            configVersion: device.configVersion ?? 1, config: configOf(device),
+          });
+        } else view.tokenDelivered = true;
+      }
+      if (record.state === 'rejected') view.reason = record.rejectedReason;
+      return json(res, 201, view);
+    }
+
+    const claimStatus = pathname.match(/^\/claim\/([^/]+)$/);
+    if (claimStatus && req.method === 'POST') {
+      const secret = bearer(req);
+      assert(secret, 401, 'CLAIM_SECRET_INVALID', '认领凭据无效');
+      rate(`claim-poll:${claimStatus[1]}`, 30);
+      const record = await claims.auth(claimStatus[1], secret);
+      const view = claimView(record);
+      if (record.state === 'approved') {
+        const grant = await claims.takeGrant(record.grantId);
+        if (grant) {
+          const device = config.devices.find((d) => d.deviceId === grant.deviceId);
+          if (device) Object.assign(view, {
+            deviceId: device.deviceId, deviceToken: grant.deviceToken,
+            configVersion: device.configVersion ?? 1, config: configOf(device),
+          });
+        } else view.tokenDelivered = true;
+      }
+      if (record.state === 'rejected') view.reason = record.rejectedReason;
+      return json(res, 200, view);
+    }
+
+    if (pathname === '/ack' && req.method === 'POST') {
+      const secret = bearer(req);
+      assert(secret, 401, 'CLAIM_SECRET_INVALID', '认领凭据无效');
+      const b = await readJson(req);
+      assert(b && typeof b.claimId === 'string' && b.persisted === true, 400, 'ACK_INVALID', '必须在本地落盘成功后再确认');
+      rate(`claim-ack:${b.claimId}`, 20);
+      const record = await claims.auth(b.claimId, secret);
+      assert(record.state === 'approved' || record.state === 'active', 409, 'STATE_CONFLICT', '认领尚未批准或已失效');
+      const device = config.devices.find((d) => d.deviceId === record.deviceId);
+      assert(device, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+      if (record.state === 'approved') {
+        await registry.mutate((next) => {
+          const target = next.devices.find((d) => d.deviceId === record.deviceId);
+          assert(target, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+          target.state = DEVICE_STATE.active;
+          target.ackedAtUtc = new Date(state.wall()).toISOString();
+          target.configVersion = target.configVersion ?? 1;
+        });
+        await claims.remove(record.claimId);
+      }
+      return json(res, 200, {
+        state: DEVICE_STATE.active, deviceId: device.deviceId,
+        configVersion: device.configVersion ?? 1,
+        heartbeatIntervalSec: HEARTBEAT.intervalSeconds,
+        serverTimeUtc: new Date(state.wall()).toISOString(),
+      });
+    }
+
+    // —— 管理侧：浏览器会话 + 管理员 + CSRF ——
+    assert(pathname.startsWith('/admin/'), 404, 'NOT_FOUND', '接入接口不存在');
+    const s = session(req);
+    assert(s.user.role === 'admin', 403, 'ADMIN_REQUIRED', '只有管理员可以管理设备接入');
+    rate(`device-admin:${s.user.username}`, 120);
+
+    if (pathname === '/admin/claims' && req.method === 'GET') {
+      const list = await claims.listPending();
+      return json(res, 200, { claims: list.map(pendingView), pendingLimit: claims.maxPending });
+    }
+
+    const approveMatch = pathname.match(/^\/admin\/claims\/([^/]+)\/approve$/);
+    if (approveMatch && req.method === 'POST') {
+      mutation(req, s);
+      const b = await readJson(req);
+      const record = await claims.byClaimId(approveMatch[1]);
+      assert(record, 404, 'CLAIM_NOT_FOUND', '认领不存在或已过期');
+      assert(record.state === 'pending', 409, 'STATE_CONFLICT', '该认领已处理');
+      const deviceId = (typeof b.deviceId === 'string' && b.deviceId.trim()) || record.machineKey;
+      assert(/^[A-Za-z0-9_-]{1,80}$/.test(deviceId), 400, 'DEVICE_ID_INVALID', '设备编号只能包含字母、数字、下划线或短横线');
+      const module = record.module;
+      const alias = (typeof b.alias === 'string' && b.alias.trim()) || record.desiredAlias || `设备 ${deviceId.slice(-6)}`;
+      const permissions = module === 'experiment'
+        ? { allowedEquipment: equipment(b.allowedEquipment, undefined) }
+        : { allowedPacks: numbersList(b.allowedPacks, 16), allowedAddresses: numbersList(b.allowedAddresses ?? [1], 255) };
+      const deviceToken = opaque();
+      const created = await registry.mutate((next) => {
+        assert(!next.devices.some((d) => d.deviceId === deviceId), 409, 'DEVICE_EXISTS', '设备编号已存在');
+        assert(next.devices.filter((d) => DEVICE_STATE.billable.includes(d.state ?? 'active')).length < (config.maxDevices ?? 20), 409, 'DEVICE_LIMIT', '已注册设备数达到上限');
+        const device = {
+          deviceId, alias: alias.trim().slice(0, 128), module, ...permissions,
+          deviceTokenHash: tokenHash(deviceToken), allowSimulation: b.allowSimulation === true,
+          displayTimeZone: 'Asia/Shanghai',
+          state: DEVICE_STATE.approved, machineKey: record.machineKey,
+          configVersion: 1, enrolledVia: 'claim', protocolVersion: ENROLLMENT.protocolVersion,
+          approvedAtUtc: new Date(state.wall()).toISOString(), changedBy: s.user.username,
+          changedAtUtc: new Date(state.wall()).toISOString(), statusReason: b.note ?? '',
+        };
+        next.devices.push(device);
+        return device;
+      });
+      const { grantId } = await claims.approve(record.claimId, { deviceId, deviceToken, configVersion: 1 });
+      return json(res, 201, { claimId: record.claimId, deviceId, state: DEVICE_STATE.approved, configVersion: 1, grantId });
+    }
+
+    const rejectMatch = pathname.match(/^\/admin\/claims\/([^/]+)\/reject$/);
+    if (rejectMatch && req.method === 'POST') {
+      mutation(req, s);
+      const b = await readJson(req);
+      const record = await claims.reject(rejectMatch[1], b?.reason);
+      return json(res, 200, { claimId: record.claimId, state: record.state, reason: record.rejectedReason });
+    }
+
+    if (pathname === '/admin/devices' && req.method === 'GET') {
+      return json(res, 200, { devices: config.devices.map(publicDevice) });
+    }
+
+    const deviceMatch = pathname.match(/^\/admin\/devices\/([^/]+)$/);
+    if (deviceMatch && req.method === 'PUT') {
+      mutation(req, s);
+      const b = await readJson(req);
+      const updated = await registry.mutate((next) => {
+        const target = next.devices.find((d) => d.deviceId === deviceMatch[1]);
+        assert(target, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+        if (b.expectedConfigVersion != null) assert((target.configVersion ?? 1) === b.expectedConfigVersion, 409, 'STATE_CONFLICT', '配置已被其他人修改，请刷新后重试');
+        if (typeof b.alias === 'string' && b.alias.trim()) target.alias = b.alias.trim().slice(0, 128);
+        if (moduleOf(target) === 'experiment') { if (b.allowedEquipment !== undefined) target.allowedEquipment = equipment(b.allowedEquipment, undefined); }
+        else { if (b.allowedPacks !== undefined) target.allowedPacks = numbersList(b.allowedPacks, 16); if (b.allowedAddresses !== undefined) target.allowedAddresses = numbersList(b.allowedAddresses, 255); }
+        if (typeof b.allowSimulation === 'boolean') target.allowSimulation = b.allowSimulation;
+        if (typeof b.note === 'string') target.statusReason = b.note.slice(0, 200);
+        target.configVersion = (target.configVersion ?? 1) + 1;
+        target.changedBy = s.user.username;
+        target.changedAtUtc = new Date(state.wall()).toISOString();
+        return publicDevice(target);
+      });
+      return json(res, 200, updated);
+    }
+
+    const actionMatch = pathname.match(/^\/admin\/devices\/([^/]+)\/(suspend|resume|rekey)$/);
+    if (actionMatch && req.method === 'POST') {
+      mutation(req, s);
+      const [, deviceId, action] = actionMatch;
+      const b = await readJson(req).catch(() => ({}));
+      if (action === 'rekey') {
+        const deviceToken = opaque();
+        await registry.mutate((next) => {
+          const target = next.devices.find((d) => d.deviceId === deviceId);
+          assert(target, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+          target.deviceTokenHash = tokenHash(deviceToken);
+          target.lastRotatedAt = new Date(state.wall()).toISOString();
+          target.configVersion = (target.configVersion ?? 1) + 1;
+        });
+        return json(res, 200, { deviceId, deviceToken });
+      }
+      const nextState = action === 'suspend' ? DEVICE_STATE.suspended : DEVICE_STATE.active;
+      const updated = await registry.mutate((next) => {
+        const target = next.devices.find((d) => d.deviceId === deviceId);
+        assert(target, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+        assert((target.state ?? 'active') !== DEVICE_STATE.revoked, 409, 'STATE_CONFLICT', '设备已删除，需重新认领');
+        target.state = nextState;
+        target.configVersion = (target.configVersion ?? 1) + 1;
+        target.statusReason = typeof b.reason === 'string' ? b.reason.slice(0, 200) : '';
+        target.changedBy = s.user.username;
+        target.changedAtUtc = new Date(state.wall()).toISOString();
+        return publicDevice(target);
+      });
+      return json(res, 200, updated);
+    }
+
+    if (deviceMatch && req.method === 'DELETE') {
+      mutation(req, s);
+      const b = await readJson(req).catch(() => ({}));
+      const updated = await registry.mutate((next) => {
+        const target = next.devices.find((d) => d.deviceId === deviceMatch[1]);
+        assert(target, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+        // 写墓碑而不是立即从数组删除：立即删会让设备心跳拿到 401，
+        // 而客户端对 401 有自动续期逻辑，会变成无限重试。
+        target.state = DEVICE_STATE.revoked;
+        target.configVersion = (target.configVersion ?? 1) + 1;
+        target.statusReason = typeof b.reason === 'string' ? b.reason.slice(0, 200) : '设备已删除';
+        target.purgeAfterUtc = new Date(state.wall() + ENROLLMENT.tombstoneHours * 3600000).toISOString();
+        target.allowReclaim = b.allowReclaim === true;
+        target.changedBy = s.user.username;
+        target.changedAtUtc = new Date(state.wall()).toISOString();
+        for (const user of next.users) user.devices = (user.devices ?? []).filter((id) => id !== target.deviceId);
+        return publicDevice(target);
+      });
+      return json(res, 200, updated);
+    }
+
+    throw new ApiError(404, 'NOT_FOUND', '接入接口不存在');
+  }
+
+  /**
+   * 停用/删除时下发的指令。用显式命令而不是 401 —— 客户端对 401 有自动续期逻辑，
+   * 而续期端点同样要鉴权，会变成「401 → 续期 → 401」的死循环。
+   */
+  function commandsFor(device, deviceState) {
+    const base = `${device.deviceId}:${device.configVersion ?? 1}`;
+    if (deviceState === DEVICE_STATE.suspended) {
+      return [{ commandId: `${base}:1`, type: 'stop-upload', reason: device.statusReason || 'suspended', issuedAtUtc: device.changedAtUtc ?? null }];
+    }
+    if (deviceState === DEVICE_STATE.revoked) {
+      return [
+        { commandId: `${base}:1`, type: 'stop-upload', reason: device.statusReason || 'revoked', issuedAtUtc: device.changedAtUtc ?? null },
+        { commandId: `${base}:2`, type: 'wipe-credentials', reason: 'revoked', issuedAtUtc: device.changedAtUtc ?? null },
+        { commandId: `${base}:3`, type: 'reclaim', reason: 'revoked', issuedAtUtc: device.changedAtUtc ?? null },
+      ];
+    }
+    return [];
+  }
+
+  /** 下发给设备的配置。白名单：绝不含采集参数。 */
+  function configOf(device) {
+    return {
+      deviceId: device.deviceId, alias: device.alias, module: moduleOf(device),
+      allowedPacks: device.allowedPacks ?? [], allowedAddresses: device.allowedAddresses ?? [],
+      allowedEquipment: device.allowedEquipment ?? null,
+      allowSimulation: device.allowSimulation === true,
+      displayTimeZone: device.displayTimeZone ?? 'Asia/Shanghai',
+      uploadEnabled: (device.state ?? 'active') === DEVICE_STATE.active,
+      heartbeatIntervalSec: HEARTBEAT.intervalSeconds,
+      statusReason: device.statusReason ?? '', changedBy: device.changedBy ?? null,
+      changedAtUtc: device.changedAtUtc ?? null, note: device.statusReason ?? '',
+    };
+  }
+
   async function route(req, res) {
     const url = new URL(req.url, 'http://internal'); const prefix=apiPrefix(req.url), isMonitoring=prefix==='/api/monitoring', isExperiment=prefix==='/api/experiment', module=isExperiment?'experiment':'bms'; const state=isExperiment?experiment:states[0]; const pathname = url.pathname.slice(prefix.length);
+    // 接入前缀单独分流：必须早于 /admin 与 /heartbeat 判断，否则 module 会被算成 bms。
+    if (prefix === DEVICE_PREFIX) return routeDevice(req, res, pathname, url);
     if(isExperiment && pathname.startsWith('/admin'))throw new ApiError(404,'NOT_FOUND','管理接口位于统一设备管理入口');
     if (pathname === '/setup/status' && req.method === 'GET') { rate(`setup-status:${req.socket.remoteAddress}`, 120); return json(res, 200, setupStatus(config)); }
     if (pathname === '/setup/bootstrap' && req.method === 'POST') {
@@ -224,7 +528,28 @@ export function createRealtimeApi(options = {}) {
       // 自述块永不参与鉴权与心跳成败判定：坏数据降级为 null，心跳照常成功。
       const lease = state.heartbeat(d.deviceId, sanitizeClientReport(b.client));
       // 回包带上服务端时间与协商的心跳周期：设备据此算时钟偏移，两端对「多久来一次」有同一份事实。
-      return json(res, 200, { ...lease, serverTimeUtc: state.iso(), heartbeatIntervalSec: HEARTBEAT.intervalSeconds });
+      const payload = { ...lease, serverTimeUtc: state.iso(), heartbeatIntervalSec: HEARTBEAT.intervalSeconds };
+      // 只有声明 protocolVersion>=2 的客户端才追加新字段。
+      // 老客户端（含灰度期的旧版本）回包必须逐字节保持旧形状，否则它自己的解析器会以为协议变了。
+      const protocol = Number.isInteger(b.protocolVersion) ? b.protocolVersion : 1;
+      if (protocol >= 2) {
+        const deviceState = d.state ?? DEVICE_STATE.active;
+        const uploadAllowed = deviceState === DEVICE_STATE.active;
+        if (!uploadAllowed) {
+          // 停用/删除：连租约一起收回，避免客户端拿着旧租约继续传。
+          payload.subscriptionId = ''; payload.leaseSeconds = 0; payload.backfillSeconds = 0;
+          payload[isExperiment ? 'requestedDevices' : 'requestedPacks'] = [];
+        }
+        payload.protocolVersion = ENROLLMENT.protocolVersion;
+        payload.state = deviceState;
+        payload.uploadAllowed = uploadAllowed;
+        payload.configVersion = d.configVersion ?? 1;
+        const reported = Number.isInteger(b.reportedConfigVersion) ? b.reportedConfigVersion : 0;
+        if (reported !== payload.configVersion) payload.config = configOf(d);
+        const commands = commandsFor(d, deviceState);
+        if (commands.length) payload.commands = commands;
+      }
+      return json(res, 200, payload);
     }
     // 设备自助续期：旧令牌换新令牌，管理员不参与。身份不变，只换凭据。
     if (pathname === '/device/refresh' && req.method === 'POST') {
@@ -233,6 +558,12 @@ export function createRealtimeApi(options = {}) {
     }
     if (pathname === '/snapshots' && req.method === 'POST') {
       const d = deviceAuth(req, module);
+      // 停用/删除只切断上传，不影响本地采集。注意用 403 而不是 401：
+      // 401 会触发客户端的自动续期逻辑，进而变成无限重试。
+      const deviceState = d.state ?? DEVICE_STATE.active;
+      assert(deviceState === DEVICE_STATE.active, deviceState === DEVICE_STATE.revoked ? 410 : 403,
+        deviceState === DEVICE_STATE.revoked ? 'DEVICE_REVOKED' : 'DEVICE_SUSPENDED',
+        deviceState === DEVICE_STATE.revoked ? '设备已删除，请重新认领' : '设备已停用，云端不接受上传');
       if (isExperiment) experiment.recordSnapshotAttempt(d.deviceId);
       try {
         rate(`snapshots:${d.deviceId}`, 1800); const b = await readJson(req);
@@ -246,7 +577,11 @@ export function createRealtimeApi(options = {}) {
       }
     }
     if (pathname === '/backfill' && req.method === 'POST') {
-      const d = deviceAuth(req, module); rate(`backfill:${d.deviceId}`, 300); const b = await readJson(req, TRANSPORT.backfillBodyMaxBytes);
+      const d = deviceAuth(req, module);
+      const deviceState = d.state ?? DEVICE_STATE.active;
+      assert(deviceState === DEVICE_STATE.active, deviceState === DEVICE_STATE.revoked ? 410 : 403,
+        deviceState === DEVICE_STATE.revoked ? 'DEVICE_REVOKED' : 'DEVICE_SUSPENDED', '设备未处于可上传状态');
+      rate(`backfill:${d.deviceId}`, 300); const b = await readJson(req, TRANSPORT.backfillBodyMaxBytes);
       const payload = isExperiment ? validateExperimentBackfill(b, deviceAuth(req,module)) : validateBmsBackfill(b, deviceAuth(req,module));
       return json(res, 200, state.backfill(d.deviceId, payload.subscriptionId, payload.points));
     }

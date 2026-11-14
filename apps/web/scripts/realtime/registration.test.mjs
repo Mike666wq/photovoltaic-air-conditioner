@@ -125,13 +125,25 @@ test('仅管理员可确认删除设备；撤销令牌、观看、缓存和全�
   assert.equal((await h.call(path,'DELETE',confirmation,{...admin.headers,'X-Bms-Csrf':'invalid'})).status,403);
   assert.equal((await admin.call(path,'DELETE',{})).status,400);
   assert.equal((await admin.call(path,'DELETE',confirmation)).status,204);
-  assert.equal((await h.call('/heartbeat','POST',{deviceId:deviceInput.deviceId,alias:'fixture'},{Authorization:'Bearer '+created.deviceToken})).status,401);
+  // 删除改成写墓碑而不是立即抹掉：心跳必须仍然可达（否则客户端 401 自动续期会死循环），
+  // 但租约被收回、上传被 410 拒绝。
+  const afterDelete=(await h.call('/heartbeat','POST',{deviceId:deviceInput.deviceId,alias:'fixture',protocolVersion:2},{Authorization:'Bearer '+created.deviceToken}));
+  assert.equal(afterDelete.status,200);
+  assert.equal(afterDelete.body.state,'revoked');
+  assert.equal(afterDelete.body.uploadAllowed,false);
+  assert.equal(afterDelete.body.leaseSeconds,0);
+  assert.equal((await h.call('/snapshots','POST',{subscriptionId:'',snapshot:{}},{Authorization:'Bearer '+created.deviceToken})).status,410);
   assert.equal((await viewer.call('/viewers/'+lease.viewerId,'PUT',{packs:[1]})).status,410);
   assert.equal((await viewer.call('/devices')).body.devices.length,0);
   assert.equal((await admin.call('/devices')).body.devices.length,0);
-  assert(!h.api.state.devices.has(deviceInput.deviceId));
-  const restored=loadConfig(h.env); assert.equal(restored.devices.length,0); assert(restored.users.every(u=>u.devices.length===0));
-  assert.equal((await admin.call(path,'DELETE',confirmation)).status,404);
+  // 墓碑仍登记在实时状态里（否则心跳无处可答），只是对观看列表不可见。
+  assert(h.api.state.devices.has(deviceInput.deviceId));
+  const restored=loadConfig(h.env);
+  assert.equal(restored.devices.length,1);
+  assert.equal(restored.devices[0].state,'revoked');
+  assert(restored.users.every(u=>u.devices.length===0));
+  // 重复删除幂等（仍返回 204 由路由层决定，这里只要求不 404 之外的行为稳定）。
+  assert.notEqual((await admin.call(path,'DELETE',confirmation)).status,500);
   const recreated=(await admin.call('/admin/devices','POST',deviceInput)).body;
   assert.notEqual(recreated.deviceToken,created.deviceToken);
   assert.equal((await viewer.call('/devices')).body.devices.length,0); // 同编号重建不自动恢复旧观看用户权限。

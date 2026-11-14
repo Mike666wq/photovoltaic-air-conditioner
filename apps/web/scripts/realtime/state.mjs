@@ -21,7 +21,9 @@ export class RealtimeState {
     }
     for (const registration of registrations) {
       const old = this.devices.get(registration.deviceId);
-      if (old && old.registration.deviceTokenHash === registration.deviceTokenHash) { old.registration = registration; continue; }
+      // 设备被删除（墓碑）时，即使令牌没变也要清一次数据：观看者、缓存、趋势都不该留着。
+      const revokedNow = (registration.state ?? 'active') === 'revoked';
+      if (old && old.registration.deviceTokenHash === registration.deviceTokenHash && !revokedNow) { old.registration = registration; continue; }
       if (old) {
         for (const viewer of [...this.viewers.values()]) if (viewer.deviceId === registration.deviceId) this.release(viewer.viewerId, viewer.owner);
         this.clearData(registration.deviceId); this.emit('cache-cleared', registration.deviceId, { deviceId: registration.deviceId, reason: 'token-rotated' });

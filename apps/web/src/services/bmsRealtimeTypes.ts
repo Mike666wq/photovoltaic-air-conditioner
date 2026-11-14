@@ -43,6 +43,26 @@ export interface BmsClientReport {
   };
 }
 export interface BmsTimelineEvent { at: string; type: string; detail: string | null }
+
+/** 等待管理员批准的新设备。它不占设备额度，24 小时未处理会自动过期。 */
+export interface PendingClaim {
+  claimId: string;
+  machineKey: string;
+  module: 'bms' | 'experiment';
+  desiredAlias: string | null;
+  client?: BmsClientReport | null;
+  createdAtUtc: string;
+  expiresAtUtc: string;
+}
+/** 云端统一管理的设备视图。state 决定它能不能上传。 */
+export interface ManagedDevice {
+  deviceId: string; alias: string; module: 'bms' | 'experiment';
+  state: 'pending' | 'approved' | 'active' | 'suspended' | 'revoked' | 'rejected' | 'expired' | 'conflict';
+  machineKey: string | null; configVersion: number;
+  allowedPacks: number[]; allowedAddresses: number[]; allowedEquipment: string[] | null;
+  allowSimulation: boolean; statusReason: string;
+  changedBy: string | null; changedAtUtc: string | null; lastRotatedAt: string | null;
+}
 export interface BmsDevice {
   module?: 'bms' | 'experiment'; allowedEquipment?: string[]; deviceId: string; alias: string;
   allowedPacks: number[]; allowedAddresses?: number[]; allowSimulation?: boolean;

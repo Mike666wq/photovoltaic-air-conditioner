@@ -21,6 +21,10 @@ export async function registerDevice(registry, body) {
   const permissions=module==='experiment'?{allowedEquipment:equipment(body.allowedEquipment)}:{allowedPacks:numbers(body.allowedPacks,16),allowedAddresses:numbers(body.allowedAddresses,255)};
   const deviceToken = opaque();
   return registry.mutate((next) => {
+    // 墓碑保留原编号 24 小时以便把「你已被删除」这条指令送达。
+    // 但管理员显式用同编号重建时，应当让位：先清墓碑，再按新设备注册。
+    const tombstone = next.devices.find((d) => d.deviceId === body.deviceId && (d.state ?? 'active') === 'revoked');
+    if (tombstone) next.devices = next.devices.filter((d) => d !== tombstone);
     assert(!next.devices.some((d) => d.deviceId === body.deviceId), 409, 'DEVICE_EXISTS', '设备编号已注册，请核对设备或使用令牌轮换');
     assert(next.devices.length < (registry.config.maxDevices ?? 20), 409, 'DEVICE_LIMIT', '已注册设备数达到上限');
     next.devices.push({ deviceId: body.deviceId, alias: body.alias.trim(), module, ...permissions, deviceTokenHash: tokenHash(deviceToken), allowSimulation: body.allowSimulation ?? false, displayTimeZone: 'Asia/Shanghai' });
@@ -68,11 +72,25 @@ export function refreshDevice(registry, deviceId) {
   });
 }
 
+/**
+ * 删除设备：写「墓碑」，不立即从数组里抹掉。
+ *
+ * 立即删除会让该设备心跳瞬间变成 401，而客户端对 401 有自动续期逻辑，
+ * 续期端点同样要鉴权 → 401 → 无限重试。留下 24 小时墓碑，让心跳继续可答，
+ * 由回包里的 revoke 指令告诉客户端「你已被删除」，客户端自行停药。
+ * 墓碑到期后由维护任务清理。
+ */
 export function deleteDevice(registry, deviceId, body) {
   assert(body.confirmDeviceId === deviceId, 400, 'CONFIRMATION_REQUIRED', '请确认需要删除的设备编号');
   return registry.mutate((next) => {
-    assert(next.devices.some((d) => d.deviceId === deviceId), 404, 'DEVICE_NOT_FOUND', '设备不存在');
-    next.devices = next.devices.filter((d) => d.deviceId !== deviceId);
+    const target = next.devices.find((d) => d.deviceId === deviceId);
+    assert(target, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+    target.state = 'revoked';
+    target.configVersion = (target.configVersion ?? 1) + 1;
+    target.statusReason = '设备已删除';
+    target.purgeAfterUtc = new Date(Date.now() + 24 * 3600000).toISOString();
+    target.changedBy = target.changedBy ?? null;
+    target.changedAtUtc = new Date().toISOString();
     for (const user of next.users) user.devices = user.devices.filter((id) => id !== deviceId);
     if (next.system.experimentDeviceId === deviceId) next.system.experimentDeviceId = null;
     if (next.system.bmsDeviceId === deviceId) next.system.bmsDeviceId = null;
