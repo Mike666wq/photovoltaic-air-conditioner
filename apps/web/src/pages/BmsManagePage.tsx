@@ -101,8 +101,9 @@ export function BmsManagePage() {
           if (!alive) return;
           if (!user || user.role !== 'admin') { navigate('/monitoring', { replace: true }); return; }
           setIdentity(user);
-          const result = await bmsApi.registry();
-          if (alive) { setRegistry(result); setDevices(result.devices); }
+          // 必须走 reload()：它同时取注册表、待批准设备、设备管理视图三块。
+          // 之前这里直接调 registry()，待批准列表压根没请求过，所以永远显示空。
+          if (alive) await reload();
         }
       } catch (cause) { if (alive) setError(cause instanceof Error ? cause.message : '无法读取管理状态'); }
       finally { if (alive) setReady(true); }
