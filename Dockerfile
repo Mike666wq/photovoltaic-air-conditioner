@@ -36,7 +36,7 @@ COPY --from=builder /build/apps/web/scripts/serve-prod.mjs ./scripts/serve-prod.
 # base-contract.mjs 是 contract/auth/state/routes 的共同依赖（租约、配额、传输上限），
 # 漏拷会在运行期 import 失败，容器直接退出、健康检查永远不过。
 COPY --from=builder /build/apps/web/scripts/realtime/base-contract.mjs /build/apps/web/scripts/realtime/contract.mjs /build/apps/web/scripts/realtime/auth.mjs /build/apps/web/scripts/realtime/state.mjs /build/apps/web/scripts/realtime/cache-coordinator.mjs /build/apps/web/scripts/realtime/routes.mjs ./scripts/realtime/
-COPY --from=builder /build/apps/web/scripts/realtime/registry.mjs /build/apps/web/scripts/realtime/registration.mjs ./scripts/realtime/
+COPY --from=builder /build/apps/web/scripts/realtime/registry.mjs /build/apps/web/scripts/realtime/registration.mjs /build/apps/web/scripts/realtime/claim.mjs ./scripts/realtime/
 
 COPY --from=builder /build/apps/web/scripts/realtime/experiment-contract.mjs /build/apps/web/scripts/realtime/experiment-state.mjs ./scripts/realtime/
 COPY --from=builder /build/apps/web/shared/experiment/point-contract.json ./shared/experiment/point-contract.json
