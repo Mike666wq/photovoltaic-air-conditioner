@@ -26,7 +26,31 @@ export interface BmsSnapshot {
 /** 44 告警帧的时间与采集轮次独立于 42 实时快照。 */
 export interface BmsAlarmObservation { observedUtc: string; acquisitionRound: number; pack: number; payloadHex: string }
 export interface BmsSample { snapshot: BmsSnapshot; receivedAt: string; stale: boolean; acceptedOrder: number }
-export interface BmsDevice { module?: 'bms' | 'experiment'; allowedEquipment?: string[]; deviceId: string; alias: string; allowedPacks: number[]; allowedAddresses?: number[]; allowSimulation?: boolean; online: boolean; lastHeartbeatAt: string | null }
+/** 设备自述的失败阶段。未知阶段服务端已丢弃，这里只列契约里存在的。 */
+export type BmsClientStage = 'DNS' | 'PROXY' | 'TCP' | 'TLS' | 'AUTH' | 'HTTP' | 'PROTOCOL' | 'SERIAL';
+export interface BmsClientError { stage: BmsClientStage; code?: string; httpStatus?: number; atUtc?: string; message?: string; count?: number }
+/** 心跳里搭车上报的现场体检结果。字段缺省 = 未知，绝不等于正常。 */
+export interface BmsClientReport {
+  version?: string; startedUtc?: string; uptimeSec?: number; localTimeUtc?: string; tzOffsetMin?: number;
+  cloudEnabled?: boolean; tokenDecryptable?: boolean; lastSuccessUtc?: string;
+  consecutiveFailures?: number; nextRetryInSec?: number;
+  lastError?: BmsClientError;
+  lastUpload?: { attemptUtc?: string; acceptedUtc?: string; lastError?: BmsClientError };
+  source?: {
+    session?: string;
+    serial?: { port?: string; open?: boolean; lastFrameUtc?: string };
+    modbus?: { port?: string; open?: boolean; lastFrameUtc?: string };
+  };
+}
+export interface BmsTimelineEvent { at: string; type: string; detail: string | null }
+export interface BmsDevice {
+  module?: 'bms' | 'experiment'; allowedEquipment?: string[]; deviceId: string; alias: string;
+  allowedPacks: number[]; allowedAddresses?: number[]; allowSimulation?: boolean;
+  online: boolean; lastHeartbeatAt: string | null;
+  // 离线诊断三件套：从没见过 / 见过但漏了几拍 / 设备自己说它怎么了
+  firstSeenAt?: string | null; missedBeats?: number | null;
+  client?: BmsClientReport | null; clientAt?: string | null; clockSkewSec?: number | null;
+}
 export interface BmsSetupStatus { enabled: boolean; initialized: boolean; writable: boolean; bootstrapAvailable: boolean; serviceRoot: string | null }
 export interface BmsRegisteredUser { username: string; role: 'viewer' | 'admin'; devices: string[]; effectiveDeviceIds?: string[]; monitoringAccess?: boolean; disabled?: boolean }
 export interface MonitoringSystemConfig { name: string; experimentDeviceId: string | null; bmsDeviceId: string | null; allowSimulation: boolean }

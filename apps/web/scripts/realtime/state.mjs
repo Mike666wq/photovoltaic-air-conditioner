@@ -2,12 +2,12 @@ import { performance } from 'node:perf_hooks';
 import { opaque } from './auth.mjs';
 import { CacheCoordinator } from './cache-coordinator.mjs';
 import { assert, BACKFILL_SECONDS } from './contract.mjs';
-import { LEASE } from './base-contract.mjs';
+import { LEASE, HEARTBEAT } from './base-contract.mjs';
 
 // 每个观测保留一小时；全局容量由跨模块协调器原子预留。
 export class RealtimeState {
   constructor(config, clocks = {}) {
-    this.config = { cacheMs: 3600000, backfillMs: BACKFILL_SECONDS * 1000, maxPoints: 600, viewerMs: LEASE.viewerTtlSeconds * 1000, maxViewers: 4, maxViewerLeases: 40, ...config };
+    this.config = { cacheMs: 3600000, backfillMs: BACKFILL_SECONDS * 1000, maxPoints: 600, viewerMs: LEASE.viewerTtlSeconds * 1000, maxViewers: 4, maxViewerLeases: 40, heartbeatMs: HEARTBEAT.intervalSeconds * 1000, ...config };
     this.now = clocks.now ?? (() => performance.now()); this.wall = clocks.wall ?? (() => Date.now());
     this.coordinator = config.coordinator ?? new CacheCoordinator(this.config, clocks);
     this.devices = new Map(); this.viewers = new Map(); this.listeners = new Set(); this.lastDeepPrune = -Infinity;
@@ -29,12 +29,52 @@ export class RealtimeState {
       this.devices.set(registration.deviceId, this.newDevice(registration));
     }
   }
-  newDevice(registration) { return { registration, heartbeat: -Infinity, lastHeartbeatAt: null, lastOnline: false, lease: null, currentSession: null, sessionSeen: -Infinity, retired: new Map(), latest: new Map(), rings: new Map(), watermarks: new Map() }; }
+  newDevice(registration) {
+    return {
+      registration, heartbeat: -Infinity, lastHeartbeatAt: null, lastOnline: false,
+      // 离线诊断：firstSeenAt 区分「从未连上」与「连过又断」——这两种的处置完全不同。
+      firstSeenAt: null, client: null, clientAt: null, clockSkewSec: null, lastErrorKey: null,
+      // 设备事件环形缓冲：只记状态跃变，不记每一次心跳（否则 200 条只够存 50 分钟）。
+      timeline: [],
+      lease: null, currentSession: null, sessionSeen: -Infinity,
+      retired: new Map(), latest: new Map(), rings: new Map(), watermarks: new Map(),
+    };
+  }
+  pushEvent(d, type, detail) {
+    if (!HEARTBEAT.eventEnum.includes(type)) return null;
+    const at = this.iso();
+    const entry = { at, type, detail: detail ?? null };
+    d.timeline.push(entry);
+    if (d.timeline.length > HEARTBEAT.timelineMaxEntries) d.timeline.splice(0, d.timeline.length - HEARTBEAT.timelineMaxEntries);
+    this.emit('device-event', d.registration.deviceId, entry);
+    return entry;
+  }
+  timelineOf(id, limit = 50) {
+    const d = this.device(id);
+    const n = Math.max(1, Math.min(HEARTBEAT.timelineMaxEntries, Number(limit) || 50));
+    return { deviceId: id, events: d.timeline.slice(-n) };
+  }
   iso(ms = 0) { return new Date(this.wall() + ms).toISOString(); }
   emit(type, deviceId, payload) { for (const f of this.listeners) f(type, deviceId, payload); }
   device(id) { const d = this.devices.get(id); assert(d, 404, 'DEVICE_NOT_FOUND', '设备不存在'); return d; }
-  online(d) { return this.now() - d.heartbeat < 45000; }
-  info(d) { return { deviceId: d.registration.deviceId, alias: d.registration.alias, allowedPacks: d.registration.allowedPacks, allowedAddresses: d.registration.allowedAddresses, allowSimulation: d.registration.allowSimulation, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt }; }
+  // 连续漏检次数：null = 从未收到过心跳（≠ 离线）。达到 offlineAfterMisses 才翻「离线」，
+  // 这样单次丢包不会把设备标红（AWS 的做法：翻转前要复核，别被一次超时骗了）。
+  missedBeats(d) {
+    if (d.heartbeat === -Infinity) return null;
+    return Math.max(0, Math.floor((this.now() - d.heartbeat) / this.config.heartbeatMs));
+  }
+  online(d) { const m = this.missedBeats(d); return m !== null && m < HEARTBEAT.offlineAfterMisses; }
+  info(d) {
+    return {
+      deviceId: d.registration.deviceId, alias: d.registration.alias,
+      allowedPacks: d.registration.allowedPacks, allowedAddresses: d.registration.allowedAddresses,
+      allowSimulation: d.registration.allowSimulation,
+      online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt,
+      // 离线诊断三件套：从没见过 / 见过但漏了几拍 / 设备自己说它怎么了
+      firstSeenAt: d.firstSeenAt, missedBeats: this.missedBeats(d),
+      client: d.client, clientAt: d.clientAt, clockSkewSec: d.clockSkewSec,
+    };
+  }
   active(id) { return [...this.viewers.values()].filter(v => v.deviceId === id && v.until > this.now()); }
   requested(id) { return [...new Set(this.active(id).flatMap(v => v.packs))].sort((a, b) => typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))); }
   requestedHistory(id) {
@@ -55,7 +95,12 @@ export class RealtimeState {
       }
       for (const [k, until] of d.retired) if (until <= now) d.retired.delete(k);
       for (const [k, w] of d.watermarks) if (now - w.mono >= this.config.cacheMs) d.watermarks.delete(k);
-      const online = this.online(d); if (d.lastOnline !== online) { d.lastOnline = online; this.emit('device-status', id, this.info(d)); }
+      const online = this.online(d);
+      if (d.lastOnline !== online) {
+        d.lastOnline = online;
+        if (!online) this.pushEvent(d, 'offline', `连续漏检 ${this.missedBeats(d)} 拍`);
+        this.emit('device-status', id, this.info(d));
+      }
       if (!this.coordinator.retained(id, now) && !this.active(id).length) this.clearData(id);
     }
     if (now - this.lastDeepPrune >= 60000) this.lastDeepPrune = now;
@@ -85,8 +130,31 @@ export class RealtimeState {
     this.viewers.delete(id); this.coordinator.viewerEnded(id, this.now()); this.emit('viewer-ended', v.deviceId, { viewerId: id });
     if (!this.active(v.deviceId).length) this.device(v.deviceId).lease = null;
   }
-  heartbeat(id) {
-    this.sweep(); const d = this.device(id), now = this.now(); d.heartbeat = now; d.lastHeartbeatAt = this.iso(); this.emit('device-status', id, this.info(d));
+  heartbeat(id, client = null) {
+    this.sweep(); const d = this.device(id), now = this.now();
+    const firstEver = d.heartbeat === -Infinity, wasOnline = this.online(d);
+    const missedBefore = this.missedBeats(d);
+    d.heartbeat = now; d.lastHeartbeatAt = this.iso();
+    // 收到心跳即在线；必须同步 lastOnline，否则「上线后从未被 sweep 观察过」的设备
+    // 掉线时会因为 lastOnline 仍是 false 而检测不到翻转，offline 事件就丢了。
+    d.lastOnline = true;
+    if (firstEver) { d.firstSeenAt = d.lastHeartbeatAt; this.pushEvent(d, 'first-seen', d.registration.alias || null); }
+    else if (!wasOnline) this.pushEvent(d, 'online', `中断 ${missedBefore} 拍后恢复心跳`);
+    if (client) {
+      d.client = client; d.clientAt = d.lastHeartbeatAt;
+      if (client.localTimeUtc) {
+        const skew = Math.round((Date.parse(client.localTimeUtc) - this.wall()) / 1000);
+        if (Number.isFinite(skew)) d.clockSkewSec = skew;
+      }
+      // 只在失败阶段/错误码发生变化时记一条，避免每次心跳都灌满环形缓冲。
+      const e = client.lastError;
+      const key = e ? `${e.stage}|${e.code ?? ''}|${e.httpStatus ?? ''}` : null;
+      if (key && key !== d.lastErrorKey) {
+        d.lastErrorKey = key;
+        this.pushEvent(d, 'client-error', [e.stage, e.code, e.httpStatus ? `HTTP ${e.httpStatus}` : e.message].filter(Boolean).join(' / '));
+      } else if (!key) d.lastErrorKey = null;
+    }
+    this.emit('device-status', id, this.info(d));
     const active = this.active(id), requestedPacks = this.requested(id);
     const remaining = active.length ? Math.floor((Math.max(...active.map(v => v.until)) - now) / 1000) : 0;
     const leaseSeconds = Math.min(45, remaining);
@@ -164,7 +232,7 @@ export class RealtimeState {
   }
   latest(id, selected, source = null) {
     this.sweep(); const d = this.device(id);
-    return { deviceId: id, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt, packs: [...d.latest.values()].filter(p => selected.includes(p.snapshot.pack) && (source == null || p.snapshot.source === source)).map(p => this.publicItem(p)) };
+    return { deviceId: id, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt, firstSeenAt: d.firstSeenAt, missedBeats: this.missedBeats(d), client: d.client, clientAt: d.clientAt, clockSkewSec: d.clockSkewSec, packs: [...d.latest.values()].filter(p => selected.includes(p.snapshot.pack) && (source == null || p.snapshot.source === source)).map(p => this.publicItem(p)) };
   }
   trend(id, pack, metric, limit, source = null, cursor = null) {
     this.sweep(); const d = this.device(id);

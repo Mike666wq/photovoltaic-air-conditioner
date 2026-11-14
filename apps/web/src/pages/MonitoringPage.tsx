@@ -5,6 +5,7 @@ import { bmsApi, BmsApiError, monitoringApi } from '../services/bmsRealtimeApi';
 import { DeploymentVersion } from '../components/DeploymentVersion';
 import { bmsTime } from '../services/bmsRealtimeTypes';
 import type { BmsDevice, BmsIdentity } from '../services/bmsRealtimeTypes';
+import { describeDevicePresence } from '../services/devicePresence';
 import './bms-realtime.css';
 import './experiment-realtime.css';
 import './monitoring-navigation.css';
@@ -140,10 +141,15 @@ export function sortMonitoringDevices(devices: BmsDevice[]) {
 }
 
 function DeviceGroup({ title, devices }: { title: string; devices: BmsDevice[] }) {
-  return <section className="monitoring-device-group"><h3>{title}</h3><div className="monitoring-device-list">{sortMonitoringDevices(devices).map(device => <Link className="monitoring-device-card" key={device.deviceId} to={`/monitoring/devices/${encodeURIComponent(device.deviceId)}`}>
-    <span className={`monitoring-device-card__dot${device.online ? ' is-online' : ''}`} aria-label={device.online ? '心跳在线' : '心跳离线'} />
-    <span className="monitoring-device-card__main"><strong>{device.alias}</strong><span className="monitoring-device-card__type">{device.module === 'experiment' ? '实验采集' : 'BMS'}</span><code>{device.deviceId}</code></span>
-    <span className="monitoring-device-card__status"><strong className={device.online ? 'is-online' : 'is-offline'}>{device.online ? '心跳在线' : '心跳离线'}</strong><small>最近心跳：{bmsTime(device.lastHeartbeatAt)}</small></span>
-    <span className="monitoring-device-card__action">开始观测 →</span>
-  </Link>)}</div></section>;
+  return <section className="monitoring-device-group"><h3>{title}</h3><div className="monitoring-device-list">{sortMonitoringDevices(devices).map(device => {
+    // 卡片上的状态不能只是「在线/离线」：要能看出是没连过、还是连过又断、断在哪一步。
+    const presence = describeDevicePresence(device);
+    const headline = presence.detail || `最近心跳：${bmsTime(device.lastHeartbeatAt)}`;
+    return <Link className="monitoring-device-card" key={device.deviceId} to={`/monitoring/devices/${encodeURIComponent(device.deviceId)}`}>
+      <span className={`monitoring-device-card__dot${presence.tone === 'online' ? ' is-online' : ''}`} aria-label={presence.label} />
+      <span className="monitoring-device-card__main"><strong>{device.alias}</strong><span className="monitoring-device-card__type">{device.module === 'experiment' ? '实验采集' : 'BMS'}</span><code>{device.deviceId}</code></span>
+      <span className="monitoring-device-card__status"><strong className={presence.tone === 'online' ? 'is-online' : 'is-offline'}>{presence.label}</strong><small>{headline}</small></span>
+      <span className="monitoring-device-card__action">开始观测 →</span>
+    </Link>;
+  })}</div></section>;
 }

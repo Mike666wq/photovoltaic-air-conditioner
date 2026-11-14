@@ -46,7 +46,14 @@ test('模块默认关闭JSON503，其他路径正常，未知API不返回HTML', 
   const enabled = await harness(t); assert.equal((await enabled.call('/missing')).status, 404);
 });
 test('无观看仅心跳；创建、采样、转换与同租约续期', async (t) => {
-  const h = await harness(t); assert.deepEqual((await h.beat()).body, { subscriptionId: '', leaseSeconds: 0, requestedPacks: [], backfillSeconds: 0 });
+  const h = await harness(t);
+  // 回包新增 serverTimeUtc / heartbeatIntervalSec（时钟偏移与心跳周期协商），租约部分不变。
+  const beat = (await h.beat()).body;
+  assert.equal(typeof beat.serverTimeUtc, 'string'); assert.equal(beat.heartbeatIntervalSec, 15);
+  {
+    const { serverTimeUtc: _s, heartbeatIntervalSec: _i, ...lease } = beat;
+    assert.deepEqual(lease, { subscriptionId: '', leaseSeconds: 0, requestedPacks: [], backfillSeconds: 0 });
+  }
   const { user, lease } = await viewing(h); assert.equal(lease.leaseSeconds, 45); assert.equal(lease.backfillSeconds, 300); assert.deepEqual(lease.requestedPacks, [1]);
   assert.deepEqual((await user.call('/devices/lab-bms-01/latest')).body.packs, []);
   assert.equal((await h.send(lease.subscriptionId)).status, 200);

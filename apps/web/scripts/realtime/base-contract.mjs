@@ -1,5 +1,5 @@
 // @generated 由 _base/contract/contract.mjs 生成，请勿手改。
-// @source-sha256 8ccff11ee353372c3dc81214b29dcd50d3567e56395fa2c69e0a7e3a2479b896
+// @source-sha256 935de835072f80ce83537a53f99cb5a9f1648263208f7520dbd4c138f4955ebe
 // @sync node apps/web/scripts/sync-base-contract.mjs --write
 // @end-header
 // ============================================================
@@ -85,6 +85,130 @@ export const TIME = {
   format: 'utc-iso8601',
   fractionDigits: 7,
 };
+
+// ---------- 心跳与设备自述 ----------
+// 心跳是设备唯一「还能说话」的通道：离线诊断需要的现场信息全部搭车在这一条请求上。
+//
+// 铁律（任一破坏都会让所有设备一起变离线）：
+//   · 自述字段全部可选；解析失败/超限/类型不对 → 整块降级为 null，心跳本身必须照常成功。
+//   · 未知字段一律忽略。
+//   · 自述是「客户端对自己状态的声明」，不是可信断言；服务端只存不算账。
+export const HEARTBEAT = {
+  intervalSeconds: 15,        // 无租约时的默认心跳周期（回包会带回同值，两端不各写一份）
+  // 客户端心跳下限。历史上 BMS 是 2000ms、实验端是 250ms，而服务端 60 秒窗口只给 30 次——
+  // 实验端那个下限等于 240 次/分钟，一进入临界租约就是必炸的 429 风暴。下限与上限必须对得上。
+  minIntervalMs: 3000,
+  // 服务端单设备心跳上限。心跳不写注册表、不占缓存，成本只有一次 JSON 解析，
+  // 所以给足余量（3 秒一次 = 20/分钟，留 6 倍余量给重试与诊断），而不是卡着客户端打满。
+  ratePerMinute: 120,
+  offlineAfterMisses: 3,      // 连续漏检达到该值才翻「离线」（防抖：单次丢包不算掉线）
+  clientMaxBytes: 4096,       // 自述块序列化上限，超出即整体降级
+  maxConsecutiveFailures: 9999,
+  retrySecMax: 3600,
+  uptimeSecMax: 31536000,     // 1 年
+  tzOffsetMinMax: 1440,
+  countMax: 9999,
+  versionMaxLen: 32,
+  codeMaxLen: 64,
+  messageMaxLen: 200,
+  timelineMaxEntries: 200,    // 每设备事件环形缓冲
+  // 失败阶段枚举。客户端把自己失败在哪一段如实上报，服务端据此翻译成人话。
+  stageEnum: ['DNS', 'PROXY', 'TCP', 'TLS', 'AUTH', 'HTTP', 'PROTOCOL', 'SERIAL'],
+  // 设备事件类型（环形缓冲里只出现这些）
+  eventEnum: [
+    'first-seen', 'heartbeat', 'online', 'offline', 'client-error',
+    'upload-rejected', 'lease-expired', 'diag-report', 'identity-mismatch',
+  ],
+};
+
+// 设备自述块（heartbeat.client）。字段缺省 = 未知，绝不等于「正常」。
+export const CLIENT_REPORT = {
+  optional: [
+    'version', 'startedUtc', 'uptimeSec', 'localTimeUtc', 'tzOffsetMin',
+    'cloudEnabled', 'tokenDecryptable', 'lastSuccessUtc', 'consecutiveFailures',
+    'nextRetryInSec', 'lastError', 'lastUpload', 'source',
+  ],
+  lastError: {
+    required: ['stage'],
+    optional: ['code', 'httpStatus', 'atUtc', 'message', 'count'],
+  },
+  lastUpload: { optional: ['attemptUtc', 'acceptedUtc', 'lastError'] },
+};
+
+const _isIso = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(v);
+const _isInt = (v) => typeof v === 'number' && Number.isInteger(v);
+const _clampInt = (v, min, max) => {
+  const n = Math.trunc(v);
+  return n < min ? min : n > max ? max : n;
+};
+const _str = (v, maxLen) => (typeof v === 'string' && v.length > 0 && v.length <= maxLen ? v : undefined);
+const _pick = (obj, keys) => {
+  const out = {};
+  for (const k of keys) if (obj[k] !== undefined && obj[k] !== null) out[k] = obj[k];
+  return out;
+};
+
+function _sanitizeError(e, L) {
+  if (!e || typeof e !== 'object') return undefined;
+  if (!L.stageEnum.includes(e.stage)) return undefined; // 未知阶段不猜，直接丢弃
+  const out = { stage: e.stage };
+  const code = _str(e.code, L.codeMaxLen); if (code !== undefined) out.code = code;
+  if (_isInt(e.httpStatus) && e.httpStatus >= 100 && e.httpStatus <= 599) out.httpStatus = e.httpStatus;
+  if (_isIso(e.atUtc)) out.atUtc = e.atUtc;
+  const message = _str(e.message, L.messageMaxLen); if (message !== undefined) out.message = message;
+  if (_isInt(e.count)) out.count = _clampInt(e.count, 0, L.countMax);
+  return out;
+}
+
+/**
+ * 心跳自述清洗：永不抛错，坏数据一律降级为 undefined/null。
+ * 直接返回给 state.heartbeat 存起来即可——服务端不做判断，只做保存与翻译。
+ */
+export function sanitizeClientReport(input) {
+  const L = HEARTBEAT;
+  if (input === undefined || input === null) return null;
+  if (typeof input !== 'object' || Array.isArray(input)) return null;
+  let encoded;
+  try { encoded = JSON.stringify(input); } catch { return null; } // 循环引用等
+  if (typeof encoded !== 'string' || encoded.length > L.clientMaxBytes) return null;
+
+  const out = {};
+  const version = _str(input.version, L.versionMaxLen); if (version !== undefined) out.version = version;
+  if (input.startedUtc !== undefined && _isIso(input.startedUtc)) out.startedUtc = input.startedUtc;
+  if (input.localTimeUtc !== undefined && _isIso(input.localTimeUtc)) out.localTimeUtc = input.localTimeUtc;
+  if (input.lastSuccessUtc !== undefined && _isIso(input.lastSuccessUtc)) out.lastSuccessUtc = input.lastSuccessUtc;
+  if (_isInt(input.uptimeSec)) out.uptimeSec = _clampInt(input.uptimeSec, 0, L.uptimeSecMax);
+  if (_isInt(input.tzOffsetMin)) out.tzOffsetMin = _clampInt(input.tzOffsetMin, -L.tzOffsetMinMax, L.tzOffsetMinMax);
+  if (typeof input.cloudEnabled === 'boolean') out.cloudEnabled = input.cloudEnabled;
+  if (typeof input.tokenDecryptable === 'boolean') out.tokenDecryptable = input.tokenDecryptable;
+  if (_isInt(input.consecutiveFailures)) out.consecutiveFailures = _clampInt(input.consecutiveFailures, 0, L.maxConsecutiveFailures);
+  if (_isInt(input.nextRetryInSec)) out.nextRetryInSec = _clampInt(input.nextRetryInSec, 0, L.retrySecMax);
+
+  const err = _sanitizeError(input.lastError, L); if (err) out.lastError = err;
+  if (input.lastUpload && typeof input.lastUpload === 'object') {
+    const up = {};
+    if (_isIso(input.lastUpload.attemptUtc)) up.attemptUtc = input.lastUpload.attemptUtc;
+    if (_isIso(input.lastUpload.acceptedUtc)) up.acceptedUtc = input.lastUpload.acceptedUtc;
+    const upErr = _sanitizeError(input.lastUpload.lastError, L); if (upErr) up.lastError = upErr;
+    if (Object.keys(up).length) out.lastUpload = up;
+  }
+  if (input.source && typeof input.source === 'object') {
+    const src = input.source;
+    const s = {};
+    if (typeof src.session === 'string' && src.session.length <= 128) s.session = src.session;
+    // 采集侧：串口是否打开、最后一帧时间。只保留结构化事实，不收自由文本。
+    const chan = src.serial ?? src.modbus;
+    if (chan && typeof chan === 'object') {
+      const c = {};
+      const port = _str(chan.port, 32); if (port !== undefined) c.port = port;
+      if (typeof chan.open === 'boolean') c.open = chan.open;
+      if (_isIso(chan.lastFrameUtc)) c.lastFrameUtc = chan.lastFrameUtc;
+      if (Object.keys(c).length) s[src.serial ? 'serial' : 'modbus'] = c;
+    }
+    if (Object.keys(s).length) out.source = s;
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 // ---------- 单位（全链路整数，禁止浮点跨端） ----------
 export const BMS_UNITS = {

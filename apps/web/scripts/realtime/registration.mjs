@@ -51,6 +51,23 @@ export function rotateDevice(registry, deviceId, body) {
   });
 }
 
+/**
+ * 设备自助续期：用当前令牌换新令牌，不需要管理员。
+ * 身份（deviceId）不变，只换凭据——这是「升级/重装不用重新注册」的关键一半：
+ * 设备只要能连上，就能自己续期，人工只在真正丢了凭据时才介入。
+ * 旧令牌在这一刻立即失效，因此客户端必须「先落盘新令牌成功，再切换运行时配置」。
+ */
+export function refreshDevice(registry, deviceId) {
+  const deviceToken = opaque();
+  return registry.mutate((next) => {
+    const device = next.devices.find((d) => d.deviceId === deviceId);
+    assert(device, 404, 'DEVICE_NOT_FOUND', '设备不存在');
+    device.deviceTokenHash = tokenHash(deviceToken);
+    device.lastRotatedAt = new Date().toISOString();
+    return { deviceId, deviceToken, rotatedAt: device.lastRotatedAt };
+  });
+}
+
 export function deleteDevice(registry, deviceId, body) {
   assert(body.confirmDeviceId === deviceId, 400, 'CONFIRMATION_REQUIRED', '请确认需要删除的设备编号');
   return registry.mutate((next) => {

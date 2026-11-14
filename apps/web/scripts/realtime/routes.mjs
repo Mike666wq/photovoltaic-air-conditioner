@@ -1,12 +1,12 @@
 import { loadConfig, validateConfig, tokenHash, equal, opaque, verifyPassword, passwordHash } from './auth.mjs';
 import { RegistryStore } from './registry.mjs';
 import { CacheCoordinator } from './cache-coordinator.mjs';
-import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice, deleteDevice, updateUserDevices, updateUserMonitoring, resetUserPassword } from './registration.mjs';
+import { setupStatus, accountInput, registerDevice, registerUser, rotateDevice, refreshDevice, deleteDevice, updateUserDevices, updateUserMonitoring, resetUserPassword } from './registration.mjs';
 import { RealtimeState } from './state.mjs';
 import { ExperimentState } from './experiment-state.mjs';
 import { catalog, equipment, historyPoints, validateExperimentSnapshot, validateExperimentBackfill } from './experiment-contract.mjs';
 import { ApiError, assert, object, identifier, packs, validateSnapshot, validateBmsBackfill } from './contract.mjs';
-import { TRANSPORT } from './base-contract.mjs';
+import { TRANSPORT, HEARTBEAT, sanitizeClientReport } from './base-contract.mjs';
 
 const PREFIX = '/api/realtime';
 const COOKIE = 'cloud_viewer';
@@ -214,12 +214,22 @@ export function createRealtimeApi(options = {}) {
       return loggedResponse(res, s, user, 201);
     }
     if (pathname === '/heartbeat' && req.method === 'POST') {
-      const d = deviceAuth(req, module); rate(`heartbeat:${d.deviceId}`, 30); const b = await readJson(req);
+      // 心跳上限取自契约：与客户端下限（HEARTBEAT.minIntervalMs）对齐并留足余量，
+      // 不再卡着客户端极限打满——原先 30/分钟对 2 秒下限正好是边界，一次重试就 429。
+      const d = deviceAuth(req, module); rate(`heartbeat:${d.deviceId}`, HEARTBEAT.ratePerMinute); const b = await readJson(req);
       deviceAuth(req, module); // 等待正文期间若令牌轮换，不接受旧身份。
       assert(b.deviceId === d.deviceId, 403, 'DEVICE_MISMATCH', '设备身份不匹配');
       assert(typeof b.alias === 'string' && b.alias.length <= 128);
       if(isExperiment){assert(b.module==='experiment',400,'MODULE_INVALID');assert(b.schemaVersion===1,422,'SCHEMA_UNSUPPORTED');}
-      return json(res, 200, state.heartbeat(d.deviceId));
+      // 自述块永不参与鉴权与心跳成败判定：坏数据降级为 null，心跳照常成功。
+      const lease = state.heartbeat(d.deviceId, sanitizeClientReport(b.client));
+      // 回包带上服务端时间与协商的心跳周期：设备据此算时钟偏移，两端对「多久来一次」有同一份事实。
+      return json(res, 200, { ...lease, serverTimeUtc: state.iso(), heartbeatIntervalSec: HEARTBEAT.intervalSeconds });
+    }
+    // 设备自助续期：旧令牌换新令牌，管理员不参与。身份不变，只换凭据。
+    if (pathname === '/device/refresh' && req.method === 'POST') {
+      const d = deviceAuth(req, module); rate(`refresh:${d.deviceId}`, 5);
+      return json(res, 200, await refreshDevice(registry, d.deviceId));
     }
     if (pathname === '/snapshots' && req.method === 'POST') {
       const d = deviceAuth(req, module);
@@ -321,7 +331,7 @@ export function createRealtimeApi(options = {}) {
     }
     // 未知API永远返回JSON，不交给SPA fallback（也不重定向到登录页）。
     if(isExperiment && pathname==='/catalog' && req.method==='GET'){session(req);return json(res,200,catalog);}
-    if (!['/devices', '/viewers', '/events'].includes(pathname) && !/^\/(?:viewers\/[^/]+|devices\/[^/]+\/(?:latest|trend|cache))$/.test(pathname)) throw new ApiError(404, 'NOT_FOUND', '实时接口不存在');
+    if (!['/devices', '/viewers', '/events'].includes(pathname) && !/^\/(?:viewers\/[^/]+|devices\/[^/]+\/(?:latest|trend|cache|timeline))$/.test(pathname)) throw new ApiError(404, 'NOT_FOUND', '实时接口不存在');
     const s = session(req);
     rate(`browser:${s.user.username}`, config.browserRequestsPerMinute ?? 5000);
     if (pathname === '/devices' && req.method === 'GET') {
@@ -352,9 +362,13 @@ export function createRealtimeApi(options = {}) {
       const requestedHistory = isExperiment && Object.hasOwn(b, 'historySelections') ? historyPoints(b.historySelections, d.allowedEquipment) : undefined;
       return json(res, 200, state.renew(id, s.id, isExperiment?equipment(b.equipmentIds,d.allowedEquipment):packs(b.packs, d.allowedPacks), source, requestedHistory));
     }
-    const deviceMatch = pathname.match(/^\/devices\/([^/]+)\/(latest|trend|cache)$/);
+    const deviceMatch = pathname.match(/^\/devices\/([^/]+)\/(latest|trend|cache|timeline)$/);
     if (deviceMatch) {
       const [, id, resource] = deviceMatch; const d = authorized(s, id, state);
+      if (resource === 'timeline' && req.method === 'GET') {
+        // 设备事件时间线：回答「什么时候开始坏的、坏之前最后一件好事是什么」。
+        return json(res, 200, state.timelineOf(id, url.searchParams.get('limit')));
+      }
       if (resource === 'latest' && req.method === 'GET') {
         const selected = isExperiment ? (url.searchParams.has('equipmentIds')?equipment(url.searchParams.get('equipmentIds').split(','),d.allowedEquipment):d.allowedEquipment) : url.searchParams.has('packs') ? packs(url.searchParams.get('packs').split(',').map(Number), d.allowedPacks) : d.allowedPacks;
         return json(res, 200, state.latest(id, selected, sourceFilter(url.searchParams.get('source'))));
