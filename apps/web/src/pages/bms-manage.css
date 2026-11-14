@@ -43,3 +43,14 @@
 @media (max-width: 760px) { .bms-onboarding-steps, .bms-admin-forms { grid-template-columns: minmax(0,1fr); } .bms-onboarding-steps { gap: 8px; } .bms-admin-card, .bms-guide, .bms-credential { padding: 18px; } .bms-guide dl { grid-template-columns: minmax(0,1fr); gap: 4px; } .bms-guide dd { margin-bottom: 10px; } }
 
 .bms-admin-card select{min-width:0;width:100%;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font:inherit;}
+
+/* 设备重命名：行内输入框，与同排按钮对齐 */
+.bms-admin-actions .bms-rename-input {
+  min-width: 180px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #c9d6e4;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-right: 6px;
+}
