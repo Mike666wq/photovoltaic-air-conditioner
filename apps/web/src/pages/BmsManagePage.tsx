@@ -21,6 +21,7 @@ export function BmsManagePage() {
   const [pendingClaims, setPendingClaims] = useState<PendingClaim[]>([]);
   const [managed, setManaged] = useState<ManagedDevice[]>([]);
   const [claimsError, setClaimsError] = useState('');
+  const [registryError, setRegistryError] = useState('');
   const [registrationModule, setRegistrationModule] = useState<'bms' | 'experiment'>('bms');
   const [guideDevice, setGuideDevice] = useState('');
   const [credential, setCredential] = useState<BmsDeviceCredential | null>(null);
@@ -42,11 +43,16 @@ export function BmsManagePage() {
   const locked = busy || !!credential || !!pendingPasswordReset || !!deleting || !!rotating;
 
   const reload = async () => {
-    const result = await bmsApi.registry();
-    setRegistry(result); setDevices(result.devices);
-    // 接入信息单独取：后端尚未升级时这里会失败，不能因此让整个管理页打不开。
-    // 但也不能把失败伪装成「没有待批准设备」——那会让人以为设备根本没提交上来。
-    // 两个请求分开处理：一个坏了不影响另一个，且错误要显示出来。
+    // 三块数据各自独立取：任何一块失败都不能把另外两块一起清空。
+    // 之前写成一条链，注册表接口一挂，待批准列表就跟着显示「没有设备」——
+    // 那会让人以为设备根本没提交上来，而实际上它就在云端排队。
+    try {
+      const result = await bmsApi.registry();
+      setRegistry(result); setDevices(result.devices);
+      setRegistryError('');
+    } catch (error) {
+      setRegistryError(error instanceof BmsApiError ? `${error.status} ${error.code}：${error.message}` : (error instanceof Error ? error.message : '加载注册表失败'));
+    }
     try {
       const pending = await bmsApi.pendingClaims();
       setPendingClaims(pending.claims); setClaimsError('');
@@ -191,7 +197,7 @@ export function BmsManagePage() {
     <div className="bms-content">
       {error && <p className="bms-error" role="alert">{error}</p>}{notice && <p className="bms-notice" role="status">{notice}</p>}
       {!ready ? <p>正在读取注册状态…</p> : !setup?.enabled ? <section className="bms-admin-card"><h2>站点尚未启用实时接入</h2><p>请先配置注册存储和初始化密钥。</p></section> : !setup.initialized ? <section className="bms-admin-card bms-first-admin"><h2>首次初始化管理员</h2><p>使用服务器提供的一次性初始化密钥创建首个管理员。</p>{!setup.bootstrapAvailable ? <p className="bms-warning">初始化密钥或持久化注册存储尚未配置，请联系运维人员。</p> : <form onSubmit={event => { event.preventDefault(); void bootstrap(event.currentTarget); }}><label>初始化密钥<input name="bootstrapToken" type="password" required autoComplete="off" minLength={32} maxLength={256} disabled={busy} /></label><label>管理员用户名<input name="username" required autoComplete="username" pattern="[a-zA-Z0-9_.-]{3,80}" minLength={3} maxLength={80} disabled={busy} /></label><label>管理员密码<input name="password" type="password" required autoComplete="new-password" minLength={12} maxLength={256} disabled={busy} /></label><label>确认管理员密码<input name="confirmPassword" type="password" required autoComplete="new-password" minLength={12} maxLength={256} disabled={busy} /></label><button className="bms-primary" disabled={busy}>{busy ? '正在初始化…' : '创建首个管理员'}</button></form>}</section> : identity?.role === 'admin' && <>
-        {!registry?.writable && <p className="bms-warning">当前部署使用只读注册配置，无法新增设备、账户或轮换令牌。</p>}
+        {registryError && <p className="bms-warning">注册表加载失败：{registryError}（设备与账户列表可能不完整）</p>}{!registry?.writable && <p className="bms-warning">当前部署使用只读注册配置，无法新增设备、账户或轮换令牌。</p>}
         <section className="bms-admin-card bms-system-settings"><h2>独立设备接入</h2><p>每台设备对应一个 Windows 上传程序。实验设备包含其授权仪器，BMS 设备包含其全部 Pack；授权账户后可查看该设备的全部内容。</p><p>注册后保存一次性令牌和 Windows 手动配置说明，再从实时观测设备列表打开设备验证数据。</p></section>
         {credential && <section className="bms-credential" aria-label="新设备接入凭据"><h2>保存设备上传令牌与 Windows 配置说明</h2><p>设备：{credential.device.alias} · {credential.device.deviceId}。令牌仅显示一次，关闭后云端只保留散列。</p><label>设备上传令牌（仅显示一次）<input type={reveal ? 'text' : 'password'} value={credential.deviceToken} readOnly autoComplete="off" /></label><div className="bms-admin-actions"><button onClick={() => setReveal(!reveal)}>{reveal ? '隐藏令牌' : '显示令牌'}</button><button disabled={busy} onClick={() => void copyCredential()}>复制令牌</button><button className="bms-primary" disabled={busy} onClick={() => void download()}>下载 Windows 配置说明（含令牌）</button><button disabled={busy} onClick={() => { setCredential(null); setReveal(false); }}>已安全保存，关闭凭据</button></div><p>配置文件含私密上传令牌，请保存在 Windows 用户的安全目录。</p></section>}
         <div className="bms-admin-forms"><section className="bms-admin-card"><h2>待批准设备{pendingClaims.length > 0 ? ` · ${pendingClaims.length}` : ''}</h2>{claimsError ? <p className="bms-warning">待批准设备加载失败：{claimsError}</p> : !pendingClaims.length ? <p>没有等待批准的设备。本地程序启动后会自动出现在这里，工控机上不需要填任何配置。</p> : <div className="bms-device-list">{pendingClaims.map(claim => <article key={claim.claimId}><h3>{claim.desiredAlias || `设备 ${claim.machineKey.slice(-6)}`}</h3><code>{claim.machineKey}</code><p>{claim.module === 'experiment' ? '实验采集' : 'BMS'} · 首次请求：{bmsTime(claim.createdAtUtc)}</p><p>过期时间：{bmsTime(claim.expiresAtUtc)}</p><div className="bms-admin-actions"><button disabled={locked || !registry?.writable} onClick={() => void approvePending(claim)}>批准并下发令牌</button><button disabled={locked} onClick={() => void rejectPending(claim)}>拒绝</button></div></article>)}</div>}</section><section className="bms-admin-card"><h2>注册本地设备（备用）</h2><form onSubmit={event => { event.preventDefault(); void registerDevice(event.currentTarget); }}><label>采集模块<select value={registrationModule} disabled={locked} onChange={event => setRegistrationModule(event.target.value as 'bms' | 'experiment')}><option value="bms">BMS 电池监控</option><option value="experiment">实验监控（37测点）</option></select></label><label>设备编号 deviceId<input name="deviceId" required pattern="[a-zA-Z0-9_-]{1,80}" maxLength={80} placeholder="复制 Windows 客户端中的 deviceId" disabled={locked || !registry?.writable} /></label><label>设备名称<input name="alias" required maxLength={128} placeholder="例如：实验室1号设备" disabled={locked || !registry?.writable} /></label>{registrationModule === 'bms' ? <><label>BMS 地址（逗号分隔）<input name="addresses" required placeholder="例如 1" disabled={locked || !registry?.writable} /></label><label>Pack 编号（逗号分隔）<input name="packs" required placeholder="例如 1,2" disabled={locked || !registry?.writable} /></label></> : <fieldset disabled={locked || !registry?.writable}><legend>该程序采集的仪器</legend>{EXPERIMENT_EQUIPMENT.map(id => <label className="bms-checkbox" key={id}><input type="checkbox" name="equipment" value={id} defaultChecked />{id}</label>)}</fieldset>}<button className="bms-primary" disabled={locked || !registry?.writable}>注册设备并生成上传令牌</button></form></section>
