@@ -1,5 +1,5 @@
 // @generated 由 _base/contract/contract.mjs 生成，请勿手改。
-// @source-sha256 0fe84be83ac58117719f51913bfcd4cb000e3846ecabf7a9318b05a6211c9aca
+// @source-sha256 8c606e83bbf73750b7ae79c0b8caef2228fff67e0e32b07f80fb5355a5b9f462
 // @sync node apps/web/scripts/sync-base-contract.mjs --write
 // @end-header
 // ============================================================
@@ -78,7 +78,10 @@ export const ENROLLMENT = {
   machineKeyHexLen: 32,      // 16 字节 -> 32 hex
   secretLenMin: 32,          // claimSecret / deviceToken 的 Bearer 长度下界
   secretLenMax: 256,
-  claimTtlSeconds: 1800,     // 认领有效期（RFC 8628 的 expires_in 示例值）
+  // 认领有效期：30 分钟对人不够用——管理员去忙别的回来，申请就过期了，
+  // 而客户端每 5 秒重试一次还会撞上限流，结果是「设备明明提交了，页面永远看不到」。
+  // 取 24 小时（与 K8s pending CSR 一致），过期的由维护任务清理。
+  claimTtlSeconds: 86400,
   pollIntervalSec: 5,        // 轮询间隔（RFC 8628 缺省）
   pollSlowDownSec: 5,        // 限流时回包用，客户端按此加长间隔
   ackDeadlineSec: 300,       // 批准→ack 的截止（超时作废未交付令牌）
@@ -86,7 +89,8 @@ export const ENROLLMENT = {
   tombstoneHours: 24,        // revoked 墓碑保留时长
   maxPending: 5,             // 待批准上限（不占 maxDevices）
   maxTombstones: 20,         // 墓碑上限
-  claimRatePerMinute: 10,    // 全局认领限流
+  // 全局认领限流。客户端重试间隔 5 秒 = 12 次/分钟，原来给 10 就是必然 429。
+  claimRatePerMinute: 30,
   claimRatePerKeyPerMinute: 5,
   maxBodyBytes: 4096,        // 认领/确认请求体上限
 };
