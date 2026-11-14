@@ -2,7 +2,9 @@
 .monitoring-page,
 .monitoring-detail-page { min-width: 0; overflow-x: hidden; }
 .monitoring-page .monitoring-device-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
-.monitoring-page .monitoring-device-card { min-width: 0; grid-template-columns: 12px minmax(0, 1fr) minmax(120px, auto); }
+/* 第三列的上界必须是固定值：auto 会按 max-content 算，而状态列的说明文字是一整句中文，
+   max-content 能到 600px 以上，直接把 1fr 那列压成 0 —— 标题就被挤成竖排了。 */
+.monitoring-page .monitoring-device-card { min-width: 0; grid-template-columns: 12px minmax(0, 1fr) minmax(120px, 240px); }
 .monitoring-page .monitoring-device-card__main { min-width: 0; }
 .monitoring-page .monitoring-device-card__main strong { overflow-wrap: anywhere; }
 .monitoring-page .monitoring-device-card__main code { font-size: 10px; color: #8793a3; }
