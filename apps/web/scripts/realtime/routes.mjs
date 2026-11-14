@@ -529,7 +529,8 @@ export function createRealtimeApi(options = {}) {
       allowedEquipment: device.allowedEquipment ?? null,
       allowSimulation: device.allowSimulation === true,
       displayTimeZone: device.displayTimeZone ?? 'Asia/Shanghai',
-      uploadEnabled: (device.state ?? 'active') === DEVICE_STATE.active,
+      // 与心跳里的上传闸门保持一致：approved 也视为已激活，只差一次确认。
+      uploadEnabled: [DEVICE_STATE.active, DEVICE_STATE.approved].includes(device.state ?? 'active'),
       heartbeatIntervalSec: HEARTBEAT.intervalSeconds,
       statusReason: device.statusReason ?? '', changedBy: device.changedBy ?? null,
       changedAtUtc: device.changedAtUtc ?? null, note: device.statusReason ?? '',
