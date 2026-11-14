@@ -245,3 +245,21 @@ test('同一台机器重新批准时复活原设备，编号不变', async (t) =
   assert.equal(devices[0].alias, '重装后');
   assert.ok(devices[0].configVersion >= 3, '配置版本应继续递增');
 });
+
+test('确认可以用设备令牌（客户端落盘后 claimSecret 已清空）', async (t) => {
+  const h = await harness(t);
+  const admin = await h.setup();
+  const created = await h.claim(claimSecret, { machineKey, module: 'bms', protocolVersion: 2 });
+  await admin.call(`/api/device/admin/claims/${created.body.claimId}/approve`, 'POST', {
+    deviceId: 'bms-ack-token', alias: '确认测试', allowedPacks: [1], allowedAddresses: [1],
+  });
+  const poll = await h.call(`/api/device/claim/${created.body.claimId}`, 'POST', {}, { Authorization: `Bearer ${claimSecret}` });
+  // 客户端拿到令牌后会立刻清空 claimSecret，确认时手里只有 deviceToken。
+  // 只认 claimSecret 的话这里永远 401，设备卡在 approved 再也发不出心跳。
+  const acked = await h.call('/api/device/ack', 'POST', { claimId: created.body.claimId, persisted: true }, { Authorization: `Bearer ${poll.body.deviceToken}` });
+  assert.equal(acked.status, 200);
+  assert.equal(acked.body.state, 'active');
+  const beat = await h.call('/api/realtime/heartbeat', 'POST', { deviceId: 'bms-ack-token', alias: '确认测试', protocolVersion: 2 }, { Authorization: `Bearer ${poll.body.deviceToken}` });
+  assert.equal(beat.status, 200);
+  assert.equal(beat.body.state, 'active');
+});

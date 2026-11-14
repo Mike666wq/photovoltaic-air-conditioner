@@ -168,7 +168,9 @@ export function createRealtimeApi(options = {}) {
     assert(d, 401, 'DEVICE_AUTH_REQUIRED', '设备身份验证失败'); assert(moduleOf(d)===module,403,'MODULE_FORBIDDEN','设备令牌不属于此模块');
     // 还没走完接入确认的设备不许发业务请求；revoked 保留可达，否则指令送不到。
     const deviceState = d.state ?? DEVICE_STATE.active;
-    assert(deviceState !== DEVICE_STATE.pending && deviceState !== DEVICE_STATE.approved, 403, 'DEVICE_NOT_ACTIVE', '设备尚未完成接入确认');
+    // 只拦 pending：approved 意味着令牌已经交付到设备手上，它就该能通信。
+    // 如果这里也拦，ack 一旦丢包（网络抖动）设备就永久卡死，再也发不出心跳。
+    assert(deviceState !== DEVICE_STATE.pending, 403, 'DEVICE_NOT_ACTIVE', '设备尚未完成接入确认');
     return d;
   }
   function endStream(stream) { streams.delete(stream); if (!stream.res.writableEnded) stream.res.end(); }
@@ -310,20 +312,30 @@ export function createRealtimeApi(options = {}) {
       const b = await readJson(req);
       assert(b && typeof b.claimId === 'string' && b.persisted === true, 400, 'ACK_INVALID', '必须在本地落盘成功后再确认');
       rate(`claim-ack:${b.claimId}`, 20);
-      const record = await claims.auth(b.claimId, secret);
-      assert(record.state === 'approved' || record.state === 'active', 409, 'STATE_CONFLICT', '认领尚未批准或已失效');
-      const device = config.devices.find((d) => d.deviceId === record.deviceId);
+      // 确认可能来自两种状态：
+      //   · 刚批准、客户端还在用 claimSecret —— 按认领记录校验；
+      //   · 客户端已经拿到 deviceToken 并落盘、claimSecret 已清空 —— 按设备令牌校验。
+      // 只认 claimSecret 的话，第二种情况永远 401，设备会卡在 approved 再也发不出心跳。
+      const presentedHash = tokenHash(secret);
+      const byToken = config.devices.find((d) => equal(d.deviceTokenHash, presentedHash));
+      let record = null;
+      let device = byToken ?? null;
+      if (!device) {
+        record = await claims.auth(b.claimId, secret);
+        assert(record.state === 'approved' || record.state === 'active', 409, 'STATE_CONFLICT', '认领尚未批准或已失效');
+        device = config.devices.find((d) => d.deviceId === record.deviceId);
+      }
       assert(device, 404, 'DEVICE_NOT_FOUND', '设备不存在');
-      if (record.state === 'approved') {
+      if ((device.state ?? DEVICE_STATE.active) === DEVICE_STATE.approved) {
         await registry.mutate((next) => {
-          const target = next.devices.find((d) => d.deviceId === record.deviceId);
+          const target = next.devices.find((d) => d.deviceId === device.deviceId);
           assert(target, 404, 'DEVICE_NOT_FOUND', '设备不存在');
           target.state = DEVICE_STATE.active;
           target.ackedAtUtc = new Date(state.wall()).toISOString();
           target.configVersion = target.configVersion ?? 1;
         });
-        await claims.remove(record.claimId);
       }
+      if (record) await claims.remove(record.claimId);
       return json(res, 200, {
         state: DEVICE_STATE.active, deviceId: device.deviceId,
         configVersion: device.configVersion ?? 1,
