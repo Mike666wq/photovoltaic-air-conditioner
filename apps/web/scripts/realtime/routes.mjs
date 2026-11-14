@@ -571,7 +571,9 @@ export function createRealtimeApi(options = {}) {
       const protocol = Number.isInteger(b.protocolVersion) ? b.protocolVersion : 1;
       if (protocol >= 2) {
         const deviceState = d.state ?? DEVICE_STATE.active;
-        const uploadAllowed = deviceState === DEVICE_STATE.active;
+        // approved 也算可上传：令牌已经交付到设备手上，只差一次 ack 确认。
+        // 如果只认 active，ack 丢包（网络抖动/进程被杀）就会让设备「已批准但永远不传数据」。
+        const uploadAllowed = deviceState === DEVICE_STATE.active || deviceState === DEVICE_STATE.approved;
         if (!uploadAllowed) {
           // 停用/删除：连租约一起收回，避免客户端拿着旧租约继续传。
           payload.subscriptionId = ''; payload.leaseSeconds = 0; payload.backfillSeconds = 0;
