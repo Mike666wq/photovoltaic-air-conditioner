@@ -18,6 +18,10 @@ import { ENROLLMENT } from './base-contract.mjs';
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const opaque = () => randomBytes(24).toString('base64url');
 
+// pending 记录多久没被设备问过就算「凉了」。此时允许新 secret 顶替旧记录，
+// 让「本地凭据丢了」的设备能自己爬起来，而不是卡在 401 等管理员点拒绝。
+const STALE_PENDING_MS = 5 * 60 * 1000;
+
 /** 常量时间比较，避免通过响应时间猜 claimSecret。 */
 function equalSecret(a, b) {
   const left = Buffer.from(String(a ?? ''), 'utf8');
@@ -125,8 +129,16 @@ export class ClaimStore {
       // 一条新记录。这里如果还要求 secret 匹配，设备就永远卡在 401：它已经换了一把新 secret，
       // 而旧记录的哈希永远不会变，表现就是「点了重新申请，云端什么都没有」。
       if (existing.state === 'pending') {
-        assert(equalSecret(existing.claimSecretHash, sha256(claimSecret)), 401, 'CLAIM_SECRET_MISMATCH', '认领凭据不匹配');
-        if (existing.expiresAtMs > this.now()) {
+        if (!equalSecret(existing.claimSecretHash, sha256(claimSecret))) {
+          // 设备换了一把新 secret（本地凭据丢失、重装系统、导入失败都会这样）。
+          // 旧记录里存的是旧 secret 的哈希，永远对不上 —— 设备会卡死在 401 里，
+          // 只能等管理员点「拒绝」才解得开。这里加自愈：当这条记录已经凉了
+          // （STALE_PENDING_MS 内没有任何设备来问过），允许新 secret 顶替。
+          // 记录还热着说明可能有设备正在申请，仍然拒绝，避免被别人抢占。
+          const lastSeen = Date.parse(existing.lastSeenAtUtc ?? existing.createdAtUtc ?? '');
+          const stale = Number.isFinite(lastSeen) && this.now() - lastSeen > STALE_PENDING_MS;
+          assert(stale, 401, 'CLAIM_SECRET_MISMATCH', '认领凭据不匹配');
+        } else if (existing.expiresAtMs > this.now()) {
           // 设备改了名字再点「重新申请」：同一条 pending 记录必须被更新，
           // 否则管理员看到的永远是第一次提交时的名字（本地改了等于白改）。
           return this._mutate((next) => {
