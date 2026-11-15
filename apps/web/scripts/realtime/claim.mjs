@@ -126,7 +126,19 @@ export class ClaimStore {
       // 而旧记录的哈希永远不会变，表现就是「点了重新申请，云端什么都没有」。
       if (existing.state === 'pending') {
         assert(equalSecret(existing.claimSecretHash, sha256(claimSecret)), 401, 'CLAIM_SECRET_MISMATCH', '认领凭据不匹配');
-        if (existing.expiresAtMs > this.now()) return existing;
+        if (existing.expiresAtMs > this.now()) {
+          // 设备改了名字再点「重新申请」：同一条 pending 记录必须被更新，
+          // 否则管理员看到的永远是第一次提交时的名字（本地改了等于白改）。
+          return this._mutate((next) => {
+            const rec = next.claims.find((c) => c.claimId === existing.claimId);
+            if (!rec) return existing;
+            const wanted = typeof desiredAlias === 'string' ? desiredAlias.trim() : '';
+            if (wanted) rec.desiredAlias = wanted;
+            if (client !== undefined) rec.client = client;
+            rec.lastSeenAtUtc = new Date(this.now()).toISOString();
+            return { ...rec };
+          });
+        }
       }
       // 上一轮的记录（或已过期的）清掉重来，claimId 换新。
       await this._mutate((next) => {
