@@ -243,12 +243,15 @@ export function createRealtimeApi(options = {}) {
   function publicDevice(d) {
     // 管理页要回答的是「这台设备现在活着吗」，而不是「它被批准过吗」。
     // state=active 只说明授权还在；心跳时间才是"本地程序真的打开了"的证据。
-    const rt = state.devices.get(d.deviceId);
+    // 实验端的心跳记在 experiment 状态里、BMS 记在 state 里，查错一个就会把在线的
+    // 实验设备显示成「从未上线」——设备列表等于在说谎。
+    const owner = moduleOf(d) === 'experiment' ? experiment : state;
+    const rt = owner.devices.get(d.deviceId);
     const everBeat = rt && Number.isFinite(rt.heartbeat);
     return {
       deviceId: d.deviceId, alias: d.alias, module: moduleOf(d),
       state: d.state ?? 'active',
-      online: everBeat ? state.online(rt) : false,
+      online: everBeat ? owner.online(rt) : false,
       lastSeenUtc: everBeat ? (rt.lastHeartbeatAt ?? null) : null,
       neverSeen: !everBeat,
       machineKey: d.machineKey ?? null,
