@@ -603,6 +603,10 @@ export function createRealtimeApi(options = {}) {
         payload.protocolVersion = ENROLLMENT.protocolVersion;
         payload.state = deviceState;
         payload.uploadAllowed = uploadAllowed;
+        // 这两个开关每次心跳都带：以前只在「配置版本变了」时才下发，客户端缓存旧值，
+        // 管理员在网页上打开「允许模拟数据」后本地不生效，只能重启程序——现场踩过。
+        payload.allowSimulation = d.allowSimulation === true;
+        payload.alwaysUpload = d.alwaysUpload === true;
         payload.configVersion = d.configVersion ?? 1;
         const reported = Number.isInteger(b.reportedConfigVersion) ? b.reportedConfigVersion : 0;
         if (reported !== payload.configVersion) payload.config = configOf(d);
