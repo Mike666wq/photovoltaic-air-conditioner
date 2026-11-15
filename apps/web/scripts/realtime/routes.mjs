@@ -219,6 +219,12 @@ export function createRealtimeApi(options = {}) {
     assert(Array.isArray(values) && values.length > 0 && values.length <= 16 && values.every((v) => Number.isInteger(v) && v >= 1 && v <= max), 400, 'REGISTRATION_RANGE_INVALID', '地址或 Pack 范围无效');
     return [...new Set(values)].sort((a, b) => a - b);
   }
+  // 批准是「对这台机器」生效：本地被限流后会换一张认领单，管理员批的常常是上一张。
+  async function approvedSibling(record) {
+    if (!record || record.state === 'approved') return record;
+    const sibling = await claims.approvedGrantFor(record.machineKey);
+    return sibling && sibling.claimId !== record.claimId && sibling.state === 'approved' && sibling.grantId ? sibling : record;
+  }
   function claimView(record) {
     return {
       claimId: record.claimId,
@@ -282,10 +288,14 @@ export function createRealtimeApi(options = {}) {
       });
       const view = claimView(record);
       // 已批准且令牌还没被取走：把令牌连同配置一起交付（一次性）。
-      if (record.state === 'approved') {
-        const grant = await claims.takeGrant(record.grantId);
+      const delivering = record;   // 建单这一步只交付本单的批准结果
+      if (delivering.state === 'approved') {
+        const grant = await claims.takeGrant(delivering.grantId);
         if (grant) {
           const device = config.devices.find((d) => d.deviceId === grant.deviceId);
+          // 令牌是按「这台机器的另一张已批准单」发的，把当前单也标记为已批准，
+          // 否则设备拿到令牌后 ack 会被 409 拦下（单子是 pending）。
+          if (device && delivering !== record) { const adopted = await claims.adopt(record.claimId, device.deviceId); if (adopted) Object.assign(view, claimView(adopted)); }
           if (device) Object.assign(view, {
             state: 'approved', deviceId: device.deviceId, deviceToken: grant.deviceToken,
             configVersion: device.configVersion ?? 1, config: configOf(device),
@@ -303,10 +313,14 @@ export function createRealtimeApi(options = {}) {
       rate(`claim-poll:${claimStatus[1]}`, 30);
       const record = await claims.auth(claimStatus[1], secret);
       const view = claimView(record);
-      if (record.state === 'approved') {
-        const grant = await claims.takeGrant(record.grantId);
+      const delivering = await approvedSibling(record);
+      if (delivering.state === 'approved') {
+        const grant = await claims.takeGrant(delivering.grantId);
         if (grant) {
           const device = config.devices.find((d) => d.deviceId === grant.deviceId);
+          // 令牌是按「这台机器的另一张已批准单」发的，把当前单也标记为已批准，
+          // 否则设备拿到令牌后 ack 会被 409 拦下（单子是 pending）。
+          if (device && delivering !== record) { const adopted = await claims.adopt(record.claimId, device.deviceId); if (adopted) Object.assign(view, claimView(adopted)); }
           if (device) Object.assign(view, {
             deviceId: device.deviceId, deviceToken: grant.deviceToken,
             configVersion: device.configVersion ?? 1, config: configOf(device),

@@ -302,3 +302,30 @@ test('新设备批准后默认常驻上传，不需要再手动打开', async (t
   assert.equal(device.alwaysUpload, true);
   assert.equal(device.allowedEquipment.length, 4);
 });
+
+test('批准对整台机器生效：换了一张认领单也能取到令牌', async (t) => {
+  // 本地被云端限流会重新申请，管理员批的往往是上一张单子；按认领单查就永远查不到结果，
+  // 表现为「网页显示已批准，本地一直等待批准」，只能人工再批一次。
+  const h = await harness(t);
+  const admin = await h.setup();
+  const first = await h.claim(claimSecret, { machineKey, module: 'experiment', protocolVersion: 2 });
+  const approved = await admin.call(`/api/device/admin/claims/${first.body.claimId}/approve`, 'POST', {
+    alias: '实验端', allowedEquipment: ['PLC'], allowSimulation: true,
+  });
+  assert.equal(approved.status, 201);
+
+  // 设备换了一把 secret 重新认领（新的 claimId），然后按新单子查询状态。
+  const second = await h.claim(claimSecret2, { machineKey, module: 'experiment', protocolVersion: 2 });
+  assert.equal(second.status, 201);
+  // 重新认领仍然会生成一张新单（既有契约），但上一张「已批准、令牌未取走」的单子
+  // 不会被删掉 —— 删了就把一次性令牌一起删了，设备永远等不到授权。
+  assert.notEqual(second.body.claimId, first.body.claimId);
+
+  // 建单本身仍然是 pending（既有契约：新申请要管理员批），
+  // 但这台机器上那张「已批准、令牌未取走」的单子会在这台设备下一次查询状态时交过来。
+  const polled = await h.call(`/api/device/claim/${second.body.claimId}`, 'POST', undefined, { Authorization: `Bearer ${claimSecret2}` });
+  assert.equal(polled.status, 200);
+  assert.equal(polled.body.state, 'approved');
+  assert.equal(polled.body.deviceId, approved.body.deviceId);
+  assert.ok(polled.body.deviceToken, '应该交付令牌');
+});

@@ -112,6 +112,11 @@ export class ClaimStore {
     return state.claims.find((c) => c.claimId === claimId) ?? null;
   }
 
+  /** 这台机器上「已批准且令牌还没取走」的那张单子。批准按机器生效，不按单号。 */
+  async approvedGrantFor(machineKey) {
+    const state = await this._readAll();
+    return state.claims.find((c) => c.machineKey === machineKey && c.state === 'approved' && c.grantId) ?? null;
+  }
   async byMachineKey(machineKey) {
     const state = await this._readAll();
     return state.claims.find((c) => c.machineKey === machineKey) ?? null;
@@ -154,7 +159,9 @@ export class ClaimStore {
       }
       // 上一轮的记录（或已过期的）清掉重来，claimId 换新。
       await this._mutate((next) => {
-        next.claims = next.claims.filter((c) => c.claimId !== existing.claimId);
+        // 已批准且令牌还没被取走的单子要留着：一次性令牌就在它身上，
+        // 删掉它等于把授权一起删了 —— 设备重新认领后就永远等不到结果。
+        next.claims = next.claims.filter((c) => c.claimId !== existing.claimId || (c.state === 'approved' && c.grantId));
       });
     }
     return this._mutate((next) => {
@@ -216,6 +223,18 @@ export class ClaimStore {
   }
 
   /** 取走一次性令牌。返回 null 表示已交付过或已过期。 */
+  /** 令牌已经通过「同机器的另一张已批准单」交付给这台设备，当前单同步为已批准。 */
+  async adopt(claimId, deviceId) {
+    return this._mutate((next) => {
+      const rec = next.claims.find((c) => c.claimId === claimId);
+      if (!rec) return null;
+      rec.state = 'approved';
+      rec.deviceId = deviceId;
+      rec.grantId = null;
+      rec.approvedAtUtc = new Date(this.now()).toISOString();
+      return { ...rec };
+    });
+  }
   async takeGrant(grantId) {
     if (!grantId) return null;
     const path = join(this.grantsDir, `${grantId}.json`);
