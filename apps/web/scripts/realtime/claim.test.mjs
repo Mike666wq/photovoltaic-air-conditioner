@@ -288,3 +288,17 @@ test('重新批准只改传了的字段：已有授权与模拟开关不能被�
   assert.equal(device.allowSimulation, true);
   assert.equal(device.alwaysUpload, true);
 });
+
+test('新设备批准后默认常驻上传，不需要再手动打开', async (t) => {
+  // 现场选的是「常驻上传」：没有观看者也要传。如果批准后 alwaysUpload 是 false，
+  // 新接的设备又会退回「没人看就不传」，页面上表现为「过一会儿就没数据」。
+  const h = await harness(t);
+  const admin = await h.setup();
+  const claim = await h.claim(claimSecret, { machineKey, module: 'experiment', protocolVersion: 2 });
+  const approved = await admin.call(`/api/device/admin/claims/${claim.body.claimId}/approve`, 'POST', { alias: '新设备' });
+  assert.equal(approved.status, 201);
+  const listed = await admin.call('/api/device/admin/devices', 'GET');
+  const device = listed.body.devices.find((item) => item.deviceId === approved.body.deviceId);
+  assert.equal(device.alwaysUpload, true);
+  assert.equal(device.allowedEquipment.length, 4);
+});

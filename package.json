@@ -1,6 +1,6 @@
 {
   "name": "photovoltaic-air-conditioner",
-  "version": "0.3.19",
+  "version": "0.3.21",
   "private": true,
   "description": "光伏·空调仿真平台（光储直柔空调实验平台 Web 端可视化）",
   "scripts": {

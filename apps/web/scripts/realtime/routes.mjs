@@ -419,7 +419,7 @@ export function createRealtimeApi(options = {}) {
         const device = {
           deviceId, alias: alias.trim().slice(0, 128), module, ...initialPermissions, ...permissions,
           deviceTokenHash: tokenHash(deviceToken), allowSimulation: b.allowSimulation === true,
-          alwaysUpload: b.alwaysUpload === true,
+          alwaysUpload: b.alwaysUpload !== false,
           displayTimeZone: 'Asia/Shanghai',
           state: DEVICE_STATE.approved, machineKey: record.machineKey,
           configVersion: 1, enrolledVia: 'claim', protocolVersion: ENROLLMENT.protocolVersion,
