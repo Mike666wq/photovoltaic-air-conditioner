@@ -286,9 +286,35 @@ export function createRealtimeApi(options = {}) {
         machineKey: b.machineKey, module: b.module, claimSecret: secret,
         desiredAlias: b.desiredAlias, client: sanitizeClientReport(b.client),
       });
-      const view = claimView(record);
+      // 已经在这台机器上登记过的设备（active/approved/suspended），重新接入时不再需要管理员批：
+      // 现场规则是「首次连接由管理员批准」，重装/丢凭据后的重连不该再走一遍人工流程。
+      // 以前这里必须等下一张单被批，而客户端每次重试都会换单号，于是云端堆了一串
+      // approved 却永远交付不出去的令牌，本地一直显示等待批准。
+      let issued = record;
+      const knownDevice = config.devices.find((d) => d.machineKey === record.machineKey && ['active', 'approved', 'suspended'].includes(d.state ?? 'active'));
+      if (knownDevice) {
+        const deviceToken = opaque();
+        const refreshed = await registry.mutate((next) => {
+          const d = next.devices.find((x) => x.deviceId === knownDevice.deviceId);
+          if (!d) return null;
+          d.deviceTokenHash = tokenHash(deviceToken);
+          d.state = DEVICE_STATE.approved;
+          d.approvedAtUtc = new Date(state.wall()).toISOString();
+          d.changedBy = 'device';
+          d.changedAtUtc = new Date(state.wall()).toISOString();
+          d.configVersion = (d.configVersion ?? 1) + 1;
+          d.enrolledVia = 'claim';
+          d.allowReclaim = false;
+          return d;
+        });
+        if (refreshed) {
+          await claims.approve(record.claimId, { deviceId: refreshed.deviceId, deviceToken, configVersion: refreshed.configVersion ?? 1 });
+          issued = (await claims.byClaimId(record.claimId)) ?? record;
+        }
+      }
+      const view = claimView(issued);
       // 已批准且令牌还没被取走：把令牌连同配置一起交付（一次性）。
-      const delivering = record;   // 建单这一步只交付本单的批准结果
+      const delivering = issued;   // 建单这一步只交付本单的批准结果
       if (delivering.state === 'approved') {
         const grant = await claims.takeGrant(delivering.grantId);
         if (grant) {
@@ -311,7 +337,30 @@ export function createRealtimeApi(options = {}) {
       const secret = bearer(req);
       assert(secret, 401, 'CLAIM_SECRET_INVALID', '认领凭据无效');
       rate(`claim-poll:${claimStatus[1]}`, 30);
-      const record = await claims.auth(claimStatus[1], secret);
+      let record = await claims.auth(claimStatus[1], secret);
+      // 已经卡在 pending 的单子：只要这台机器登记过，就直接批准并发令牌，
+      // 不必等管理员再点一次、也不必等客户端重新认领。
+      if (record.state === 'pending') {
+        const known = config.devices.find((d) => d.machineKey === record.machineKey && ['active', 'approved', 'suspended'].includes(d.state ?? 'active'));
+        if (known) {
+          const deviceToken = opaque();
+          const refreshed = await registry.mutate((next) => {
+            const d = next.devices.find((x) => x.deviceId === known.deviceId);
+            if (!d) return null;
+            d.deviceTokenHash = tokenHash(deviceToken);
+            d.state = DEVICE_STATE.approved;
+            d.changedBy = 'device';
+            d.changedAtUtc = new Date(state.wall()).toISOString();
+            d.configVersion = (d.configVersion ?? 1) + 1;
+            return d;
+          });
+          if (refreshed) {
+            await claims.approve(record.claimId, { deviceId: refreshed.deviceId, deviceToken, configVersion: refreshed.configVersion ?? 1 });
+            record = (await claims.byClaimId(record.claimId)) ?? record;
+          }
+        }
+      }
+
       const view = claimView(record);
       const delivering = await approvedSibling(record);
       if (delivering.state === 'approved') {

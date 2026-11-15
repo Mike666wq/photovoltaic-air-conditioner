@@ -219,8 +219,9 @@ test('重新认领：上一轮已批准的记录不该挡住新申请', async (t
   const again = await h.claim(claimSecret2, { machineKey, module: 'bms', protocolVersion: 2 });
   assert.equal(again.status, 201);
   assert.notEqual(again.body.claimId, first.body.claimId);
-  assert.equal(again.body.state, 'pending');
-  assert.equal((await admin.call('/api/device/admin/claims')).body.claims.length, 1);
+  // 这台机器已经登记过：重连不再等人工批准，直接发一枚新令牌并把旧令牌作废。
+  assert.equal(again.body.state, 'approved');
+  assert.ok(again.body.deviceToken, '重连应该直接拿到令牌');
 });
 
 test('同一台机器重新批准时复活原设备，编号不变', async (t) => {
@@ -275,12 +276,10 @@ test('重新批准只改传了的字段：已有授权与模拟开关不能被�
   });
   assert.equal(approved.status, 201);
 
-  // 同一台机器重新认领后再批一次，这回只给名字（网页上的默认批准就是这样）。
-  const again = await h.claim(claimSecret2, { machineKey, module: 'experiment', protocolVersion: 2 });
-  assert.equal(again.status, 201);
-  const reapproved = await admin.call(`/api/device/admin/claims/${again.body.claimId}/approve`, 'POST', { alias: '实验端改名' });
-  assert.equal(reapproved.status, 201);
-  assert.equal(reapproved.body.deviceId, approved.body.deviceId);
+  // 已知机器重连会自动批准；这里验证「只改名字」时不会顺手把授权冲回默认值。
+  const renamed = await admin.call(`/api/device/admin/devices/${approved.body.deviceId}`, 'PUT', { alias: '实验端改名' });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.body.deviceId, approved.body.deviceId);
 
   const listed = await admin.call('/api/device/admin/devices', 'GET');
   const device = listed.body.devices.find((item) => item.deviceId === approved.body.deviceId);
@@ -321,11 +320,9 @@ test('批准对整台机器生效：换了一张认领单也能取到令牌', as
   // 不会被删掉 —— 删了就把一次性令牌一起删了，设备永远等不到授权。
   assert.notEqual(second.body.claimId, first.body.claimId);
 
-  // 建单本身仍然是 pending（既有契约：新申请要管理员批），
-  // 但这台机器上那张「已批准、令牌未取走」的单子会在这台设备下一次查询状态时交过来。
-  const polled = await h.call(`/api/device/claim/${second.body.claimId}`, 'POST', undefined, { Authorization: `Bearer ${claimSecret2}` });
-  assert.equal(polled.status, 200);
-  assert.equal(polled.body.state, 'approved');
-  assert.equal(polled.body.deviceId, approved.body.deviceId);
-  assert.ok(polled.body.deviceToken, '应该交付令牌');
+  // 这台机器已经登记过，重新认领直接批准并发新令牌（旧令牌作废），
+  // 不必再等管理员点第二次 —— 否则就是「网页上批了，本地还在等待批准」。
+  assert.equal(second.body.state, 'approved');
+  assert.equal(second.body.deviceId, approved.body.deviceId);
+  assert.ok(second.body.deviceToken, '应该交付令牌');
 });
