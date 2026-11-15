@@ -80,9 +80,9 @@ export function BmsManagePage() {
     // 编号与名称都可事后在设备列表里改，这里先用机器钥匙尾号保证唯一、可辨认。
     await bmsApi.approveClaim(claim.claimId, {
       alias: claim.desiredAlias || `设备 ${claim.machineKey.slice(-6)}`,
-      ...(claim.module === 'experiment'
-        ? { allowedEquipment: ['PLC'] }
-        : { allowedPacks: [1], allowedAddresses: [1] }),
+      // 实验端不传仪器清单：服务端会保留设备原有授权（新建设备则默认全部仪器）。
+      // 这里以前写死 allowedEquipment: ['PLC']，一批准就把其它仪器全砍掉了。
+      ...(claim.module === 'experiment' ? {} : { allowedPacks: [1], allowedAddresses: [1] }),
     });
     await reload();
     setNotice(`已批准 ${claim.machineKey.slice(-6)}，令牌已下发；设备下次心跳即生效。`);

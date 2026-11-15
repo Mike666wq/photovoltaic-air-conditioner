@@ -382,9 +382,15 @@ export function createRealtimeApi(options = {}) {
       const deviceId = reuse ? sameMachine.deviceId : ((typeof b.deviceId === 'string' && b.deviceId.trim()) || record.machineKey);
       assert(/^[A-Za-z0-9_-]{1,80}$/.test(deviceId), 400, 'DEVICE_ID_INVALID', '设备编号只能包含字母、数字、下划线或短横线');
       const alias = (typeof b.alias === 'string' && b.alias.trim()) || record.desiredAlias || `设备 ${deviceId.slice(-6)}`;
+      // 只写调用方明确给出的字段：批准一张认领单不该顺手把设备原有的
+      // 授权范围/模拟开关打回默认值（这正是「批准之后反而没数据」的成因）。
       const permissions = module === 'experiment'
-        ? { allowedEquipment: equipment(b.allowedEquipment, undefined) }
-        : { allowedPacks: numbersList(b.allowedPacks, 16), allowedAddresses: numbersList(b.allowedAddresses ?? [1], 255) };
+        ? (b.allowedEquipment !== undefined ? { allowedEquipment: equipment(b.allowedEquipment, undefined) } : {})
+        : (b.allowedPacks !== undefined ? { allowedPacks: numbersList(b.allowedPacks, 16), allowedAddresses: numbersList(b.allowedAddresses ?? [1], 255) } : {});
+      // 新建设备时仍要有一份完整授权：实验端默认全部仪器，BMS 默认 Pack 1 / 地址 1。
+      const initialPermissions = module === 'experiment'
+        ? { allowedEquipment: [...new Set(catalog.points.map((point) => point.equipmentId))] }
+        : { allowedPacks: [1], allowedAddresses: [1] };
       const deviceToken = opaque();
       const created = await registry.mutate((next) => {
         if (reuse) {
@@ -393,7 +399,8 @@ export function createRealtimeApi(options = {}) {
           d.alias = alias.trim().slice(0, 128);
           Object.assign(d, permissions);
           d.deviceTokenHash = tokenHash(deviceToken);
-          d.allowSimulation = b.allowSimulation === true;
+          if (typeof b.allowSimulation === 'boolean') d.allowSimulation = b.allowSimulation;
+          if (typeof b.alwaysUpload === 'boolean') d.alwaysUpload = b.alwaysUpload;
           d.state = DEVICE_STATE.approved;
           d.machineKey = record.machineKey;
           d.configVersion = (d.configVersion ?? 1) + 1;
@@ -410,8 +417,9 @@ export function createRealtimeApi(options = {}) {
         assert(!next.devices.some((d) => d.deviceId === deviceId), 409, 'DEVICE_EXISTS', '设备编号已存在');
         assert(next.devices.filter((d) => DEVICE_STATE.billable.includes(d.state ?? 'active')).length < (config.maxDevices ?? 20), 409, 'DEVICE_LIMIT', '已注册设备数达到上限');
         const device = {
-          deviceId, alias: alias.trim().slice(0, 128), module, ...permissions,
+          deviceId, alias: alias.trim().slice(0, 128), module, ...initialPermissions, ...permissions,
           deviceTokenHash: tokenHash(deviceToken), allowSimulation: b.allowSimulation === true,
+          alwaysUpload: b.alwaysUpload === true,
           displayTimeZone: 'Asia/Shanghai',
           state: DEVICE_STATE.approved, machineKey: record.machineKey,
           configVersion: 1, enrolledVia: 'claim', protocolVersion: ENROLLMENT.protocolVersion,

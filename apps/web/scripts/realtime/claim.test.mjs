@@ -263,3 +263,28 @@ test('确认可以用设备令牌（客户端落盘后 claimSecret 已清空）'
   assert.equal(beat.status, 200);
   assert.equal(beat.body.state, 'active');
 });
+
+test('重新批准只改传了的字段：已有授权与模拟开关不能被冲回默认值', async (t) => {
+  // 现场踩过两次：管理员在网页上点「批准」重新接入，服务端把 allowSimulation
+  // 无条件下调成 false、仪器清单也被写成 ['PLC']，表现为「批准成功了反而没数据」。
+  const h = await harness(t);
+  const admin = await h.setup();
+  const first = await h.claim(claimSecret, { machineKey, module: 'experiment', protocolVersion: 2 });
+  const approved = await admin.call(`/api/device/admin/claims/${first.body.claimId}/approve`, 'POST', {
+    alias: '实验端', allowedEquipment: ['DS666', 'PLC', 'DDSU666', 'DJSF6682'], allowSimulation: true, alwaysUpload: true,
+  });
+  assert.equal(approved.status, 201);
+
+  // 同一台机器重新认领后再批一次，这回只给名字（网页上的默认批准就是这样）。
+  const again = await h.claim(claimSecret2, { machineKey, module: 'experiment', protocolVersion: 2 });
+  assert.equal(again.status, 201);
+  const reapproved = await admin.call(`/api/device/admin/claims/${again.body.claimId}/approve`, 'POST', { alias: '实验端改名' });
+  assert.equal(reapproved.status, 201);
+  assert.equal(reapproved.body.deviceId, approved.body.deviceId);
+
+  const listed = await admin.call('/api/device/admin/devices', 'GET');
+  const device = listed.body.devices.find((item) => item.deviceId === approved.body.deviceId);
+  assert.deepEqual([...device.allowedEquipment].sort(), ['DS666', 'DDSU666', 'PLC', 'DJSF6682'].sort());
+  assert.equal(device.allowSimulation, true);
+  assert.equal(device.alwaysUpload, true);
+});
