@@ -259,6 +259,7 @@ export function createRealtimeApi(options = {}) {
       allowedPacks: d.allowedPacks ?? [], allowedAddresses: d.allowedAddresses ?? [],
       allowedEquipment: d.allowedEquipment ?? null,
       allowSimulation: d.allowSimulation === true,
+      alwaysUpload: d.alwaysUpload === true,
       statusReason: d.statusReason ?? '', changedBy: d.changedBy ?? null, changedAtUtc: d.changedAtUtc ?? null,
       lastRotatedAt: d.lastRotatedAt ?? null,
     };
@@ -448,6 +449,7 @@ export function createRealtimeApi(options = {}) {
         if (moduleOf(target) === 'experiment') { if (b.allowedEquipment !== undefined) target.allowedEquipment = equipment(b.allowedEquipment, undefined); }
         else { if (b.allowedPacks !== undefined) target.allowedPacks = numbersList(b.allowedPacks, 16); if (b.allowedAddresses !== undefined) target.allowedAddresses = numbersList(b.allowedAddresses, 255); }
         if (typeof b.allowSimulation === 'boolean') target.allowSimulation = b.allowSimulation;
+        if (typeof b.alwaysUpload === 'boolean') target.alwaysUpload = b.alwaysUpload;
         if (typeof b.note === 'string') target.statusReason = b.note.slice(0, 200);
         target.configVersion = (target.configVersion ?? 1) + 1;
         target.changedBy = s.user.username;

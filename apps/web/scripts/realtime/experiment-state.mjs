@@ -26,6 +26,8 @@ export class ExperimentState extends RealtimeState {
     this.emit('device-status', id, this.info(d));
   }
   info(d) { return { deviceId: d.registration.deviceId, alias: d.registration.alias, module: 'experiment', allowedPacks: [], allowedAddresses: [], allowedEquipment: d.registration.allowedEquipment, allowSimulation: d.registration.allowSimulation, online: this.online(d), lastHeartbeatAt: d.lastHeartbeatAt, firstSeenAt: d.firstSeenAt, missedBeats: this.missedBeats(d), client: d.client, clientAt: d.clientAt, clockSkewSec: d.clockSkewSec }; }
+  /** 实验端的授权范围是仪器 ID 列表。 */
+  authorized(id) { const d = this.devices.get(id); return [...(d?.registration?.allowedEquipment ?? [])]; }
   heartbeat(id, client = null) {
     const r = super.heartbeat(id, client), requestedHistoryPoints = this.requestedHistory(id); const { requestedPacks, ...rest } = r;
     return rest.leaseSeconds <= 0 || requestedHistoryPoints == null ? { ...rest, requestedDevices: requestedPacks } : { ...rest, requestedDevices: requestedPacks, requestedHistoryPoints };

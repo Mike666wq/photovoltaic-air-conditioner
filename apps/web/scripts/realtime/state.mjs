@@ -78,6 +78,8 @@ export class RealtimeState {
     };
   }
   active(id) { return [...this.viewers.values()].filter(v => v.deviceId === id && v.until > this.now()); }
+  /** 这台设备被授权上传的范围（BMS 是 Pack 号，实验端按仪器）。 */
+  authorized(id) { const d = this.devices.get(id); return [...(d?.registration?.allowedPacks ?? [])]; }
   requested(id) { return [...new Set(this.active(id).flatMap(v => v.packs))].sort((a, b) => typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))); }
   requestedHistory(id) {
     const viewers = this.active(id); if (viewers.some(v => v.historyPoints == null)) return null;
@@ -157,9 +159,13 @@ export class RealtimeState {
       } else if (!key) d.lastErrorKey = null;
     }
     this.emit('device-status', id, this.info(d));
-    const active = this.active(id), requestedPacks = this.requested(id);
-    const remaining = active.length ? Math.floor((Math.max(...active.map(v => v.until)) - now) / 1000) : 0;
-    const leaseSeconds = Math.min(45, remaining);
+    const active = this.active(id);
+    // 常驻上传：没人在看也保持租约，并按「当前授权范围」全量请求。
+    // 否则页面一切走就停传，网页上永远停在最后一次观看的时刻。
+    const always = d.registration?.alwaysUpload === true;
+    const requestedPacks = active.length ? this.requested(id) : (always ? this.authorized(id) : []);
+    const remaining = active.length ? Math.floor((Math.max(...active.map(v => v.until)) - now) / 1000) : (always ? 3600 : 0);
+    const leaseSeconds = active.length ? Math.min(45, remaining) : Math.min(3600, remaining);
     if (leaseSeconds <= 0) { d.lease = null; return { subscriptionId: '', leaseSeconds: 0, requestedPacks: [], backfillSeconds: 0 }; }
     const requestedHistory = this.requestedHistory(id), scopeKey = `${requestedPacks.join(',')}|${requestedHistory == null ? '*' : requestedHistory.join(',')}`, reusable = d.lease && d.lease.until > now && d.lease.scopeKey === scopeKey;
     const subscriptionId = reusable ? d.lease.id : opaque();
@@ -167,7 +173,11 @@ export class RealtimeState {
     d.lease = { id: subscriptionId, until: now + leaseSeconds * 1000, scopeKey, backfillFromWall };
     return { subscriptionId, leaseSeconds, requestedPacks, backfillSeconds: Math.floor(this.config.backfillMs / 1000) };
   }
-  acceptedFor(id, _source, selected) { return this.active(id).some(v => v.packs.includes(selected)); }
+  acceptedFor(id, _source, selected) {
+    if (this.active(id).some(v => v.packs.includes(selected))) return true;
+    const d = this.devices.get(id);
+    return d?.registration?.alwaysUpload === true && this.authorized(id).includes(selected);
+  }
   backfillAge(utc, lease) {
     const observed = Date.parse(utc), wall = this.wall();
     assert(lease && Number.isFinite(lease.backfillFromWall) && observed >= lease.backfillFromWall && observed <= wall + 60000, 422, 'BACKFILL_WINDOW', `历史回填仅接受本次订阅开始时最近${Math.floor(this.config.backfillMs / 60000)}分钟观测`);
